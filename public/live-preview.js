@@ -292,7 +292,7 @@
         if (eEl) {
           eEl.value = JSON.stringify(Object.keys(editsMap).map((widgetId) => ({ widgetId, path: editsMap[widgetId] })))
         }
-        form.submit()
+        form.requestSubmit()
       })
     })
   }
