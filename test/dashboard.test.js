@@ -30,7 +30,7 @@ manager.createCommand(helm.deviceId, {
 })
 
 const dashboard = manager.dashboard()
-assert.strictEqual(dashboard.protocol, 'espdisp.management.v1')
+assert.strictEqual(dashboard.protocol, 'yeyboats.management.v2')
 assert.strictEqual(dashboard.counts.devices, 2)
 assert.strictEqual(dashboard.counts.online, 2)
 assert.strictEqual(dashboard.counts.pendingCommands, 1)

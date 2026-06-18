@@ -16,7 +16,7 @@ const announcement = manager.announceDiscoveredDevice({
     display: { width: 480, height: 480, shape: 'square' },
     firmware: { version: '0.2.0-alpha' },
     services: [
-      { type: '_espdisp._tcp', port: 80 },
+      { type: '_yeyboats._tcp', port: 80 },
       { type: '_arduino._tcp', port: 3232 }
     ]
   }

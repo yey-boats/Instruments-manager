@@ -8,7 +8,7 @@ const { manager, auth } = makeManager({
 
 const deviceId = 'espdisp-112233445566'
 const registration = manager.registerDevice({
-  protocol: 'espdisp.management.v1',
+  protocol: 'yeyboats.management.v2',
   device: {
     id: deviceId,
     name: 'Future Firmware Contract',
@@ -74,7 +74,7 @@ assert.strictEqual(registration.commands.pollMs, 15000)
 assert.strictEqual(registration.heartbeat.intervalMs, 30000)
 
 const discovery = manager.discovery()
-assert.strictEqual(discovery.protocol, 'espdisp.management.v1')
+assert.strictEqual(discovery.protocol, 'yeyboats.management.v2')
 assert.strictEqual(discovery.features.commands, true)
 assert.strictEqual(discovery.features.firmware, true)
 
@@ -116,7 +116,7 @@ const heartbeat = manager.updateStatus(deviceId, {
     hostname: deviceId,
     domain: 'local',
     fqdn: `${deviceId}.local`,
-    mdns: { enabled: true, services: ['_espdisp._tcp', '_arduino._tcp'] }
+    mdns: { enabled: true, services: ['_yeyboats._tcp', '_arduino._tcp'] }
   },
   signalk: {
     host: 'signalk.local',

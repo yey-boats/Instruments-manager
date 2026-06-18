@@ -151,7 +151,7 @@ module.exports = function espdispManagerPlugin (app) {
           type: 'object',
           title: 'Network Identity',
           properties: {
-            domain: { type: 'string', title: 'mDNS domain', default: 'local' },
+            domain: { type: 'string', title: 'mDNS domain', default: 'yey.boats' },
             hostnamePrefix: { type: 'string', title: 'Hostname prefix', default: 'espdisp' },
             namingPolicy: {
               type: 'string',
@@ -216,7 +216,7 @@ module.exports = function espdispManagerPlugin (app) {
         version: pluginPackage.version
       },
       paths: {
-        '/plugins/yey-boats-display-manager/.well-known/espdisp-management': {
+        '/plugins/yey-boats-display-manager/.well-known/yeyboats-management': {
           get: { summary: 'Discover ESP display management API' }
         },
         '/plugins/yey-boats-display-manager/devices/register': {
@@ -346,7 +346,7 @@ function registerAutopilotBridge (app) {
 function registerRoutes (router, getManager) {
   router.use(jsonBody)
 
-  router.get('/.well-known/espdisp-management', wrap(getManager, (manager, req, res) => {
+  router.get('/.well-known/yeyboats-management', wrap(getManager, (manager, req, res) => {
     res.json(manager.discovery())
   }))
 

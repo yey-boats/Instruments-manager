@@ -77,7 +77,7 @@ class MockFirmware {
 
   register () {
     return this.manager.registerDevice({
-      protocol: 'espdisp.management.v1',
+      protocol: 'yeyboats.management.v2',
       device: this.identity()
     }, this.auth)
   }
@@ -98,7 +98,7 @@ class MockFirmware {
         hostname: this.config ? this.config.network.hostname : this.deviceId,
         domain: 'local',
         fqdn: this.config ? this.config.network.fqdn : `${this.deviceId}.local`,
-        mdns: { enabled: true, services: ['_espdisp._tcp', '_arduino._tcp'] }
+        mdns: { enabled: true, services: ['_yeyboats._tcp', '_arduino._tcp'] }
       },
       signalk: {
         host: 'signalk.local',

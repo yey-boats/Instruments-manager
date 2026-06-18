@@ -28,7 +28,7 @@ module.exports = (async () => {
 
   const client = dgram.createSocket('udp4')
   client.send(Buffer.from(JSON.stringify({
-    protocol: 'espdisp.device.announce.v1',
+    protocol: 'yeyboats.device.announce.v2',
     deviceId: 'espdisp-udp-test',
     address: '192.168.50.44',
     port: 80,

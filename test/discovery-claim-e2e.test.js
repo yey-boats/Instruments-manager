@@ -95,7 +95,7 @@ const discovered = manager.announceDiscoveredDevice({
     address: '192.168.50.42',
     port: 80,
     services: [
-      { type: '_espdisp._tcp', port: 80 },
+      { type: '_yeyboats._tcp', port: 80 },
       { type: '_arduino._tcp', port: 3232 }
     ]
   }

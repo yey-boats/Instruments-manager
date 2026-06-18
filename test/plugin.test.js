@@ -34,7 +34,7 @@ assert.strictEqual(status.status, 'ok')
 assert.strictEqual(status.desiredConfig.reload, true)
 
 const config = manager.generateConfig('espdisp-aabbccddeeff')
-assert.strictEqual(config.protocol, 'espdisp.management.v1')
+assert.strictEqual(config.protocol, 'yeyboats.management.v2')
 assert.strictEqual(config.network.fqdn, 'espdisp-aabbccddeeff.local')
 assert.ok(config.hash.startsWith('sha256:'))
 

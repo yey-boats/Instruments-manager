@@ -34,7 +34,7 @@ function txtData (items) {
 }
 
 function mdnsPacket () {
-  const instance = 'espdisp-mdns-test._espdisp._tcp.local'
+  const instance = 'espdisp-mdns-test._yeyboats._tcp.local'
   const target = 'espdisp-mdns-test.local'
   const srv = Buffer.concat([
     Buffer.from([0, 0, 0, 0, 0, 80]),
@@ -42,7 +42,7 @@ function mdnsPacket () {
   ])
   const a = Buffer.from([192, 168, 50, 55])
   const answers = [
-    record('_espdisp._tcp.local', 12, dnsName(instance)),
+    record('_yeyboats._tcp.local', 12, dnsName(instance)),
     record(instance, 33, srv),
     record(instance, 16, txtData([
       'proto=1',
@@ -102,9 +102,9 @@ const srv = managerMdns.records.find((rr) => rr.type === 33)
 const txt = managerMdns.records.find((rr) => rr.type === 16)
 const a = managerMdns.records.find((rr) => rr.type === 1)
 
-assert.strictEqual(ptr.name, '_espdisp-mgmt._tcp.local')
-assert.strictEqual(ptr.ptr, 'test-sk-manager._espdisp-mgmt._tcp.local')
+assert.strictEqual(ptr.name, '_yeyboats-mgmt._tcp.local')
+assert.strictEqual(ptr.ptr, 'test-sk-manager._yeyboats-mgmt._tcp.local')
 assert.strictEqual(srv.port, 3000)
-assert.strictEqual(txt.txt.protocol, 'espdisp.management.v1')
+assert.strictEqual(txt.txt.protocol, 'yeyboats.management.v2')
 assert.strictEqual(txt.txt.path, '/plugins/yey-boats-display-manager')
 assert.strictEqual(a.address, '192.168.50.10')
