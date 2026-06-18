@@ -1,0 +1,22 @@
+const assert = require('assert')
+const { makeManager } = require('./test-utils')
+const { manager } = makeManager({
+  auth: { mode: 'dev-shared-token', devToken: 't' },
+  network: { domain: 'local', hostnamePrefix: 'espdisp', namingPolicy: 'device-id' }
+})
+const s0 = manager.getSettings()
+assert.equal(typeof s0.network, 'object'); assert.equal(typeof s0.ota, 'object')
+assert.equal(s0.numbering.prefix, 'espdisp-'); assert.equal(s0.numbering.next, 1)
+manager.updateSettings({ network: { ssid: 'BoatNet', password: 'sekret' }, ota: { password: 'otapw' }, numbering: { prefix: 'disp-', pad: 2 } })
+const s1 = manager.getSettings()
+assert.equal(s1.network.ssid, 'BoatNet'); assert.equal(s1.network.password, 'sekret')
+assert.equal(s1.ota.password, 'otapw'); assert.equal(s1.numbering.prefix, 'disp-')
+const m = manager.getSettingsMasked()
+assert.equal(m.network.password, ''); assert.equal(m.network.passwordSet, true)
+assert.equal(m.ota.password, ''); assert.equal(m.ota.passwordSet, true); assert.equal(m.network.ssid, 'BoatNet')
+manager.updateSettings({ network: { ssid: 'BoatNet2', password: '' } })
+assert.equal(manager.getSettings().network.password, 'sekret', 'empty password keeps existing')
+assert.equal(manager.getSettings().network.ssid, 'BoatNet2')
+assert.equal(manager.allocateDeviceNumber(), 'disp-01'); assert.equal(manager.allocateDeviceNumber(), 'disp-02')
+assert.equal(manager.getSettings().numbering.next, 3)
+console.log('settings.test: OK')
