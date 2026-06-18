@@ -9,6 +9,9 @@ IMAGE="${SIGNALK_IMAGE:-signalk/signalk-server:latest}"
 SK_HOST="${SK_HOST:-localhost}"
 SK_PORT="${SK_PORT:-3000}"
 PYTHON="${PYTHON:-/usr/bin/python3}"
+# Web admin port for the simulator. The sim shares the SK container's network
+# namespace, so the SK container publishes this port on its behalf (below).
+SIM_WEB_PORT="${SIM_WEB_PORT:-8088}"
 
 mkdir -p "$CONFIG_DIR/plugin-config-data"
 
@@ -30,6 +33,7 @@ docker run -d \
   -p 10110:10110 \
   -p 34300:34300/udp \
   -p 34301:34301/udp \
+  -p "$SIM_WEB_PORT:$SIM_WEB_PORT" \
   -v "$CONFIG_DIR:/home/node/.signalk" \
   -v "$PLUGIN_DIR:/home/node/plugins/signalk-espdisp-manager" \
   "$IMAGE" >/dev/null
@@ -61,9 +65,11 @@ if docker pull "$SIM_IMAGE" >/dev/null 2>&1 || docker image inspect "$SIM_IMAGE"
     --network "container:$CONTAINER" \
     -e SIGNALK_HOST=localhost -e SIGNALK_PORT="$SK_PORT" \
     -e SIGNALK_USERNAME=admin -e SIGNALK_PASSWORD=admin \
+    -e SIM_WEB_HOST=0.0.0.0 -e SIM_WEB_PORT="$SIM_WEB_PORT" \
     -v sim-data:/data \
     "$SIM_IMAGE" >/dev/null
   echo "boat simulator: container 'boat-sim' ($SIM_IMAGE)"
+  echo "boat simulator web admin at http://$SK_HOST:$SIM_WEB_PORT/"
 else
   echo "could not obtain $SIM_IMAGE; skipping synthetic data (set SIM_IMAGE=... or check ghcr access)." >&2
 fi

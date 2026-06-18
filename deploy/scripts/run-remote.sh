@@ -123,18 +123,29 @@ PY
   sleep 1
 done
 
-# Synthetic boat data on the remote: the GitHub-Actions-built simulator image,
-# sharing the SignalK container's network namespace.
+# Synthetic boat data on the remote: the GitHub-Actions-built simulator image.
+# Runs with --network host so it (a) reaches SignalK at localhost:$SK_PORT
+# regardless of how SK was networked (bridge -p or host) and (b) exposes its web
+# admin UI on the host. Pulling the (private) image needs a one-time
+# `docker login ghcr.io` on the remote with a read:packages token.
+#   SIM_WEB_PORT: the app default is 8080, but that's frequently taken on lab
+#   hosts (e.g. mythra-nav runs voicex there), so default to 8088 here.
 SIM_IMAGE="${SIM_IMAGE:-ghcr.io/yey-boats/simulator:latest}"
-ssh "$REMOTE_HOST" SIM_IMAGE="$SIM_IMAGE" CONTAINER="$CONTAINER" SK_PORT="$SK_PORT" bash -s <<'REMOTE'
+SIM_WEB_PORT="${SIM_WEB_PORT:-8088}"
+ssh "$REMOTE_HOST" SIM_IMAGE="$SIM_IMAGE" SK_PORT="$SK_PORT" SIM_WEB_PORT="$SIM_WEB_PORT" bash -s <<'REMOTE'
 set -euo pipefail
+# Retire the legacy KDCube subtree simulator if it's still around — otherwise it
+# and boat-sim both write vessels.self and clobber each other. Best-effort; needs
+# sudo, no-op if absent/already disabled.
+sudo systemctl disable --now kdcube-sim.service >/dev/null 2>&1 || true
 docker rm -f boat-sim >/dev/null 2>&1 || true
 docker pull "$SIM_IMAGE" >/dev/null 2>&1 || true
-docker run -d --name boat-sim \
-  --network "container:$CONTAINER" \
+docker run -d --name boat-sim --restart unless-stopped \
+  --network host \
   -e SIGNALK_HOST=localhost -e SIGNALK_PORT="$SK_PORT" \
   -e SIGNALK_USERNAME=admin -e SIGNALK_PASSWORD=admin \
-  -v sim-data:/data \
+  -e SIM_WEB_HOST=0.0.0.0 -e SIM_WEB_PORT="$SIM_WEB_PORT" \
+  -e DATA_DIR=/data -v sim-data:/data \
   "$SIM_IMAGE" >/dev/null
 REMOTE
 
@@ -144,6 +155,7 @@ NMEA 0183 TCP at $SK_HOST:10110
 ESP display SignalK discovery UDP at $SK_HOST:34300
 ESP display device announcement UDP at $SK_HOST:34301
 boat simulator: container 'boat-sim' on $REMOTE_HOST (docker logs -f boat-sim)
+boat simulator web admin at http://$SK_HOST:$SIM_WEB_PORT/
 
 Test env (firmware repo): source $ROOT/../espdisp/.env.test
 EOF

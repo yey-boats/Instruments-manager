@@ -21,6 +21,10 @@ services:
       SIGNALK_PORT: "3000"
       SIGNALK_USERNAME: admin
       SIGNALK_PASSWORD: admin
+      SIM_WEB_HOST: 0.0.0.0
+      SIM_WEB_PORT: "8088"
+    ports:
+      - "8088:8088"   # web admin UI (app default 8080 is often taken on lab hosts)
     volumes:
       - sim-data:/data
     restart: unless-stopped
