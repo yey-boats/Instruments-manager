@@ -104,10 +104,13 @@ registered devices across, on the SignalK host:
    SignalK user so the files stay writable by the server).
 2. Point the plugin dependency / node_modules entry at the new package name and
    restart SignalK.
-3. **Re-point each device’s manager endpoint** to
-   `…/plugins/yey-boats-display-manager` (the firmware default moves there on the
-   next flash; a device with a persisted full endpoint needs `manager-endpoint
-   <new-url>` over serial/BLE, or a re-provision).
+3. **Reflash each device** (`yey-boats/instruments` ≥ the rebrand commit). The
+   firmware self-heals on boot: an auto-generated `espdisp-<mac>` id migrates to
+   `yey-d-<mac>`, and a stored manager endpoint carrying the old
+   `/plugins/espdisp-manager` base is rewritten to `/plugins/yey-boats-display-manager`
+   in place — so the device re-registers under its new id at the new path with no
+   manual `manager-endpoint` command. (Operator-set custom device names are kept.)
+   The manager then auto-assigns the next `yey-d-NNN` number on first re-register.
 4. Update the SignalK **app-dock** tile URL/icon to `/yey-boats-display-manager/`.
 
 ## Documentation
