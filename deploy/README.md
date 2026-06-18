@@ -8,11 +8,10 @@ container with the plugin mounted directly from the repo root so plugin changes
 take effect after a server restart without reinstalling.  The `docker-compose.yml`
 in this directory does the same for Compose-based workflows.
 
-**Synthetic boat data** (`fake_boat.py`) lives in the companion firmware repo
-(`espdisp`).  The scripts look for it at `../espdisp/tools/fake_boat.py` by
-default (i.e., the firmware repo checked out as a sibling of this repo).  If
-that file is not present the scripts skip it with a warning; override with
-`FAKE_BOAT=/path/to/fake_boat.py ./deploy/scripts/run.sh`.
+**Synthetic boat data** comes from the **`yey-boats/simulator`** image
+(`ghcr.io/yey-boats/simulator:latest`), built by GitHub Actions.  The scripts
+pull and run it as the `boat-sim` container.  Override the image with
+`SIM_IMAGE=ghcr.io/yey-boats/simulator:edge ./deploy/scripts/run.sh`.
 
 **Production lab** deployment is a docker volume-mount on the SignalK host
 (`mythra-nav`); use `run-remote.sh` (or the `Makefile` targets) to sync and
@@ -28,7 +27,7 @@ It is used for local firmware testing with:
 - ESP display device announcement listener on UDP `34301`
 - official NMEA 0183 conversion plugin
 - official autopilot plugin in emulator mode
-- synthetic boat data from `tools/fake_boat.py`
+- synthetic boat data from the `boat-sim` container (`ghcr.io/yey-boats/simulator`)
 - repo-owned `espdisp-manager` plugin for display registry, dashboard presets,
   generated dashboard config, command delivery, and firmware job testing
 

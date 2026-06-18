@@ -1,7 +1,7 @@
 #!/usr/bin/env bash
 # Bring up the SignalK demo stack on a remote Docker host (default:
-# nav-server), then run fake_boat locally so it pushes
-# synthetic deltas into the remote SK server.
+# nav-server), then start the boat-sim container on the remote host so it
+# pushes synthetic deltas into the remote SK server.
 #
 # Override defaults:
 #   REMOTE_HOST=user@host SK_HOST=host SK_PORT=3000 ./run-remote.sh
@@ -13,7 +13,6 @@ set -euo pipefail
 ROOT="$(cd "$(dirname "$0")/../.." && pwd)"
 CONFIG_DIR="$ROOT/deploy/config"
 PLUGIN_DIR="$ROOT"
-FAKE_BOAT="${FAKE_BOAT:-$ROOT/../espdisp/tools/fake_boat.py}"
 
 REMOTE_HOST="${REMOTE_HOST:-nav-server}"
 if [ -z "${REMOTE_DIR:-}" ]; then
@@ -108,7 +107,7 @@ docker run -d \
 # 34300 discovery probe to be answered from nav-server.
 REMOTE
 
-# 3. poll until the remote SK answers HTTP, then start fake_boat locally
+# 3. poll until the remote SK answers HTTP, then start the simulator on the remote
 for _ in 1 2 3 4 5 6 7 8 9 10 11 12 13 14 15; do
   if "$PYTHON" - "$SK_HOST" "$SK_PORT" <<'PY'
 import sys, urllib.request
@@ -124,20 +123,27 @@ PY
   sleep 1
 done
 
-pkill -f "tools/fake_boat.py" 2>/dev/null || true
-if [ -f "$FAKE_BOAT" ]; then
-  nohup "$PYTHON" -u "$FAKE_BOAT" "$SK_HOST" "$SK_PORT" \
-    >/tmp/fake_boat.log 2>&1 &
-else
-  echo "fake_boat.py not found at $FAKE_BOAT (set FAKE_BOAT=/path or clone the firmware repo as ../espdisp); skipping synthetic data." >&2
-fi
+# Synthetic boat data on the remote: the GitHub-Actions-built simulator image,
+# sharing the SignalK container's network namespace.
+SIM_IMAGE="${SIM_IMAGE:-ghcr.io/yey-boats/simulator:latest}"
+ssh "$REMOTE_HOST" SIM_IMAGE="$SIM_IMAGE" CONTAINER="$CONTAINER" SK_PORT="$SK_PORT" bash -s <<'REMOTE'
+set -euo pipefail
+docker rm -f boat-sim >/dev/null 2>&1 || true
+docker pull "$SIM_IMAGE" >/dev/null 2>&1 || true
+docker run -d --name boat-sim \
+  --network "container:$CONTAINER" \
+  -e SIGNALK_HOST=localhost -e SIGNALK_PORT="$SK_PORT" \
+  -e SIGNALK_USERNAME=admin -e SIGNALK_PASSWORD=admin \
+  -v sim-data:/data \
+  "$SIM_IMAGE" >/dev/null
+REMOTE
 
 cat <<EOF
 SignalK at http://$SK_HOST:$SK_PORT
 NMEA 0183 TCP at $SK_HOST:10110
 ESP display SignalK discovery UDP at $SK_HOST:34300
 ESP display device announcement UDP at $SK_HOST:34301
-fake_boat log: /tmp/fake_boat.log  (running locally, targeting remote SK)
+boat simulator: container 'boat-sim' on $REMOTE_HOST (docker logs -f boat-sim)
 
 Test env (firmware repo): source $ROOT/../espdisp/.env.test
 EOF

@@ -3,7 +3,7 @@ set -euo pipefail
 
 CONTAINER="${SIGNALK_CONTAINER:-signalk-server}"
 
-pkill -f "tools/fake_boat.py" 2>/dev/null || true
+docker rm -f boat-sim >/dev/null 2>&1 || true
 docker stop "$CONTAINER" >/dev/null 2>&1 || true
 
 echo "demo stopped."

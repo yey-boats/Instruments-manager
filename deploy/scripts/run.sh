@@ -9,7 +9,6 @@ IMAGE="${SIGNALK_IMAGE:-signalk/signalk-server:latest}"
 SK_HOST="${SK_HOST:-localhost}"
 SK_PORT="${SK_PORT:-3000}"
 PYTHON="${PYTHON:-/usr/bin/python3}"
-FAKE_BOAT="${FAKE_BOAT:-$ROOT/../espdisp/tools/fake_boat.py}"
 
 mkdir -p "$CONFIG_DIR/plugin-config-data"
 
@@ -52,16 +51,25 @@ PY
   sleep 1
 done
 
-pkill -f "tools/fake_boat.py" 2>/dev/null || true
-if [ -f "$FAKE_BOAT" ]; then
-  nohup "$PYTHON" -u "$FAKE_BOAT" "$SK_HOST" "$SK_PORT" \
-    >/tmp/fake_boat.log 2>&1 &
+# Synthetic boat data: the productized simulator image built by GitHub Actions
+# (ghcr.io/yey-boats/simulator). It shares the SignalK container's network
+# namespace, so it reaches the server at localhost:$SK_PORT.
+SIM_IMAGE="${SIM_IMAGE:-ghcr.io/yey-boats/simulator:latest}"
+docker rm -f boat-sim >/dev/null 2>&1 || true
+if docker pull "$SIM_IMAGE" >/dev/null 2>&1 || docker image inspect "$SIM_IMAGE" >/dev/null 2>&1; then
+  docker run -d --name boat-sim \
+    --network "container:$CONTAINER" \
+    -e SIGNALK_HOST=localhost -e SIGNALK_PORT="$SK_PORT" \
+    -e SIGNALK_USERNAME=admin -e SIGNALK_PASSWORD=admin \
+    -v sim-data:/data \
+    "$SIM_IMAGE" >/dev/null
+  echo "boat simulator: container 'boat-sim' ($SIM_IMAGE)"
 else
-  echo "fake_boat.py not found at $FAKE_BOAT (set FAKE_BOAT=/path or clone the firmware repo as ../espdisp); skipping synthetic data." >&2
+  echo "could not obtain $SIM_IMAGE; skipping synthetic data (set SIM_IMAGE=... or check ghcr access)." >&2
 fi
 
 echo "SignalK at http://$SK_HOST:$SK_PORT"
 echo "NMEA 0183 TCP at $SK_HOST:10110"
 echo "ESP display SignalK discovery UDP at $SK_HOST:34300"
 echo "ESP display device announcement UDP at $SK_HOST:34301"
-echo "fake_boat log: /tmp/fake_boat.log"
+echo "boat simulator logs: docker logs -f boat-sim"

@@ -10,3 +10,20 @@ services:
     volumes:
       - ./config:/home/node/.signalk
       - ../:/home/node/plugins/signalk-espdisp-manager
+
+  simulator:
+    image: ghcr.io/yey-boats/simulator:latest
+    container_name: boat-sim
+    depends_on:
+      - signalk
+    environment:
+      SIGNALK_HOST: signalk
+      SIGNALK_PORT: "3000"
+      SIGNALK_USERNAME: admin
+      SIGNALK_PASSWORD: admin
+    volumes:
+      - sim-data:/data
+    restart: unless-stopped
+
+volumes:
+  sim-data:

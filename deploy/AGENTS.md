@@ -33,7 +33,7 @@ signalk/plugins -> /home/node/plugins
 
 Use `./signalk/scripts/run.sh` to start or recreate the container. It installs
 the plugin packages declared in `config/package.json` before launching the
-server, then starts `tools/fake_boat.py` from the repo.
+server, then starts the `boat-sim` simulator container (`ghcr.io/yey-boats/simulator`).
 
 Use `./signalk/scripts/stop.sh` to stop the container and fake data producer.
 
