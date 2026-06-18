@@ -585,7 +585,8 @@ function registerRoutes (router, getManager) {
 
   router.get('/ui', wrap(getManager, (manager, req, res) => {
     res.setHeader('content-type', 'text/html; charset=utf-8')
-    res.end(renderUi(manager, 'overview', req))
+    // Overview merged into the devices home page; nav highlights "Devices".
+    res.end(renderUi(manager, 'devices', req))
   }))
 
   router.get('/ui/devices', wrap(getManager, (manager, req, res) => {
@@ -1224,35 +1225,45 @@ function renderUiShell (title, body, dashboard, page = '') {
 }
 
 function renderPage (manager, dashboard, page, req) {
-  if (page === 'devices') return renderDevicesPage(dashboard.devices, req, manager)
+  // Overview and Devices merged into one home page (2026-06). Both the
+  // default/overview case and /ui/devices render the same merged view.
+  if (page === 'devices') return renderHomePage(dashboard, dashboard.devices, req, manager)
   if (page === 'device') return renderDevicePage(manager, req.params.id)
   if (page === 'deviceConfig') return renderDeviceConfigPage(manager, req.params.id)
   // Legacy /ui/discovery URL stays valid; it just renders the same
   // page as /ui/devices now. Old bookmarks keep working.
-  if (page === 'discovery') return renderDevicesPage(dashboard.devices, req, manager)
+  if (page === 'discovery') return renderHomePage(dashboard, dashboard.devices, req, manager)
   if (page === 'profiles') return renderProfilesPage(manager.listProfiles().profiles, dashboard.devices)
   if (page === 'preset') return renderPresetPage(manager, req.params.id, dashboard.devices)
   if (page === 'firmware') return renderFirmwarePage(manager.listFirmware(), dashboard.recentFirmwareJobs, manager.firmwareUpgradeMatrix())
-  return renderOverviewPage(dashboard)
+  return renderHomePage(dashboard, dashboard.devices, req, manager)
 }
 
-function renderOverviewPage (dashboard) {
+// Home page = the overview stat tiles followed by the full devices
+// section (pending discovery + registered table + register/scan forms).
+// Single source of truth for the devices markup: renderDevicesPage
+// delegates here so the body isn't duplicated.
+function renderHomePage (dashboard, devices, req, manager) {
   const counts = dashboard.counts
-  return `
+  const overview = `
     <section class="grid">
       ${metric(counts.devices, 'Devices')}
       ${metric(counts.online, 'Online')}
       ${metric(counts.configDrift, 'Config drift')}
       ${metric(counts.pendingCommands, 'Pending commands')}
       ${metric(counts.firmwareJobs, 'Firmware jobs')}
-    </section>
-    <section class="panel">
-      <h2>Recent devices</h2>
-      ${deviceTable(dashboard.devices.slice(0, 8))}
     </section>`
+  return `${overview}
+    ${renderDevicesSection(devices, req, manager)}`
 }
 
 function renderDevicesPage (devices, req, manager) {
+  // Kept for any direct callers; delegates to the shared devices body
+  // builder so the markup lives in exactly one place.
+  return renderDevicesSection(devices, req, manager)
+}
+
+function renderDevicesSection (devices, req, manager) {
   // Discovery + registered devices on one page. Previous two-page
   // layout forced operators to bounce between Discovery (to find
   // and claim a device) and Devices (to inspect/configure it).
@@ -2821,3 +2832,6 @@ module.exports._test = {
   applyPresetForm,
   configOverridesFromForm
 }
+
+module.exports.__renderHomePage = renderHomePage
+module.exports.__nav = nav
