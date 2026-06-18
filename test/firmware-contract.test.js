@@ -34,7 +34,7 @@ const registration = manager.registerDevice({
       interrupt: true
     },
     firmware: {
-      name: 'espdisp',
+      name: 'yey-display',
       version: '0.5.0-dev',
       channel: 'dev',
       buildTime: '2026-05-27T18:00:00Z',
@@ -90,18 +90,18 @@ assert.strictEqual(firstConfig.widgets.variant, 'square-480')
 assert.strictEqual(firstConfig.widgets.items.mapPreview, undefined)
 assert.deepStrictEqual(firstConfig.webAuth, {
   enabled: true,
-  username: 'espdisp',
-  password: 'espdisp-dev'
+  username: 'yeyboats',
+  password: 'yeyboats-dev'
 })
 
 const { manager: openWebManager, auth: openWebAuth } = makeManager({
   auth: { mode: 'dev-shared-token', devToken: 'test-token' },
-  deviceWebAuth: { enabled: false, username: 'espdisp', password: 'unused' }
+  deviceWebAuth: { enabled: false, username: 'yeyboats', password: 'unused' }
 })
 openWebManager.registerDevice({ device: { id: 'espdisp-open-web', name: 'Open Web' } }, openWebAuth)
 assert.deepStrictEqual(openWebManager.generateConfig('espdisp-open-web').webAuth, {
   enabled: false,
-  username: 'espdisp',
+  username: 'yeyboats',
   password: 'unused'
 })
 
@@ -143,7 +143,7 @@ const heartbeat = manager.updateStatus(deviceId, {
     irqCount: 44
   },
   firmware: {
-    name: 'espdisp',
+    name: 'yey-display',
     version: '0.5.0-dev',
     partition: { running: 'ota_0', next: 'ota_1' },
     rollback: { supported: true, pendingConfirm: false }
@@ -157,7 +157,7 @@ const heartbeat = manager.updateStatus(deviceId, {
   },
   webAuth: {
     enabled: true,
-    username: 'espdisp',
+    username: 'yeyboats',
     passwordSet: true
   },
   config: {
@@ -212,7 +212,7 @@ const artifact = manager.addFirmwareArtifact({
   vendor: { id: 'yey-boats', name: 'Yey Boats Project', trust: { level: 'local', allowUnsigned: true } },
   product: { id: 'espdisp', name: 'ESP Display' },
   firmware: {
-    name: 'espdisp',
+    name: 'yey-display',
     version: '0.5.1',
     channel: 'dev',
     git: { commit: 'def5678', dirty: false }
@@ -303,7 +303,7 @@ assert.strictEqual(manager.getCommand(deviceId, expired.id).status, 'expired')
 const incompatible = manager.addFirmwareArtifact({
   vendor: { id: 'yey-boats', name: 'Yey Boats Project' },
   product: { id: 'espdisp', name: 'ESP Display' },
-  firmware: { name: 'espdisp', version: '9.9.9' },
+  firmware: { name: 'yey-display', version: '9.9.9' },
   compatibility: { boards: ['other-board'] },
   file: { name: 'bad.bin', size: 1, sha256: 'sha256:bad' }
 })
@@ -319,7 +319,7 @@ manager.registerDevice({
     name: 'Board ID Firmware',
     board_id: 'sunton_4848s040',
     chip: 'ESP32-S3',
-    firmware: { name: 'espdisp', version: '0.5.0-dev' }
+    firmware: { name: 'yey-display', version: '0.5.0-dev' }
   }
 }, auth)
 const boardIdUpgrade = manager.firmwareUpgradeMatrix().devices.find((device) => device.deviceId === boardIdDeviceId)

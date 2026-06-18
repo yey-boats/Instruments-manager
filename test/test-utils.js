@@ -19,7 +19,7 @@ function makeManager (options) {
     dataDir,
     app,
     manager: new YeyBoatsDisplayManager(app, merged),
-    auth: { bearer: options && options.auth && options.auth.devToken ? options.auth.devToken : 'espdisp-dev' }
+    auth: { bearer: options && options.auth && options.auth.devToken ? options.auth.devToken : 'yeyboats-dev' }
   }
 }
 

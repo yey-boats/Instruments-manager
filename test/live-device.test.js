@@ -27,7 +27,7 @@ function registerLiveDevice (manager, auth, port, id = 'espdisp-live') {
 
 module.exports = (async () => {
   await withServer((req, res) => {
-    const expectedAuth = `Basic ${Buffer.from('espdisp:secret').toString('base64')}`
+    const expectedAuth = `Basic ${Buffer.from('yeyboats:secret').toString('base64')}`
     assert.strictEqual(req.headers.authorization, expectedAuth)
     res.setHeader('content-type', 'application/json')
     if (req.url === '/api/state') {
@@ -43,7 +43,7 @@ module.exports = (async () => {
   }, async (port) => {
     const { manager, auth } = makeManager({
       auth: { mode: 'dev-shared-token', devToken: 'test-token' },
-      deviceWebAuth: { enabled: true, username: 'espdisp', password: 'secret' }
+      deviceWebAuth: { enabled: true, username: 'yeyboats', password: 'secret' }
     })
     const id = registerLiveDevice(manager, auth, port)
 
@@ -60,7 +60,7 @@ module.exports = (async () => {
   }, async (port) => {
     const { manager, auth } = makeManager({
       auth: { mode: 'dev-shared-token', devToken: 'test-token' },
-      deviceWebAuth: { enabled: false, username: 'espdisp', password: 'secret' }
+      deviceWebAuth: { enabled: false, username: 'yeyboats', password: 'secret' }
     })
     const id = registerLiveDevice(manager, auth, port, 'espdisp-open')
 
@@ -75,7 +75,7 @@ module.exports = (async () => {
   }, async (port) => {
     const { manager, auth } = makeManager({
       auth: { mode: 'dev-shared-token', devToken: 'test-token' },
-      deviceWebAuth: { enabled: true, username: 'espdisp', password: 'wrong' }
+      deviceWebAuth: { enabled: true, username: 'yeyboats', password: 'wrong' }
     })
     const id = registerLiveDevice(manager, auth, port, 'espdisp-unauthorized')
 

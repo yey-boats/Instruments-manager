@@ -9,7 +9,7 @@ class MockFirmware {
     this.brightness = 0.8
     this.config = null
     this.firmware = {
-      name: 'espdisp',
+      name: 'yey-display',
       version: options.version || '0.5.0-dev',
       channel: 'dev',
       git: { commit: 'mock000', dirty: false },

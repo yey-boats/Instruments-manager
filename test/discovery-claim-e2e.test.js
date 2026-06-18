@@ -117,7 +117,7 @@ const claimedRecord = manager.getDevice(firmware.deviceId)
 assert.strictEqual(claimedRecord.claim.source, 'discovery')
 assert.strictEqual(claimedRecord.discovery.address, '192.168.50.42')
 assert.strictEqual(claimedRecord.auth.manager.mode, 'dev-shared-token')
-assert.strictEqual(claimedRecord.auth.web.username, 'espdisp')
+assert.strictEqual(claimedRecord.auth.web.username, 'yeyboats')
 
 const registration = firmware.register()
 assert.strictEqual(registration.status, 'updated')

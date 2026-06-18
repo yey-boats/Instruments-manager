@@ -1,6 +1,6 @@
 <!doctype html>
 <meta charset="utf-8">
-<title>espdisp visual layout editor</title>
+<title>YEY Boats visual layout editor</title>
 <!-- Match the device font (LVGL renders Montserrat 14/20/28/48). Loading
      the WOFF2 from Google Fonts so the editor previews use the same
      letterforms the operator sees on the panel. -->
@@ -204,7 +204,7 @@
   details summary { cursor: pointer; color: var(--fg-dim); margin-top: 20px; }
 </style>
 
-<h1>espdisp visual layout editor</h1>
+<h1>YEY Boats visual layout editor</h1>
 
 <div class="toolbar">
   <label>Profile <select id="profile-select"></select></label>
@@ -219,7 +219,7 @@
 
 <!-- Device preview: fetch /api/screenshot.png from the live device URL
      so the operator can see what's actually on the panel before/after
-     a Save. URL persisted in localStorage as 'espdisp.deviceUrl'. -->
+     a Save. URL persisted in localStorage as 'yeyboats.deviceUrl'. -->
 <div class="controls" style="border-top: 1px solid var(--panel-edge); margin-top: 8px; padding-top: 12px;">
   <label>Device URL <input id="device-url" placeholder="http://10.42.0.67" style="width: 220px;"></label>
   <button id="device-refresh-btn">Refresh device preview</button>
@@ -301,7 +301,7 @@ function authHeaders () {
   const h = { 'content-type': 'application/json' };
   const t = localStorage.getItem('SK_TOKEN');
   if (t) h.authorization = 'Bearer ' + t;
-  h['x-espdisp-authorization'] = 'Bearer ' + (localStorage.getItem('ESPDISP_DEV_TOKEN') || 'espdisp-dev');
+  h['x-yeyboats-authorization'] = 'Bearer ' + (localStorage.getItem('YEYBOATS_DEV_TOKEN') || 'yeyboats-dev');
   return h;
 }
 
@@ -1260,7 +1260,7 @@ async function save () {
   try {
     const payload = state.doc.dashboard
       ? { presetId: state.profileId, ...state.doc }
-      : { presetId: state.profileId, dashboard: state.doc, kind: 'espdisp.dashboard.v1' };
+      : { presetId: state.profileId, dashboard: state.doc, kind: 'yeyboats.dashboard.v2' };
     await api('/profiles/import-dashboard', { method: 'POST', body: JSON.stringify(payload) });
     markClean(); setStatus('saved ' + state.profileId + ' ✓', 'ok');
     await loadProfile();
@@ -1364,15 +1364,15 @@ document.getElementById('save-btn').addEventListener('click', save);
 // doesn't have to re-type after every page load.
 {
   const urlInput = document.getElementById('device-url');
-  state.deviceUrl = localStorage.getItem('espdisp.deviceUrl') || '';
+  state.deviceUrl = localStorage.getItem('yeyboats.deviceUrl') || '';
   urlInput.value = state.deviceUrl;
   urlInput.addEventListener('change', () => {
     state.deviceUrl = urlInput.value.trim();
-    localStorage.setItem('espdisp.deviceUrl', state.deviceUrl);
+    localStorage.setItem('yeyboats.deviceUrl', state.deviceUrl);
   });
   document.getElementById('device-refresh-btn').addEventListener('click', () => {
     state.deviceUrl = urlInput.value.trim();
-    localStorage.setItem('espdisp.deviceUrl', state.deviceUrl);
+    localStorage.setItem('yeyboats.deviceUrl', state.deviceUrl);
     fetchDevicePreview('manual');
   });
   document.getElementById('device-clear-btn').addEventListener('click', clearDevicePreview);

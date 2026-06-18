@@ -1,4 +1,4 @@
-// provision.js — post-flash WebSerial provisioning for a fresh espdisp MFD.
+// provision.js — post-flash WebSerial provisioning for a fresh yey-display MFD.
 //
 // After Step 1 (esp-web-tools flash) the device boots blank. This sends the
 // boat WiFi credentials over USB serial using the firmware's own console

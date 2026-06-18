@@ -115,7 +115,7 @@
     var h = { 'content-type': 'application/json' };
     var t = localStorage.getItem('SK_TOKEN');
     if (t) h.authorization = 'Bearer ' + t;
-    h['x-espdisp-authorization'] = 'Bearer ' + (localStorage.getItem('ESPDISP_DEV_TOKEN') || 'espdisp-dev');
+    h['x-yeyboats-authorization'] = 'Bearer ' + (localStorage.getItem('YEYBOATS_DEV_TOKEN') || 'yeyboats-dev');
     return h;
   }
   function api (path, opts) {

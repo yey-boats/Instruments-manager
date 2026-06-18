@@ -77,12 +77,12 @@ module.exports = function yeyBoatsDisplayManagerPlugin (app) {
             devToken: {
               type: 'string',
               title: 'Development shared token',
-              default: 'espdisp-dev'
+              default: 'yeyboats-dev'
             },
             provisionToken: {
               type: 'string',
               title: 'Provisioning token',
-              default: 'espdisp-provision'
+              default: 'yeyboats-provision'
             }
           }
         },
@@ -100,8 +100,8 @@ module.exports = function yeyBoatsDisplayManagerPlugin (app) {
           description: 'Credentials pushed to devices and used by this plugin to read live status and logs.',
           properties: {
             enabled: { type: 'boolean', title: 'Enabled', default: true },
-            username: { type: 'string', title: 'Username', default: 'espdisp' },
-            password: { type: 'string', title: 'Password', default: 'espdisp-dev' }
+            username: { type: 'string', title: 'Username', default: 'yeyboats' },
+            password: { type: 'string', title: 'Password', default: 'yeyboats-dev' }
           }
         },
         discoveryUdp: {
@@ -1094,11 +1094,11 @@ function wrap (getManager, handler) {
 }
 
 function authFrom (req) {
-  const value = (req.get && req.get('x-espdisp-authorization')) ||
-    (req.headers && req.headers['x-espdisp-authorization']) ||
+  const value = (req.get && req.get('x-yeyboats-authorization')) ||
+    (req.headers && req.headers['x-yeyboats-authorization']) ||
     (req.get ? req.get('authorization') : (req.headers.authorization || ''))
   const match = String(value || '').match(/^Bearer\s+(.+)$/i)
-  const provision = String(value || '').match(/^EspDisp-Provision\s+(.+)$/i)
+  const provision = String(value || '').match(/^YeyBoats-Provision\s+(.+)$/i)
   return {
     bearer: match ? match[1] : null,
     provision: provision ? provision[1] : null

@@ -34,7 +34,7 @@ module.exports = (async () => {
     port: 80,
     authRequired: true,
     device: { id: 'espdisp-udp-test', board: 'native_fake' },
-    firmware: { name: 'espdisp', version: '0.5.0-test' },
+    firmware: { name: 'yey-display', version: '0.5.0-test' },
     display: { width: 480, height: 480 }
   })), port, '127.0.0.1')
 

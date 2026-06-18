@@ -12,7 +12,7 @@ module.exports = (async () => {
       id: deviceId,
       board: 'sunton_4848s040',
       chip: 'ESP32-S3',
-      firmware: { name: 'espdisp', version: '0.5.0' }
+      firmware: { name: 'yey-display', version: '0.5.0' }
     }
   }, auth)
 
