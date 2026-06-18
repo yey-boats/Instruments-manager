@@ -6,7 +6,7 @@ const { manager } = makeManager({
 })
 const s0 = manager.getSettings()
 assert.equal(typeof s0.network, 'object'); assert.equal(typeof s0.ota, 'object')
-assert.equal(s0.numbering.prefix, 'espdisp-'); assert.equal(s0.numbering.next, 1)
+assert.equal(s0.numbering.prefix, 'yey-d-'); assert.equal(s0.numbering.next, 1)
 manager.updateSettings({ network: { ssid: 'BoatNet', password: 'sekret' }, ota: { password: 'otapw' }, numbering: { prefix: 'disp-', pad: 2 } })
 const s1 = manager.getSettings()
 assert.equal(s1.network.ssid, 'BoatNet'); assert.equal(s1.network.password, 'sekret')
