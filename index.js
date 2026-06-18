@@ -1156,7 +1156,7 @@ function dashboardPresetDocument (manager, profileId) {
   const profile = manager.store.profiles.profiles[profileId]
   if (!profile) throw statusError(404, 'preset not found')
   return {
-    kind: 'espdisp.dashboard.v1',
+    kind: 'yeyboats.dashboard.v2',
     preset: {
       id: profile.id,
       name: profile.name || profile.id,
@@ -1172,7 +1172,7 @@ function importDashboardPreset (manager, body, headers) {
   const doc = body.raw
     ? parseDashboardImport(body.raw, body.format === 'json' ? 'application/json' : contentType)
     : (body.dashboard || body.preset ? body : { dashboard: body })
-  if (doc.kind && doc.kind !== 'espdisp.dashboard.v1') {
+  if (doc.kind && doc.kind !== 'yeyboats.dashboard.v2') {
     throw statusError(400, 'unsupported dashboard config kind')
   }
   const preset = doc.preset || {}
@@ -2698,7 +2698,7 @@ function renderProfilesPage (profiles, devices) {
           ${field('Preset id', input('presetId', 'imported-dashboard'))}
           ${field('Format', select('format', 'json', [['json', 'JSON'], ['yaml', 'YAML']]))}
         </div>
-        <textarea name="raw" rows="10" placeholder="Paste espdisp.dashboard.v1 JSON or YAML here"></textarea>
+        <textarea name="raw" rows="10" placeholder="Paste yeyboats.dashboard.v2 JSON or YAML here"></textarea>
         <div class="actions"><button type="submit">Import preset</button></div>
       </form>
       <table>

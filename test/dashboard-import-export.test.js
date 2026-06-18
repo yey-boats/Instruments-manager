@@ -2,7 +2,7 @@ const assert = require('assert')
 const plugin = require('..')
 
 const sample = {
-  kind: 'espdisp.dashboard.v1',
+  kind: 'yeyboats.dashboard.v2',
   preset: {
     id: 'wide-day',
     name: 'Wide Day'
@@ -29,7 +29,7 @@ const sample = {
 }
 
 const yaml = plugin._test.toYaml(sample)
-assert.ok(yaml.includes('kind: espdisp.dashboard.v1'))
+assert.ok(yaml.includes('kind: yeyboats.dashboard.v2'))
 assert.ok(yaml.includes('theme: day'))
 assert.ok(yaml.includes('valueFontSize: 48'))
 

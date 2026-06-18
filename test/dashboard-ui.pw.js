@@ -114,7 +114,7 @@ test('operator creates a missing dashboard preset and applies populated real-dat
     await page.goto(`${harness.baseUrl}/plugins/yey-boats-display-manager/ui/profiles`)
 
     const dashboard = {
-      kind: 'espdisp.dashboard.v1',
+      kind: 'yeyboats.dashboard.v2',
       preset: { id: 'playwright-real-data', name: 'Playwright Real Data' },
       dashboard: {
         settings: { defaultScreen: 'dashboard', theme: 'day', brightness: 0.82 },
