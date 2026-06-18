@@ -2756,12 +2756,12 @@ function nav (active) {
   // to /signalk-espdisp-manager/layout-editor.html would break out
   // of the iframe and confuse the SK admin sidebar's "back to
   // plugin" affordance.
+  // Presets, Layout editor, and Overview dropped from the nav (2026-06).
+  // Overview merged into the Devices home page; the /ui/profiles and
+  // /ui/layout routes stay defined and reachable, just not surfaced here.
   const items = [
-    ['devices', '/plugins/espdisp-manager/ui/devices', 'Devices'],
-    ['profiles', '/plugins/espdisp-manager/ui/profiles', 'Presets'],
-    ['layout', '/plugins/espdisp-manager/ui/layout', 'Layout editor'],
-    ['firmware', '/plugins/espdisp-manager/ui/firmware', 'Firmware'],
-    ['overview', '/plugins/espdisp-manager/ui', 'Overview']
+    ['devices', '/plugins/espdisp-manager/ui', 'Devices'],
+    ['firmware', '/plugins/espdisp-manager/ui/firmware', 'Firmware']
   ]
   return `<nav>${items.map(([id, href, label]) => `<a class="${active === id ? 'active' : ''}" href="${href}">${label}</a>`).join('')}</nav>`
 }
