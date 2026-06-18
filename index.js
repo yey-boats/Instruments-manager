@@ -1219,6 +1219,33 @@ function renderUiShell (title, body, dashboard, page = '') {
   <main>
     ${body}
   </main>
+<div id="relogin-modal" style="display:none;position:fixed;inset:0;background:rgba(0,0,0,.5);z-index:9999;align-items:center;justify-content:center;">
+  <div style="background:#fff;color:#172026;max-width:360px;padding:20px;border-radius:8px;">
+    <h2 style="margin:0 0 8px;">Session expired</h2>
+    <p style="margin:0 0 14px;">Your SignalK login has expired, so the action didn't run. Log in again, then retry.</p>
+    <a href="/admin/#/login" target="_top" style="display:inline-block;background:#116078;color:#fff;padding:8px 14px;border-radius:4px;text-decoration:none;font-weight:600;">Re-login</a>
+    <button type="button" onclick="document.getElementById('relogin-modal').style.display='none'" style="margin-left:8px;background:#fff;color:#116078;">Dismiss</button>
+  </div>
+</div>
+<script>
+(function () {
+  function looksLikeLogin (resp) {
+    return resp.status === 401 || /\\/admin\\/?#?\\/?login|Please Login/i.test(resp.url || '')
+  }
+  document.addEventListener('submit', async function (e) {
+    var form = e.target
+    if (!form || String(form.method).toLowerCase() !== 'post') return
+    e.preventDefault()
+    try {
+      var resp = await fetch(form.action, { method: 'POST', body: new FormData(form), redirect: 'follow', credentials: 'include' })
+      if (looksLikeLogin(resp)) { document.getElementById('relogin-modal').style.display = 'flex'; return }
+      window.location.assign(resp.url || window.location.href)
+    } catch (err) {
+      document.getElementById('relogin-modal').style.display = 'flex'
+    }
+  }, true)
+})();
+</script>
 </body>
 </html>`
 }
