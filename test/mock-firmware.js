@@ -3,6 +3,7 @@ class MockFirmware {
     this.manager = manager
     this.deviceId = options.deviceId || 'espdisp-mock'
     this.auth = options.auth
+    this.name = options.name !== undefined ? options.name : 'Mock ESP Display'
     this.screen = 'dashboard'
     this.theme = 'day'
     this.brightness = 0.8
@@ -54,7 +55,7 @@ class MockFirmware {
   identity () {
     return {
       id: this.deviceId,
-      name: 'Mock ESP Display',
+      name: this.name,
       model: 'ESP32-4848S040',
       board: 'sunton_4848s040',
       mac: 'AA:BB:CC:DD:EE:99',
