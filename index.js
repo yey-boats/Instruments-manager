@@ -805,6 +805,23 @@ function registerRoutes (router, getManager) {
     res.end(renderUi(manager, 'firmware', req))
   }))
 
+  router.get('/ui/settings', wrap(getManager, (manager, req, res) => {
+    res.setHeader('content-type', 'text/html; charset=utf-8')
+    res.end(renderUiShell('Settings', renderSettingsPage(manager, req), manager.dashboard(), 'settings'))
+  }))
+
+  router.post('/ui/settings', wrap(getManager, (manager, req, res) => {
+    const b = req.body || {}
+    manager.updateSettings({
+      network: { ssid: b.ssid, mdnsDomain: b.mdnsDomain, password: b.network_password || '' },
+      ota: { password: b.ota_password || '' },
+      numbering: { prefix: b.prefix, pad: b.pad != null && b.pad !== '' ? parseInt(b.pad, 10) : undefined, next: b.next != null && b.next !== '' ? parseInt(b.next, 10) : undefined }
+    })
+    res.statusCode = 303
+    res.setHeader('location', '/plugins/espdisp-manager/ui/settings?saved=1')
+    res.end()
+  }))
+
   router.post('/ui/firmware/catalog/refresh', wrap(getManager, async (manager, req, res) => {
     await manager.refreshFirmwareFromGithub()
     res.statusCode = 303
@@ -1151,7 +1168,8 @@ function renderUi (manager, page, req) {
     discovery: 'Discovery',
     profiles: 'Profiles',
     preset: 'Preset',
-    firmware: 'Firmware'
+    firmware: 'Firmware',
+    settings: 'Settings'
   }[page] || 'Overview'
   return renderUiShell(title, renderPage(manager, dashboard, page, req), dashboard, page)
 }
@@ -2767,6 +2785,48 @@ function firmwareJobTable (jobs) {
   return `<table><thead><tr><th>Job</th><th>Device</th><th>Artifact</th><th>Status</th><th>Created</th></tr></thead><tbody>${rows || '<tr><td colspan="5">No firmware jobs.</td></tr>'}</tbody></table>`
 }
 
+function renderSettingsPage (manager, req) {
+  const s = manager.getSettingsMasked()
+  const saved = req && req.query && req.query.saved
+  const prefix = s.numbering.prefix || ''
+  const pad = s.numbering.pad || 0
+  const next = s.numbering.next || 1
+  const preview = `${prefix}${String(next).padStart(pad, '0')}`
+  const passwordInput = (name, isSet) =>
+    `<input type="password" name="${escapeHtml(name)}" value=""${isSet ? ' placeholder="(unchanged)"' : ''}>`
+  return `
+    <form class="config-form" method="post" action="/plugins/espdisp-manager/ui/settings">
+      <h2>System settings</h2>
+      ${saved ? '<p class="muted">Saved.</p>' : ''}
+      <fieldset>
+        <legend>Network / WiFi</legend>
+        <div class="form-grid">
+          ${field('WiFi SSID', input('ssid', s.network.ssid))}
+          ${field('WiFi password', passwordInput('network_password', s.network.passwordSet))}
+          ${field('mDNS domain', input('mdnsDomain', s.network.mdnsDomain))}
+        </div>
+      </fieldset>
+      <fieldset>
+        <legend>OTA</legend>
+        <div class="form-grid">
+          ${field('OTA password', passwordInput('ota_password', s.ota.passwordSet))}
+        </div>
+      </fieldset>
+      <fieldset>
+        <legend>Device numbering</legend>
+        <div class="form-grid">
+          ${field('Prefix', input('prefix', prefix))}
+          ${field('Pad', input('pad', pad, 'number', '0', '8', '1'))}
+          ${field('Next', input('next', next, 'number', '1', null, '1'))}
+        </div>
+        <p class="muted">Next device name: <code>${escapeHtml(preview)}</code></p>
+      </fieldset>
+      <div class="actions">
+        <button type="submit">Save settings</button>
+      </div>
+    </form>`
+}
+
 function nav (active) {
   // Reorganised 2026-06-04: discovery folded into devices, layout
   // editor surfaced as a top-level nav item. Editor link uses the
@@ -2780,7 +2840,8 @@ function nav (active) {
   // /ui/layout routes stay defined and reachable, just not surfaced here.
   const items = [
     ['devices', '/plugins/espdisp-manager/ui', 'Devices'],
-    ['firmware', '/plugins/espdisp-manager/ui/firmware', 'Firmware']
+    ['firmware', '/plugins/espdisp-manager/ui/firmware', 'Firmware'],
+    ['settings', '/plugins/espdisp-manager/ui/settings', 'Settings']
   ]
   return `<nav>${items.map(([id, href, label]) => `<a class="${active === id ? 'active' : ''}" href="${href}">${label}</a>`).join('')}</nav>`
 }
@@ -2854,3 +2915,4 @@ module.exports._test = {
 
 module.exports.__renderHomePage = renderHomePage
 module.exports.__nav = nav
+module.exports.__renderSettingsPage = renderSettingsPage
