@@ -976,6 +976,36 @@ function registerRoutes (router, getManager) {
     res.json(manager.getFirmwareArtifact(req.params.artifactId))
   }))
 
+  router.get('/firmware/manifest/:artifactId', wrap(getManager, (manager, req, res) => {
+    const man = manager.firmwareManifest(req.params.artifactId)
+    if (!man) {
+      res.status(404).json({ error: { code: 'artifact_not_found' } })
+      return
+    }
+    res.setHeader('content-type', 'application/json')
+    res.end(JSON.stringify(man))
+  }))
+
+  router.get('/firmware/artifacts/:artifactId/binary', wrap(getManager, (manager, req, res) => {
+    const file = manager.firmwareArtifactFile(req.params.artifactId)
+    if (!file) {
+      res.status(404).json({ error: { code: 'artifact_binary_missing' } })
+      return
+    }
+    res.setHeader('content-type', file.contentType || 'application/octet-stream')
+    if (file.size) res.setHeader('content-length', String(file.size))
+    res.setHeader('content-disposition', `attachment; filename="${path.basename(file.name || file.path)}"`)
+    fs.createReadStream(file.path)
+      .on('error', (err) => {
+        if (!res.headersSent) {
+          res.status(404).json({ error: { code: 'artifact_binary_missing', message: err.message } })
+        } else {
+          res.destroy(err)
+        }
+      })
+      .pipe(res)
+  }))
+
   router.get('/firmware/download/:jobId', wrap(getManager, (manager, req, res) => {
     const info = manager.firmwareDownloadInfo(req.params.jobId)
     const file = info.artifact && info.artifact.file ? info.artifact.file : {}
