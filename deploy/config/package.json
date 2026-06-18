@@ -3,7 +3,7 @@
   "version": "0.0.1",
   "private": true,
   "description": "SignalK test server home for espdisp development.",
-  "license": "UNLICENSED",
+  "license": "PolyForm-Noncommercial-1.0.0",
   "dependencies": {
     "@signalk/app-dock": "^1.1.0",
     "@signalk/freeboard-sk": "^2.23.0",

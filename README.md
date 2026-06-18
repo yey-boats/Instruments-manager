@@ -122,4 +122,6 @@ registered devices across, on the SignalK host:
 
 ## License
 
-UNLICENSED — © navado and contributors.
+© 2026 Yey Boats Project. All rights reserved except as expressly licensed (see [NOTICE](NOTICE)).
+
+Source-available under the [PolyForm Noncommercial License 1.0.0](LICENSE) — free for noncommercial use. **Commercial use requires a separate license** (see [COMMERCIAL.md](COMMERCIAL.md)). Contributions under the [DCO](CONTRIBUTING.md).
