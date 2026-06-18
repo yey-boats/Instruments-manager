@@ -1,6 +1,24 @@
 # SignalK Test Server
 
-This directory contains the repo-owned SignalK test server configuration.
+This directory contains the SignalK server configuration and deploy scripts
+for running the `signalk-espdisp-manager` plugin locally or on a remote host.
+
+`deploy/scripts/run.sh` and `deploy/scripts/run-remote.sh` start a SignalK
+container with the plugin mounted directly from the repo root so plugin changes
+take effect after a server restart without reinstalling.  The `docker-compose.yml`
+in this directory does the same for Compose-based workflows.
+
+**Synthetic boat data** (`fake_boat.py`) lives in the companion firmware repo
+(`espdisp`).  The scripts look for it at `../espdisp/tools/fake_boat.py` by
+default (i.e., the firmware repo checked out as a sibling of this repo).  If
+that file is not present the scripts skip it with a warning; override with
+`FAKE_BOAT=/path/to/fake_boat.py ./deploy/scripts/run.sh`.
+
+**Production lab** deployment is a docker volume-mount on the SignalK host
+(`mythra-nav`); use `run-remote.sh` (or the `Makefile` targets) to sync and
+restart the container there.
+
+---
 
 It is used for local firmware testing with:
 
@@ -38,12 +56,11 @@ make demo-up
 or directly:
 
 ```sh
-./signalk/scripts/run.sh
+./deploy/scripts/run.sh
 ```
 
-The repo test stack installs the local plugin from
-`signalk/plugins/signalk-espdisp-manager` through
-`signalk/config/package.json`:
+The deploy stack installs the local plugin from the repo root through
+`deploy/config/package.json`:
 
 ```json
 "signalk-espdisp-manager": "file:../plugins/signalk-espdisp-manager"
@@ -53,8 +70,8 @@ That path is the fastest way to test plugin changes from this checkout. The
 run script starts SignalK with:
 
 ```text
--v signalk/config:/home/node/.signalk
--v signalk/plugins:/home/node/plugins
+-v deploy/config:/home/node/.signalk
+-v <repo-root>:/home/node/plugins/signalk-espdisp-manager
 ```
 
 and runs `npm install` inside `/home/node/.signalk` before starting the server.
@@ -68,7 +85,7 @@ make demo-down
 or directly:
 
 ```sh
-./signalk/scripts/stop.sh
+./deploy/scripts/stop.sh
 ```
 
 ## Install ESP Display Manager From This Repo
@@ -171,7 +188,7 @@ For development, build a local tarball from the repo checkout:
 
 
 ```sh
-cd signalk/plugins/signalk-espdisp-manager
+cd /path/to/signalk-espdisp-manager
 npm ci
 npm test
 npm pack
@@ -187,7 +204,7 @@ Install it into the SignalK home directory on the target server:
 
 ```sh
 cd ~/.signalk
-npm install /path/to/espdisp/signalk/plugins/signalk-espdisp-manager/signalk-espdisp-manager-<version>.tgz
+npm install /path/to/signalk-espdisp-manager/signalk-espdisp-manager-<version>.tgz
 ```
 
 ## Verify SignalK

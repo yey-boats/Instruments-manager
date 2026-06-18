@@ -11,7 +11,9 @@
 set -euo pipefail
 
 ROOT="$(cd "$(dirname "$0")/../.." && pwd)"
-SK_DIR="$ROOT/signalk"
+CONFIG_DIR="$ROOT/deploy/config"
+PLUGIN_DIR="$ROOT"
+FAKE_BOAT="${FAKE_BOAT:-$ROOT/../espdisp/tools/fake_boat.py}"
 
 REMOTE_HOST="${REMOTE_HOST:-nav-server}"
 if [ -z "${REMOTE_DIR:-}" ]; then
@@ -59,14 +61,14 @@ fi
 ssh -o BatchMode=yes -o ConnectTimeout=5 "$REMOTE_HOST" \
   'command -v docker >/dev/null || { echo "docker not on PATH on remote" >&2; exit 1; }'
 
-# 1. sync config + plugins to the remote so changes here propagate
-ssh "$REMOTE_HOST" "mkdir -p '$REMOTE_DIR/config/plugin-config-data' '$REMOTE_DIR/plugins'"
+# 1. sync config + plugin to the remote so changes here propagate
+ssh "$REMOTE_HOST" "mkdir -p '$REMOTE_DIR/config/plugin-config-data' '$REMOTE_DIR/plugins/signalk-espdisp-manager'"
 rsync -az --delete \
   --exclude 'node_modules' --exclude '*.log' \
-  "$SK_DIR/config/" "$REMOTE_HOST:$REMOTE_DIR/config/"
+  "$CONFIG_DIR/" "$REMOTE_HOST:$REMOTE_DIR/config/"
 rsync -az --delete \
-  --exclude 'node_modules' --exclude '*.log' \
-  "$SK_DIR/plugins/" "$REMOTE_HOST:$REMOTE_DIR/plugins/"
+  --exclude 'node_modules' --exclude '*.log' --exclude 'deploy' --exclude '.git' \
+  "$PLUGIN_DIR/" "$REMOTE_HOST:$REMOTE_DIR/plugins/signalk-espdisp-manager/"
 
 # The signalk image runs as uid 1000 (node) inside the container.  On
 # Linux remotes (unlike macOS docker desktop), bind mounts enforce
@@ -123,8 +125,12 @@ PY
 done
 
 pkill -f "tools/fake_boat.py" 2>/dev/null || true
-nohup "$PYTHON" -u "$ROOT/tools/fake_boat.py" "$SK_HOST" "$SK_PORT" \
-  >/tmp/fake_boat.log 2>&1 &
+if [ -f "$FAKE_BOAT" ]; then
+  nohup "$PYTHON" -u "$FAKE_BOAT" "$SK_HOST" "$SK_PORT" \
+    >/tmp/fake_boat.log 2>&1 &
+else
+  echo "fake_boat.py not found at $FAKE_BOAT (set FAKE_BOAT=/path or clone the firmware repo as ../espdisp); skipping synthetic data." >&2
+fi
 
 cat <<EOF
 SignalK at http://$SK_HOST:$SK_PORT
@@ -133,5 +139,5 @@ ESP display SignalK discovery UDP at $SK_HOST:34300
 ESP display device announcement UDP at $SK_HOST:34301
 fake_boat log: /tmp/fake_boat.log  (running locally, targeting remote SK)
 
-Test env: source $ROOT/.env.test
+Test env (firmware repo): source $ROOT/../espdisp/.env.test
 EOF

@@ -2,13 +2,14 @@
 set -euo pipefail
 
 ROOT="$(cd "$(dirname "$0")/../.." && pwd)"
-SK_DIR="$ROOT/signalk"
-CONFIG_DIR="$SK_DIR/config"
+CONFIG_DIR="$ROOT/deploy/config"
+PLUGIN_DIR="$ROOT"
 CONTAINER="${SIGNALK_CONTAINER:-signalk-server}"
 IMAGE="${SIGNALK_IMAGE:-signalk/signalk-server:latest}"
 SK_HOST="${SK_HOST:-localhost}"
 SK_PORT="${SK_PORT:-3000}"
 PYTHON="${PYTHON:-/usr/bin/python3}"
+FAKE_BOAT="${FAKE_BOAT:-$ROOT/../espdisp/tools/fake_boat.py}"
 
 mkdir -p "$CONFIG_DIR/plugin-config-data"
 
@@ -19,7 +20,7 @@ fi
 docker run --rm \
   --entrypoint npm \
   -v "$CONFIG_DIR:/home/node/.signalk" \
-  -v "$SK_DIR/plugins:/home/node/plugins" \
+  -v "$PLUGIN_DIR:/home/node/plugins/signalk-espdisp-manager" \
   -w /home/node/.signalk \
   "$IMAGE" \
   install
@@ -31,7 +32,7 @@ docker run -d \
   -p 34300:34300/udp \
   -p 34301:34301/udp \
   -v "$CONFIG_DIR:/home/node/.signalk" \
-  -v "$SK_DIR/plugins:/home/node/plugins" \
+  -v "$PLUGIN_DIR:/home/node/plugins/signalk-espdisp-manager" \
   "$IMAGE" >/dev/null
 
 for _ in 1 2 3 4 5 6 7 8 9 10; do
@@ -52,8 +53,12 @@ PY
 done
 
 pkill -f "tools/fake_boat.py" 2>/dev/null || true
-nohup "$PYTHON" -u "$ROOT/tools/fake_boat.py" "$SK_HOST" "$SK_PORT" \
-  >/tmp/fake_boat.log 2>&1 &
+if [ -f "$FAKE_BOAT" ]; then
+  nohup "$PYTHON" -u "$FAKE_BOAT" "$SK_HOST" "$SK_PORT" \
+    >/tmp/fake_boat.log 2>&1 &
+else
+  echo "fake_boat.py not found at $FAKE_BOAT (set FAKE_BOAT=/path or clone the firmware repo as ../espdisp); skipping synthetic data." >&2
+fi
 
 echo "SignalK at http://$SK_HOST:$SK_PORT"
 echo "NMEA 0183 TCP at $SK_HOST:10110"
