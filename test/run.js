@@ -23,7 +23,7 @@ require('./widget-parity.test')
 require('./preset-coverage.test')
 require('./device-projections.test')
 // proto-control runs sequentially (not in the Promise.all batch below): it
-// loads the ESM @espdisp/proto lib and spins up mock HTTP targets, which would
+// loads the ESM @yeyboats/proto lib and spins up mock HTTP targets, which would
 // otherwise starve the event loop during the timing-sensitive UDP tests.
 // node:test-style suites (use `node:test` + `node:assert` rather than the
 // synchronous top-level assert style of the files above). They are run via a

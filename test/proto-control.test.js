@@ -3,10 +3,10 @@ const http = require('http')
 const { ProtoControl } = require('../lib/proto-control')
 
 // We validate outbound + inbound messages with the SAME shared lib the
-// production code uses (@espdisp/proto, an ES module).
+// production code uses (@yeyboats/proto, an ES module).
 let proto
 async function lib () {
-  if (!proto) proto = await import('@espdisp/proto')
+  if (!proto) proto = await import('@yeyboats/proto')
   return proto
 }
 

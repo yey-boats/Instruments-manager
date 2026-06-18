@@ -1,7 +1,7 @@
 const fs = require('fs')
 const os = require('os')
 const path = require('path')
-const { EspDispManager } = require('../lib/manager')
+const { YeyBoatsDisplayManager } = require('../lib/manager')
 
 function makeManager (options) {
   const dataDir = fs.mkdtempSync(path.join(os.tmpdir(), 'yey-boats-display-manager-'))
@@ -18,7 +18,7 @@ function makeManager (options) {
   return {
     dataDir,
     app,
-    manager: new EspDispManager(app, merged),
+    manager: new YeyBoatsDisplayManager(app, merged),
     auth: { bearer: options && options.auth && options.auth.devToken ? options.auth.devToken : 'espdisp-dev' }
   }
 }

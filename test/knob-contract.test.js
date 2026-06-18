@@ -286,7 +286,7 @@ function makeRouterShim () {
 
 const routeTest = (async () => {
   // Stand up the real plugin and point it at the SAME data dir as the seeded
-  // `manager` above. The plugin's start() builds its own EspDispManager which
+  // `manager` above. The plugin's start() builds its own YeyBoatsDisplayManager which
   // loads that on-disk registry, so the three devices we already registered are
   // visible to the real route handlers without re-seeding.
   const plugin = makePlugin({

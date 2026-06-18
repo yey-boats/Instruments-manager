@@ -3,7 +3,7 @@ const dgram = require('dgram')
 const fs = require('fs')
 const os = require('os')
 const path = require('path')
-const { EspDispManager } = require('../lib/manager')
+const { YeyBoatsDisplayManager } = require('../lib/manager')
 
 function once (emitter, event) {
   return new Promise((resolve, reject) => {
@@ -18,7 +18,7 @@ module.exports = (async () => {
     getDataDirPath: () => dataDir,
     debug: () => {}
   }
-  const manager = new EspDispManager(app, {
+  const manager = new YeyBoatsDisplayManager(app, {
     discoveryUdp: { enabled: false },
     deviceDiscoveryUdp: { enabled: true, bind: '127.0.0.1', port: 0 },
     network: { mdns: { browser: false, advertiseManager: false } }

@@ -1,10 +1,10 @@
 const fs = require('fs')
 const path = require('path')
-const { EspDispManager } = require('./lib/manager')
+const { YeyBoatsDisplayManager } = require('./lib/manager')
 const presets = require('./lib/screen-presets')
 const pluginPackage = require('./package.json')
 
-module.exports = function espdispManagerPlugin (app) {
+module.exports = function yeyBoatsDisplayManagerPlugin (app) {
   let manager
 
   const plugin = {
@@ -152,7 +152,7 @@ module.exports = function espdispManagerPlugin (app) {
           title: 'Network Identity',
           properties: {
             domain: { type: 'string', title: 'mDNS domain', default: 'yey.boats' },
-            hostnamePrefix: { type: 'string', title: 'Hostname prefix', default: 'espdisp' },
+            hostnamePrefix: { type: 'string', title: 'Hostname prefix', default: 'yey-d' },
             namingPolicy: {
               type: 'string',
               title: 'Naming policy',
@@ -194,7 +194,7 @@ module.exports = function espdispManagerPlugin (app) {
       }
     }),
     start: (options) => {
-      manager = new EspDispManager(app, options || {})
+      manager = new YeyBoatsDisplayManager(app, options || {})
       registerAutopilotBridge(app)
       app.debug('yey-boats-display-manager started')
     },
@@ -293,7 +293,7 @@ module.exports = function espdispManagerPlugin (app) {
   return plugin
 }
 
-// Autopilot bridge: the espdisp firmware drives the autopilot the
+// Autopilot bridge: the yey-display firmware drives the autopilot the
 // signalk-autopilot / spec-16 way (PUT steering.autopilot.state =
 // "<mode>", PUT steering.autopilot.actions.adjustHeading = <deg>, PUT
 // steering.autopilot.target.headingTrue = <rad>). The KDCube simulator's
@@ -306,7 +306,7 @@ function registerAutopilotBridge (app) {
   const CMD = 'steering.autopilot.command'
   let seq = 0
   const emit = (action, value) => {
-    app.handleMessage('espdisp-autopilot-bridge', {
+    app.handleMessage('yeyboats-autopilot-bridge', {
       updates: [{
         values: [{ path: CMD, value: { action, value, nonce: `b${++seq}` } }]
       }]
@@ -318,7 +318,7 @@ function registerAutopilotBridge (app) {
     return r
   }
   const reg = (path, fn) => {
-    try { app.registerPutHandler('vessels.self', path, fn, 'espdisp-autopilot-bridge') } catch (e) {
+    try { app.registerPutHandler('vessels.self', path, fn, 'yeyboats-autopilot-bridge') } catch (e) {
       if (app.debug) app.debug(`autopilot bridge: could not register ${path}: ${e.message}`)
     }
   }
@@ -1029,8 +1029,8 @@ function registerRoutes (router, getManager) {
     }
     res.setHeader('content-type', file.contentType || 'application/octet-stream')
     if (file.size) res.setHeader('content-length', String(file.size))
-    res.setHeader('x-espdisp-artifact-id', info.artifact.artifactId)
-    res.setHeader('x-espdisp-sha256', file.sha256 || '')
+    res.setHeader('x-yeyboats-artifact-id', info.artifact.artifactId)
+    res.setHeader('x-yeyboats-sha256', file.sha256 || '')
     res.setHeader('content-disposition', `attachment; filename="${path.basename(file.name || file.path)}"`)
     fs.createReadStream(file.path)
       .on('error', (err) => {
@@ -1650,7 +1650,7 @@ function renderDevicePage (manager, id, live = {}) {
         .lp-assign{margin-bottom:18px}
         .lp-assign label{font-size:12px;color:#8fb8da}
       </style>
-      <script>window.__espdispPreview=${previewJson};window.__espdispDeviceId=${JSON.stringify(id)};</script>
+      <script>window.__yeyboatsPreview=${previewJson};window.__yeyboatsDeviceId=${JSON.stringify(id)};</script>
       <script src="/yey-boats-display-manager/device-hud.js"></script>
       <script src="/yey-boats-display-manager/live-preview.js"></script>
       <div class="config-grid">

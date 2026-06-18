@@ -1,12 +1,12 @@
 const test = require('node:test')
 const assert = require('node:assert')
-// The exported class is EspDispManager (see lib/manager.js module.exports).
-const { EspDispManager } = require('../lib/manager')
+// The exported class is YeyBoatsDisplayManager (see lib/manager.js module.exports).
+const { YeyBoatsDisplayManager } = require('../lib/manager')
 
 // Minimal instance carrying only what the resolution methods touch — they
 // reference the module-level httpError, so a bare prototype object suffices.
 function mgr () {
-  return Object.create(EspDispManager.prototype)
+  return Object.create(YeyBoatsDisplayManager.prototype)
 }
 
 test('deviceHttpCandidates lists ip then fqdn, deduped, port 80', () => {

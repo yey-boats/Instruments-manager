@@ -1,11 +1,11 @@
 /* Device-page live preview: renders an authored screen layout (widgets.items +
  * layout.screens) bound to LIVE SignalK data, so the operator sees what the
  * screen resembles with real values before switching/saving. Self-contained;
- * reads window.__espdispPreview = { screens:[{id,title,tiles:[...]}], current }.
+ * reads window.__yeyboatsPreview = { screens:[{id,title,tiles:[...]}], current }.
  * Tiles are flattened server-side to {widget,title,path,unit,precision}. */
 (function () {
   'use strict'
-  const cfg = window.__espdispPreview || {}
+  const cfg = window.__yeyboatsPreview || {}
   const root = document.getElementById('lp-root')
   const sel = document.getElementById('lp-screen')
   if (!root) return
@@ -305,7 +305,7 @@
     return (s && s.title) || idv || '—'
   }
   if (nowEl) nowEl.textContent = titleOf(cfg.current)
-  const deviceId = window.__espdispDeviceId
+  const deviceId = window.__yeyboatsDeviceId
   if (deviceId) {
     setInterval(() => {
       fetch('/plugins/yey-boats-display-manager/devices/' + encodeURIComponent(deviceId) + '/views',
