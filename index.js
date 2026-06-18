@@ -645,7 +645,7 @@ function registerRoutes (router, getManager) {
 
   router.get('/ui/discovery', wrap(getManager, (manager, req, res) => {
     res.setHeader('content-type', 'text/html; charset=utf-8')
-    res.end(renderUi(manager, 'discovery', req))
+    res.end(renderUi(manager, 'devices', req))
   }))
 
   // Cleanup endpoints: device removal + artifact removal. JSON for
@@ -1145,7 +1145,6 @@ function parseDashboardImport (raw, contentType) {
 function renderUi (manager, page, req) {
   const dashboard = manager.dashboard()
   const title = {
-    overview: 'Overview',
     devices: 'Devices',
     device: 'Device detail',
     deviceConfig: 'Device config',
@@ -1241,8 +1240,7 @@ function renderPage (manager, dashboard, page, req) {
 
 // Home page = the overview stat tiles followed by the full devices
 // section (pending discovery + registered table + register/scan forms).
-// Single source of truth for the devices markup: renderDevicesPage
-// delegates here so the body isn't duplicated.
+// renderDevicesSection is the single source of truth for the devices markup.
 function renderHomePage (dashboard, devices, req, manager) {
   const counts = dashboard.counts
   const overview = `
@@ -1255,12 +1253,6 @@ function renderHomePage (dashboard, devices, req, manager) {
     </section>`
   return `${overview}
     ${renderDevicesSection(devices, req, manager)}`
-}
-
-function renderDevicesPage (devices, req, manager) {
-  // Kept for any direct callers; delegates to the shared devices body
-  // builder so the markup lives in exactly one place.
-  return renderDevicesSection(devices, req, manager)
 }
 
 function renderDevicesSection (devices, req, manager) {
