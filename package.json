@@ -1,8 +1,8 @@
 {
-  "name": "signalk-espdisp-manager",
+  "name": "yey-boats-display-manager",
   "version": "0.3.5",
   "private": true,
-  "description": "SignalK plugin for managing ESP display devices.",
+  "description": "YEY Boats Display Manager — SignalK plugin for managing YEY Boats marine display devices.",
   "main": "index.js",
   "keywords": [
     "signalk-webapp",
@@ -25,7 +25,7 @@
     "@playwright/test": "^1.44.0"
   },
   "signalk": {
-    "displayName": "ESP Display Manager",
+    "displayName": "YEY Boats Display Manager",
     "appIcon": "./icon.svg"
   },
   "engines": {

@@ -17,7 +17,7 @@ const path = require('path')
 
 const repoRoot = path.resolve(__dirname, '..', '..', '..', '..')
 const editorHtml = fs.readFileSync(
-  path.join(repoRoot, 'signalk/plugins/signalk-espdisp-manager/public/layout-editor.html'),
+  path.join(repoRoot, 'signalk/plugins/yey-boats-display-manager/public/layout-editor.html'),
   'utf8'
 )
 const themeCpp = fs.readFileSync(

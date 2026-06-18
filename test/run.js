@@ -57,7 +57,7 @@ require('./proto-control.test')
   ]))
   .then(() => {
     runNodeTestSuites()
-    console.log('espdisp-manager test suite passed')
+    console.log('yey-boats-display-manager test suite passed')
   })
   .catch((err) => {
     console.error(err)

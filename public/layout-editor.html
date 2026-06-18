@@ -295,7 +295,7 @@
 
 // --- API client ---------------------------------------------------------
 
-const API = '/plugins/espdisp-manager';
+const API = '/plugins/yey-boats-display-manager';
 
 function authHeaders () {
   const h = { 'content-type': 'application/json' };
@@ -1296,7 +1296,7 @@ async function fetchDevicePreview (why) {
   // the device - the SignalK host does the fetch and streams the body
   // back same-origin to the editor.
   const stamp = Date.now();
-  const proxyUrl = '/plugins/espdisp-manager/devices/proxy/screenshot.png?url=' +
+  const proxyUrl = '/plugins/yey-boats-display-manager/devices/proxy/screenshot.png?url=' +
                    encodeURIComponent(url) + '&t=' + stamp;
   try {
     const r = await fetch(proxyUrl, { cache: 'no-store' });

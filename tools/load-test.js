@@ -316,7 +316,7 @@ async function registerDevices (opts, metrics) {
   const devices = []
   for (let i = 0; i < opts.devices; i++) {
     const identity = deviceIdentity(opts, i)
-    await requestJson(opts, metrics, 'register', 'POST', '/plugins/espdisp-manager/devices/register', {
+    await requestJson(opts, metrics, 'register', 'POST', '/plugins/yey-boats-display-manager/devices/register', {
       device: identity
     })
     devices.push(identity.id)
@@ -352,18 +352,18 @@ async function runDevice (opts, metrics, id, deviceIndex, endAt) {
       metrics,
       'heartbeat',
       'POST',
-      `/plugins/espdisp-manager/devices/${encodeURIComponent(id)}/status`,
+      `/plugins/yey-boats-display-manager/devices/${encodeURIComponent(id)}/status`,
       statusBody(id, heartbeats)
     )
     if (opts.configEvery > 0 && heartbeats % opts.configEvery === 0) {
-      await requestJson(opts, metrics, 'config', 'GET', `/plugins/espdisp-manager/devices/${encodeURIComponent(id)}/config`)
+      await requestJson(opts, metrics, 'config', 'GET', `/plugins/yey-boats-display-manager/devices/${encodeURIComponent(id)}/config`)
     } else if (result && result.desiredConfig && result.desiredConfig.reload) {
-      await requestJson(opts, metrics, 'config', 'GET', `/plugins/espdisp-manager/devices/${encodeURIComponent(id)}/config`)
+      await requestJson(opts, metrics, 'config', 'GET', `/plugins/yey-boats-display-manager/devices/${encodeURIComponent(id)}/config`)
     }
   }, jitterBase)
 
   const commands = periodicLoop(opts, metrics, endAt, opts.commandPollMs, async () => {
-    await requestJson(opts, metrics, 'commands', 'GET', `/plugins/espdisp-manager/devices/${encodeURIComponent(id)}/commands`)
+    await requestJson(opts, metrics, 'commands', 'GET', `/plugins/yey-boats-display-manager/devices/${encodeURIComponent(id)}/commands`)
   }, Math.min(opts.jitterMs, jitterBase + opts.commandPollMs / 2))
 
   await Promise.all([heartbeat, commands])
@@ -373,7 +373,7 @@ async function main () {
   const opts = parseArgs(process.argv)
   const metrics = new Metrics()
 
-  console.log(`SignalK ESP Display Manager load test
+  console.log(`SignalK YEY Boats Display Manager load test
 target:       ${opts.url}
 devices:      ${opts.devices}
 duration:     ${opts.durationSec}s

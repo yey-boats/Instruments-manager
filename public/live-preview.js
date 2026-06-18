@@ -308,7 +308,7 @@
   const deviceId = window.__espdispDeviceId
   if (deviceId) {
     setInterval(() => {
-      fetch('/plugins/espdisp-manager/devices/' + encodeURIComponent(deviceId) + '/views',
+      fetch('/plugins/yey-boats-display-manager/devices/' + encodeURIComponent(deviceId) + '/views',
         { credentials: 'include' })
         .then((r) => r.ok ? r.json() : null)
         .then((d) => {

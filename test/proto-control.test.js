@@ -88,14 +88,14 @@ module.exports = (async () => {
   //     wire, independent of any server.
   {
     const pc = new ProtoControl({
-      controllerId: 'plugin:espdisp-manager',
+      controllerId: 'plugin:yey-boats-display-manager',
       name: 'SignalK Manager',
       color: '#ff9800',
       key: 'hunter2'
     })
     const attach = pc._attachMessage()
     assert.ok(validate.Attach(attach), 'outbound Attach validates against schema')
-    assert.strictEqual(attach.controllerId, 'plugin:espdisp-manager')
+    assert.strictEqual(attach.controllerId, 'plugin:yey-boats-display-manager')
     assert.strictEqual(attach.color, '#ff9800')
     assert.strictEqual(attach.key, 'hunter2', 'shared key carried when configured')
 
@@ -118,7 +118,7 @@ module.exports = (async () => {
   {
     const target = await startMockTarget()
     const pc = new ProtoControl({
-      controllerId: 'plugin:espdisp-manager',
+      controllerId: 'plugin:yey-boats-display-manager',
       name: 'Manager',
       color: '#ff9800'
     })
@@ -138,7 +138,7 @@ module.exports = (async () => {
     // The plugin's color/id were carried in the Attach the target received.
     const attachMsg = target.inbound.find((c) => c.url === '/api/p2p/attach').msg
     assert.strictEqual(attachMsg.color, '#ff9800', 'plugin color carried to target frame')
-    assert.strictEqual(attachMsg.controllerId, 'plugin:espdisp-manager')
+    assert.strictEqual(attachMsg.controllerId, 'plugin:yey-boats-display-manager')
     const switchMsg = target.inbound.find((c) => c.url === '/api/p2p/switch').msg
     assert.strictEqual(switchMsg.sessionId, 's-mock-1', 'switch reuses the attach sessionId')
     assert.strictEqual(switchMsg.viewId, 'nav')

@@ -4,7 +4,7 @@ const path = require('path')
 const { EspDispManager } = require('../lib/manager')
 
 function makeManager (options) {
-  const dataDir = fs.mkdtempSync(path.join(os.tmpdir(), 'espdisp-manager-'))
+  const dataDir = fs.mkdtempSync(path.join(os.tmpdir(), 'yey-boats-display-manager-'))
   const app = {
     getDataDirPath: () => dataDir,
     debug: () => {}

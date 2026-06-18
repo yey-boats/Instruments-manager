@@ -3,7 +3,7 @@
 <head>
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1">
-  <title>Flash new device (USB) · ESP Display Manager</title>
+  <title>Flash new device (USB) · YEY Boats Display Manager</title>
   <!--
     esp-web-tools is vendored same-origin under vendor/ (version 10.2.1).
     install-button.js is a code-split ES module: it lazily import()s its
@@ -122,7 +122,7 @@
     <pre id="prov-log">(provisioning log will appear here)</pre>
   </section>
 
-  <p class="muted"><a href="/plugins/espdisp-manager/ui/devices">&larr; Back to Devices</a></p>
+  <p class="muted"><a href="/plugins/yey-boats-display-manager/ui/devices">&larr; Back to Devices</a></p>
 </main>
 
 <script>
@@ -137,12 +137,12 @@
   function applyManifest () {
     const id = sel.value
     if (!id) { btn.removeAttribute('manifest'); return }
-    btn.manifest = '/plugins/espdisp-manager/firmware/manifest/' + encodeURIComponent(id)
+    btn.manifest = '/plugins/yey-boats-display-manager/firmware/manifest/' + encodeURIComponent(id)
   }
 
   async function loadCatalog () {
     try {
-      const res = await fetch('/plugins/espdisp-manager/firmware/catalog', { credentials: 'include' })
+      const res = await fetch('/plugins/yey-boats-display-manager/firmware/catalog', { credentials: 'include' })
       if (!res.ok) throw new Error('catalog HTTP ' + res.status)
       const catalog = await res.json()
       const artifacts = (catalog && catalog.artifacts) || []

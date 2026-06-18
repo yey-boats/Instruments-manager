@@ -1,7 +1,7 @@
 # SignalK Test Server
 
 This directory contains the SignalK server configuration and deploy scripts
-for running the `signalk-espdisp-manager` plugin locally or on a remote host.
+for running the `yey-boats-display-manager` plugin locally or on a remote host.
 
 `deploy/scripts/run.sh` and `deploy/scripts/run-remote.sh` start a SignalK
 container with the plugin mounted directly from the repo root so plugin changes
@@ -28,11 +28,11 @@ It is used for local firmware testing with:
 - official NMEA 0183 conversion plugin
 - official autopilot plugin in emulator mode
 - synthetic boat data from the `boat-sim` container (`ghcr.io/yey-boats/simulator`)
-- repo-owned `espdisp-manager` plugin for display registry, dashboard presets,
+- repo-owned `yey-boats-display-manager` plugin for display registry, dashboard presets,
   generated dashboard config, command delivery, and firmware job testing
 
 Project-level manager concepts and screenshots are documented in
-[`docs/signalk-espdisp-manager.md`](../docs/signalk-espdisp-manager.md).
+[`docs/yey-boats-display-manager.md`](../docs/yey-boats-display-manager.md).
 
 Current manager UI screenshots are stored under `docs/images/`:
 
@@ -62,7 +62,7 @@ The deploy stack installs the local plugin from the repo root through
 `deploy/config/package.json`:
 
 ```json
-"signalk-espdisp-manager": "file:../plugins/signalk-espdisp-manager"
+"yey-boats-display-manager": "file:../plugins/yey-boats-display-manager"
 ```
 
 That path is the fastest way to test plugin changes from this checkout. The
@@ -70,7 +70,7 @@ run script starts SignalK with:
 
 ```text
 -v deploy/config:/home/node/.signalk
--v <repo-root>:/home/node/plugins/signalk-espdisp-manager
+-v <repo-root>:/home/node/plugins/yey-boats-display-manager
 ```
 
 and runs `npm install` inside `/home/node/.signalk` before starting the server.
@@ -87,13 +87,13 @@ or directly:
 ./deploy/scripts/stop.sh
 ```
 
-## Install ESP Display Manager From This Repo
+## Install YEY Boats Display Manager From This Repo
 
 For a normal SignalK server, install the packed plugin tarball attached to the
 matching GitHub release. Releases include firmware binaries and:
 
 ```text
-signalk-espdisp-manager-<version>.tgz
+yey-boats-display-manager-<version>.tgz
 SHA256SUMS
 ```
 
@@ -108,20 +108,20 @@ Install the release asset into the SignalK home directory:
 
 ```sh
 cd ~/.signalk
-npm install /path/to/signalk-espdisp-manager-<version>.tgz
+npm install /path/to/yey-boats-display-manager-<version>.tgz
 ```
 
-Then restart SignalK and enable/configure `ESP Display Manager` in the SignalK
+Then restart SignalK and enable/configure `YEY Boats Display Manager` in the SignalK
 admin plugin UI. The plugin UI is served at:
 
 ```text
-/plugins/espdisp-manager/ui
-/signalk-espdisp-manager/
+/plugins/yey-boats-display-manager/ui
+/yey-boats-display-manager/
 ```
 
 The release package is the recommended install path because it is built by CI
 from the tagged source and published alongside the matching firmware artifacts.
-Every push/PR also uploads a `signalk-espdisp-manager-<sha>` workflow artifact
+Every push/PR also uploads a `yey-boats-display-manager-<sha>` workflow artifact
 for branch testing, but those artifacts are not release-pinned.
 
 ### OTA Password In CI And Release Builds
@@ -153,7 +153,7 @@ password.
 
 ## Firmware Upgrade Artifacts From GitHub
 
-The ESP Display Manager firmware catalog can import firmware artifacts directly
+The YEY Boats Display Manager firmware catalog can import firmware artifacts directly
 from this repository's GitHub releases. Release assets are versioned by Git tag
 and board target, for example:
 
@@ -175,7 +175,7 @@ that each asset is listed in `SHA256SUMS`, and adds catalog entries with:
 Refresh the catalog from the API:
 
 ```sh
-curl -X POST http://<signalk-host>:3000/plugins/espdisp-manager/firmware/catalog/refresh
+curl -X POST http://<signalk-host>:3000/plugins/yey-boats-display-manager/firmware/catalog/refresh
 ```
 
 The device firmware update command then points at the GitHub asset URL and
@@ -187,7 +187,7 @@ For development, build a local tarball from the repo checkout:
 
 
 ```sh
-cd /path/to/signalk-espdisp-manager
+cd /path/to/yey-boats-display-manager
 npm ci
 npm test
 npm pack
@@ -196,14 +196,14 @@ npm pack
 That creates:
 
 ```text
-signalk-espdisp-manager-<version>.tgz
+yey-boats-display-manager-<version>.tgz
 ```
 
 Install it into the SignalK home directory on the target server:
 
 ```sh
 cd ~/.signalk
-npm install /path/to/signalk-espdisp-manager/signalk-espdisp-manager-<version>.tgz
+npm install /path/to/yey-boats-display-manager/yey-boats-display-manager-<version>.tgz
 ```
 
 ## Verify SignalK
@@ -295,7 +295,7 @@ curl -s -X PUT \
 
 Then query the state path again.
 
-## Verify ESP Display Manager
+## Verify YEY Boats Display Manager
 
 SignalK protects plugin routes with its normal HTTP auth. Device management
 auth is carried separately with `X-EspDisp-Authorization`.
@@ -307,41 +307,41 @@ TOKEN=$(curl -s -H 'Content-Type: application/json' \
 
 curl -s \
   -H "Authorization: Bearer $TOKEN" \
-  http://localhost:3000/plugins/espdisp-manager/.well-known/espdisp-management
+  http://localhost:3000/plugins/yey-boats-display-manager/.well-known/espdisp-management
 
 curl -s -X POST \
   -H "Authorization: Bearer $TOKEN" \
   -H "X-EspDisp-Authorization: Bearer espdisp-dev" \
   -H 'Content-Type: application/json' \
   -d '{"device":{"id":"espdisp-aabbccddeeff","board":"esp32-4848s040"}}' \
-  http://localhost:3000/plugins/espdisp-manager/devices/register
+  http://localhost:3000/plugins/yey-boats-display-manager/devices/register
 ```
 
 The built-in operator UI is available at:
 
 ```text
-http://localhost:3000/plugins/espdisp-manager/ui
+http://localhost:3000/plugins/yey-boats-display-manager/ui
 ```
 
 It is also exposed as an installed SignalK webapp and as an App Dock tile named
 `ESP Displays`:
 
 ```text
-http://localhost:3000/signalk-espdisp-manager/
+http://localhost:3000/yey-boats-display-manager/
 http://localhost:3000/@signalk/app-dock/
 ```
 
 UI pages:
 
 ```text
-/plugins/espdisp-manager/ui
-/plugins/espdisp-manager/ui/devices
-/plugins/espdisp-manager/ui/devices/:id
-/plugins/espdisp-manager/ui/devices/:id/config
-/plugins/espdisp-manager/ui/discovery
-/plugins/espdisp-manager/ui/profiles
-/plugins/espdisp-manager/ui/profiles/:id
-/plugins/espdisp-manager/ui/firmware
+/plugins/yey-boats-display-manager/ui
+/plugins/yey-boats-display-manager/ui/devices
+/plugins/yey-boats-display-manager/ui/devices/:id
+/plugins/yey-boats-display-manager/ui/devices/:id/config
+/plugins/yey-boats-display-manager/ui/discovery
+/plugins/yey-boats-display-manager/ui/profiles
+/plugins/yey-boats-display-manager/ui/profiles/:id
+/plugins/yey-boats-display-manager/ui/firmware
 ```
 
 The operator UI is intentionally structured, not a raw JSON editor:
@@ -374,7 +374,7 @@ keep the same generated dashboard schema while adding:
   preset format
 
 The detailed builder scope, implementation outline, and documentation critique
-are in [SignalK ESP Display Manager](../docs/signalk-espdisp-manager.md#visual-layout-builder).
+are in [SignalK YEY Boats Display Manager](../docs/yey-boats-display-manager.md#visual-layout-builder).
 
 Presets are implemented with the plugin profile store. A device's generated
 dashboard config is:
@@ -402,45 +402,45 @@ Full block-style YAML import/export is handled by the SignalK plugin.
 Implemented v1 endpoints:
 
 ```text
-GET  /plugins/espdisp-manager/.well-known/espdisp-management
-GET  /plugins/espdisp-manager/capabilities
-GET  /plugins/espdisp-manager/dashboard
-GET  /plugins/espdisp-manager/discovery/devices
-POST /plugins/espdisp-manager/discovery/devices
-GET  /plugins/espdisp-manager/devices
-GET  /plugins/espdisp-manager/groups
-GET  /plugins/espdisp-manager/provisioning/tokens
-POST /plugins/espdisp-manager/provisioning/tokens
-POST /plugins/espdisp-manager/devices/register
-GET  /plugins/espdisp-manager/devices/:id
-PATCH /plugins/espdisp-manager/devices/:id
-GET  /plugins/espdisp-manager/devices/:id/auth/status
-POST /plugins/espdisp-manager/devices/:id/profile
-POST /plugins/espdisp-manager/devices/:id/status
-GET  /plugins/espdisp-manager/devices/:id/config
-GET  /plugins/espdisp-manager/profiles
-POST /plugins/espdisp-manager/profiles
-GET  /plugins/espdisp-manager/profiles/:id/dashboard.json
-GET  /plugins/espdisp-manager/profiles/:id/dashboard.yaml
-POST /plugins/espdisp-manager/profiles/import-dashboard
-POST /plugins/espdisp-manager/devices/:id/command
-GET  /plugins/espdisp-manager/devices/:id/commands
-GET  /plugins/espdisp-manager/devices/:id/commands/:commandId
-POST /plugins/espdisp-manager/devices/:id/commands/:commandId/ack
-POST /plugins/espdisp-manager/devices/:id/commands/:commandId/cancel
-POST /plugins/espdisp-manager/devices/:id/tokens/rotate
-POST /plugins/espdisp-manager/devices/:id/tokens/revoke
-POST /plugins/espdisp-manager/groups/:groupId/command
-POST /plugins/espdisp-manager/automation/event
-GET  /plugins/espdisp-manager/firmware/catalog
-POST /plugins/espdisp-manager/firmware/artifacts
-GET  /plugins/espdisp-manager/firmware/artifacts/:artifactId
-GET  /plugins/espdisp-manager/firmware/download/:jobId
-GET  /plugins/espdisp-manager/devices/:id/firmware/jobs
-POST /plugins/espdisp-manager/devices/:id/firmware/jobs
-GET  /plugins/espdisp-manager/devices/:id/firmware/jobs/:jobId
-POST /plugins/espdisp-manager/devices/:id/firmware/jobs/:jobId/progress
-POST /plugins/espdisp-manager/devices/:id/firmware/confirm
+GET  /plugins/yey-boats-display-manager/.well-known/espdisp-management
+GET  /plugins/yey-boats-display-manager/capabilities
+GET  /plugins/yey-boats-display-manager/dashboard
+GET  /plugins/yey-boats-display-manager/discovery/devices
+POST /plugins/yey-boats-display-manager/discovery/devices
+GET  /plugins/yey-boats-display-manager/devices
+GET  /plugins/yey-boats-display-manager/groups
+GET  /plugins/yey-boats-display-manager/provisioning/tokens
+POST /plugins/yey-boats-display-manager/provisioning/tokens
+POST /plugins/yey-boats-display-manager/devices/register
+GET  /plugins/yey-boats-display-manager/devices/:id
+PATCH /plugins/yey-boats-display-manager/devices/:id
+GET  /plugins/yey-boats-display-manager/devices/:id/auth/status
+POST /plugins/yey-boats-display-manager/devices/:id/profile
+POST /plugins/yey-boats-display-manager/devices/:id/status
+GET  /plugins/yey-boats-display-manager/devices/:id/config
+GET  /plugins/yey-boats-display-manager/profiles
+POST /plugins/yey-boats-display-manager/profiles
+GET  /plugins/yey-boats-display-manager/profiles/:id/dashboard.json
+GET  /plugins/yey-boats-display-manager/profiles/:id/dashboard.yaml
+POST /plugins/yey-boats-display-manager/profiles/import-dashboard
+POST /plugins/yey-boats-display-manager/devices/:id/command
+GET  /plugins/yey-boats-display-manager/devices/:id/commands
+GET  /plugins/yey-boats-display-manager/devices/:id/commands/:commandId
+POST /plugins/yey-boats-display-manager/devices/:id/commands/:commandId/ack
+POST /plugins/yey-boats-display-manager/devices/:id/commands/:commandId/cancel
+POST /plugins/yey-boats-display-manager/devices/:id/tokens/rotate
+POST /plugins/yey-boats-display-manager/devices/:id/tokens/revoke
+POST /plugins/yey-boats-display-manager/groups/:groupId/command
+POST /plugins/yey-boats-display-manager/automation/event
+GET  /plugins/yey-boats-display-manager/firmware/catalog
+POST /plugins/yey-boats-display-manager/firmware/artifacts
+GET  /plugins/yey-boats-display-manager/firmware/artifacts/:artifactId
+GET  /plugins/yey-boats-display-manager/firmware/download/:jobId
+GET  /plugins/yey-boats-display-manager/devices/:id/firmware/jobs
+POST /plugins/yey-boats-display-manager/devices/:id/firmware/jobs
+GET  /plugins/yey-boats-display-manager/devices/:id/firmware/jobs/:jobId
+POST /plugins/yey-boats-display-manager/devices/:id/firmware/jobs/:jobId/progress
+POST /plugins/yey-boats-display-manager/devices/:id/firmware/confirm
 ```
 
 Discovery announcements are a lightweight bridge for mDNS scanners, future

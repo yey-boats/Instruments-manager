@@ -8,51 +8,51 @@ module.exports = function espdispManagerPlugin (app) {
   let manager
 
   const plugin = {
-    id: 'espdisp-manager',
-    name: 'ESP Display Manager',
-    description: 'Registry, central configuration, command queue, and firmware management for ESP display devices.',
+    id: 'yey-boats-display-manager',
+    name: 'YEY Boats Display Manager',
+    description: 'Registry, central configuration, command queue, and firmware management for YEY Boats marine display devices.',
     schema: () => ({
       type: 'object',
-      title: 'ESP Display Manager',
-      description: 'Open the manager at /signalk-espdisp-manager/ or /plugins/espdisp-manager/ui. It is also discoverable from SignalK Admin > Webapps after the server is restarted.',
+      title: 'YEY Boats Display Manager',
+      description: 'Open the manager at /yey-boats-display-manager/ or /plugins/yey-boats-display-manager/ui. It is also discoverable from SignalK Admin > Webapps after the server is restarted.',
       properties: {
         links: {
           type: 'object',
           title: 'Operator Links',
           readOnly: true,
           default: {
-            webapp: '/signalk-espdisp-manager/',
-            pluginUi: '/plugins/espdisp-manager/ui',
-            devices: '/plugins/espdisp-manager/ui/devices',
-            discovery: '/plugins/espdisp-manager/ui/discovery'
+            webapp: '/yey-boats-display-manager/',
+            pluginUi: '/plugins/yey-boats-display-manager/ui',
+            devices: '/plugins/yey-boats-display-manager/ui/devices',
+            discovery: '/plugins/yey-boats-display-manager/ui/discovery'
           },
           properties: {
             webapp: {
               type: 'string',
               title: 'SignalK webapp',
-              default: '/signalk-espdisp-manager/'
+              default: '/yey-boats-display-manager/'
             },
             pluginUi: {
               type: 'string',
               title: 'Plugin UI',
-              default: '/plugins/espdisp-manager/ui'
+              default: '/plugins/yey-boats-display-manager/ui'
             },
             devices: {
               type: 'string',
               title: 'Devices',
-              default: '/plugins/espdisp-manager/ui/devices'
+              default: '/plugins/yey-boats-display-manager/ui/devices'
             },
             discovery: {
               type: 'string',
               title: 'Discovery',
-              default: '/plugins/espdisp-manager/ui/discovery'
+              default: '/plugins/yey-boats-display-manager/ui/discovery'
             }
           }
         },
         serverId: {
           type: 'string',
           title: 'Server ID',
-          default: 'signalk-espdisp-manager'
+          default: 'yey-boats-display-manager'
         },
         heartbeatMs: {
           type: 'number',
@@ -196,7 +196,7 @@ module.exports = function espdispManagerPlugin (app) {
     start: (options) => {
       manager = new EspDispManager(app, options || {})
       registerAutopilotBridge(app)
-      app.debug('espdisp-manager started')
+      app.debug('yey-boats-display-manager started')
     },
     stop: () => {
       if (manager && manager.close) manager.close()
@@ -212,77 +212,77 @@ module.exports = function espdispManagerPlugin (app) {
     getOpenApi: () => ({
       openapi: '3.0.0',
       info: {
-        title: 'ESP Display Manager',
+        title: 'YEY Boats Display Manager',
         version: pluginPackage.version
       },
       paths: {
-        '/plugins/espdisp-manager/.well-known/espdisp-management': {
+        '/plugins/yey-boats-display-manager/.well-known/espdisp-management': {
           get: { summary: 'Discover ESP display management API' }
         },
-        '/plugins/espdisp-manager/devices/register': {
+        '/plugins/yey-boats-display-manager/devices/register': {
           post: { summary: 'Register or refresh an ESP display device' }
         },
-        '/plugins/espdisp-manager/discovery/devices': {
+        '/plugins/yey-boats-display-manager/discovery/devices': {
           get: { summary: 'List discovered ESP display devices' },
           post: { summary: 'Announce a discovered ESP display device' }
         },
-        '/plugins/espdisp-manager/discovery/scan': {
+        '/plugins/yey-boats-display-manager/discovery/scan': {
           post: { summary: 'Scan IP or BLE transports for ESP display devices' }
         },
-        '/plugins/espdisp-manager/discovery/devices/{deviceId}/claim': {
+        '/plugins/yey-boats-display-manager/discovery/devices/{deviceId}/claim': {
           post: { summary: 'Claim a discovered ESP display device into the registry' }
         },
-        '/plugins/espdisp-manager/capabilities': {
+        '/plugins/yey-boats-display-manager/capabilities': {
           get: { summary: 'Describe manager protocol capabilities' }
         },
-        '/plugins/espdisp-manager/dashboard': {
+        '/plugins/yey-boats-display-manager/dashboard': {
           get: { summary: 'Summarise managed device health and operations' }
         },
-        '/plugins/espdisp-manager/ui': {
+        '/plugins/yey-boats-display-manager/ui': {
           get: { summary: 'Built-in lightweight management console' }
         },
-        '/plugins/espdisp-manager/devices/{deviceId}/status': {
+        '/plugins/yey-boats-display-manager/devices/{deviceId}/status': {
           post: { summary: 'Update device status heartbeat' }
         },
-        '/plugins/espdisp-manager/devices/{deviceId}/live/status': {
+        '/plugins/yey-boats-display-manager/devices/{deviceId}/live/status': {
           get: { summary: 'Read live device /api/state' }
         },
-        '/plugins/espdisp-manager/devices/{deviceId}/live/logs': {
+        '/plugins/yey-boats-display-manager/devices/{deviceId}/live/logs': {
           get: { summary: 'Read live device /api/logs' }
         },
-        '/plugins/espdisp-manager/devices/{deviceId}/config': {
+        '/plugins/yey-boats-display-manager/devices/{deviceId}/config': {
           get: { summary: 'Fetch generated device config' }
         },
-        '/plugins/espdisp-manager/devices/{deviceId}/commands': {
+        '/plugins/yey-boats-display-manager/devices/{deviceId}/commands': {
           get: { summary: 'Poll pending commands' },
           post: { summary: 'Create a command' }
         },
-        '/plugins/espdisp-manager/devices/{deviceId}/commands/{commandId}': {
+        '/plugins/yey-boats-display-manager/devices/{deviceId}/commands/{commandId}': {
           get: { summary: 'Read command state' }
         },
-        '/plugins/espdisp-manager/provisioning/tokens': {
+        '/plugins/yey-boats-display-manager/provisioning/tokens': {
           get: { summary: 'List provisioning tokens' },
           post: { summary: 'Create provisioning token' }
         },
-        '/plugins/espdisp-manager/devices/{deviceId}/profile': {
+        '/plugins/yey-boats-display-manager/devices/{deviceId}/profile': {
           post: { summary: 'Assign profile to a device' }
         },
-        '/plugins/espdisp-manager/profiles/{profileId}/apply': {
+        '/plugins/yey-boats-display-manager/profiles/{profileId}/apply': {
           post: { summary: 'Apply profile to one or more devices' }
         },
-        '/plugins/espdisp-manager/groups/{groupId}/command': {
+        '/plugins/yey-boats-display-manager/groups/{groupId}/command': {
           post: { summary: 'Create command for a device group' }
         },
-        '/plugins/espdisp-manager/automation/event': {
+        '/plugins/yey-boats-display-manager/automation/event': {
           post: { summary: 'Submit automation event' }
         },
-        '/plugins/espdisp-manager/firmware/catalog': {
+        '/plugins/yey-boats-display-manager/firmware/catalog': {
           get: { summary: 'List firmware artifacts' }
         },
-        '/plugins/espdisp-manager/firmware/catalog/refresh': {
+        '/plugins/yey-boats-display-manager/firmware/catalog/refresh': {
           post: { summary: 'Refresh firmware artifacts from GitHub releases' }
         },
-        '/plugins/espdisp-manager/devices/{deviceId}/firmware/jobs': {
+        '/plugins/yey-boats-display-manager/devices/{deviceId}/firmware/jobs': {
           get: { summary: 'List firmware jobs' },
           post: { summary: 'Create firmware update job' }
         }
@@ -450,7 +450,7 @@ function registerRoutes (router, getManager) {
     const result = await manager.scanForDevices(req.body || {})
     if (String(req.headers['content-type'] || '').includes('application/x-www-form-urlencoded')) {
       res.statusCode = 303
-      res.setHeader('location', `/plugins/espdisp-manager/ui/discovery?scan=${encodeURIComponent(result.status)}&found=${result.found}&scanned=${result.scanned}`)
+      res.setHeader('location', `/plugins/yey-boats-display-manager/ui/discovery?scan=${encodeURIComponent(result.status)}&found=${result.found}&scanned=${result.scanned}`)
       res.end()
       return
     }
@@ -466,7 +466,7 @@ function registerRoutes (router, getManager) {
     })
     if (String(req.headers['content-type'] || '').includes('application/x-www-form-urlencoded')) {
       res.statusCode = 303
-      res.setHeader('location', `/plugins/espdisp-manager/ui/devices/${encodeURIComponent(result.deviceId)}?status=registered-through-signalk`)
+      res.setHeader('location', `/plugins/yey-boats-display-manager/ui/devices/${encodeURIComponent(result.deviceId)}?status=registered-through-signalk`)
       res.end()
       return
     }
@@ -482,7 +482,7 @@ function registerRoutes (router, getManager) {
     })
     if (String(req.headers['content-type'] || '').includes('application/x-www-form-urlencoded')) {
       res.statusCode = 303
-      res.setHeader('location', `/plugins/espdisp-manager/ui/devices/${encodeURIComponent(req.params.id)}`)
+      res.setHeader('location', `/plugins/yey-boats-display-manager/ui/devices/${encodeURIComponent(req.params.id)}`)
       res.end()
       return
     }
@@ -569,7 +569,7 @@ function registerRoutes (router, getManager) {
       res.setHeader('Content-Type', 'image/png')
       res.setHeader('Cache-Control', 'no-store')
       // No CORS wildcard: the editor reaches this proxy same-origin
-      // (it's mounted under /plugins/espdisp-manager). Cross-origin
+      // (it's mounted under /plugins/yey-boats-display-manager). Cross-origin
       // callers should not be able to use the SignalK host as an open
       // SSRF gateway into the LAN.
       const buf = Buffer.from(await upstream.arrayBuffer())
@@ -639,7 +639,7 @@ function registerRoutes (router, getManager) {
   router.post('/ui/devices/:id/config', wrap(getManager, (manager, req, res) => {
     const result = saveDeviceConfigForm(manager, req.params.id, req.body || {})
     res.statusCode = 303
-    res.setHeader('location', `/plugins/espdisp-manager/ui/devices/${encodeURIComponent(req.params.id)}/config?status=${encodeURIComponent(result.status)}`)
+    res.setHeader('location', `/plugins/yey-boats-display-manager/ui/devices/${encodeURIComponent(req.params.id)}/config?status=${encodeURIComponent(result.status)}`)
     res.end()
   }))
 
@@ -656,20 +656,20 @@ function registerRoutes (router, getManager) {
   router.post('/ui/devices/:id/delete', wrap(getManager, (manager, req, res) => {
     manager.deleteDevice(req.params.id)
     res.statusCode = 303
-    res.setHeader('location', '/plugins/espdisp-manager/ui/devices')
+    res.setHeader('location', '/plugins/yey-boats-display-manager/ui/devices')
     res.end()
   }))
   // Bulk cleanup of the registered-devices list.
   router.post('/ui/devices/clear-offline', wrap(getManager, (manager, req, res) => {
     const r = manager.deleteOfflineDevices()
     res.statusCode = 303
-    res.setHeader('location', `/plugins/espdisp-manager/ui/devices?cleared=offline&removed=${r.removed}`)
+    res.setHeader('location', `/plugins/yey-boats-display-manager/ui/devices?cleared=offline&removed=${r.removed}`)
     res.end()
   }))
   router.post('/ui/devices/clear-all', wrap(getManager, (manager, req, res) => {
     const r = manager.clearAllDevices()
     res.statusCode = 303
-    res.setHeader('location', `/plugins/espdisp-manager/ui/devices?cleared=all&removed=${r.removed}`)
+    res.setHeader('location', `/plugins/yey-boats-display-manager/ui/devices?cleared=all&removed=${r.removed}`)
     res.end()
   }))
   router.delete('/firmware/artifacts/:artifactId', wrap(getManager, (manager, req, res) => {
@@ -678,7 +678,7 @@ function registerRoutes (router, getManager) {
   router.post('/ui/firmware/artifacts/:artifactId/delete', wrap(getManager, (manager, req, res) => {
     manager.deleteFirmwareArtifact(req.params.artifactId)
     res.statusCode = 303
-    res.setHeader('location', '/plugins/espdisp-manager/ui/firmware')
+    res.setHeader('location', '/plugins/yey-boats-display-manager/ui/firmware')
     res.end()
   }))
 
@@ -697,7 +697,7 @@ function registerRoutes (router, getManager) {
     const dashboard = manager.dashboard()
     const body = `
       <section class="panel" style="padding: 0; overflow: hidden;">
-        <iframe src="/signalk-espdisp-manager/layout-editor.html"
+        <iframe src="/yey-boats-display-manager/layout-editor.html"
                 style="width: 100%; height: calc(100vh - 220px); border: 0; display: block;"
                 title="Layout editor"></iframe>
       </section>`
@@ -712,7 +712,7 @@ function registerRoutes (router, getManager) {
   router.post('/ui/profiles/:id/apply', wrap(getManager, (manager, req, res) => {
     const result = applyPresetForm(manager, req.params.id, req.body || {})
     res.statusCode = 303
-    res.setHeader('location', `/plugins/espdisp-manager/ui/profiles/${encodeURIComponent(req.params.id)}?status=${encodeURIComponent(result.status)}&count=${result.count}`)
+    res.setHeader('location', `/plugins/yey-boats-display-manager/ui/profiles/${encodeURIComponent(req.params.id)}?status=${encodeURIComponent(result.status)}&count=${result.count}`)
     res.end()
   }))
 
@@ -726,7 +726,7 @@ function registerRoutes (router, getManager) {
     })
     res.statusCode = 303
     res.setHeader('location',
-      `/plugins/espdisp-manager/ui/devices/${encodeURIComponent(req.params.id)}` +
+      `/plugins/yey-boats-display-manager/ui/devices/${encodeURIComponent(req.params.id)}` +
       `?status=${encodeURIComponent(result.status)}`)
     res.end()
   }))
@@ -744,7 +744,7 @@ function registerRoutes (router, getManager) {
     }
     res.statusCode = 303
     res.setHeader('location',
-      `/plugins/espdisp-manager/ui/devices/${encodeURIComponent(req.params.id)}` +
+      `/plugins/yey-boats-display-manager/ui/devices/${encodeURIComponent(req.params.id)}` +
       `?status=${encodeURIComponent(status)}`)
     res.end()
   }))
@@ -796,7 +796,7 @@ function registerRoutes (router, getManager) {
     }
     res.statusCode = 303
     res.setHeader('location',
-      `/plugins/espdisp-manager/ui/devices/${encodeURIComponent(id)}?status=${encodeURIComponent(status)}`)
+      `/plugins/yey-boats-display-manager/ui/devices/${encodeURIComponent(id)}?status=${encodeURIComponent(status)}`)
     res.end()
   }))
 
@@ -818,14 +818,14 @@ function registerRoutes (router, getManager) {
       numbering: { prefix: b.prefix, pad: b.pad != null && b.pad !== '' ? parseInt(b.pad, 10) : undefined, next: b.next != null && b.next !== '' ? parseInt(b.next, 10) : undefined }
     })
     res.statusCode = 303
-    res.setHeader('location', '/plugins/espdisp-manager/ui/settings?saved=1')
+    res.setHeader('location', '/plugins/yey-boats-display-manager/ui/settings?saved=1')
     res.end()
   }))
 
   router.post('/ui/firmware/catalog/refresh', wrap(getManager, async (manager, req, res) => {
     await manager.refreshFirmwareFromGithub()
     res.statusCode = 303
-    res.setHeader('location', '/plugins/espdisp-manager/ui/firmware')
+    res.setHeader('location', '/plugins/yey-boats-display-manager/ui/firmware')
     res.end()
   }))
 
@@ -839,7 +839,7 @@ function registerRoutes (router, getManager) {
       }
     })
     res.statusCode = 303
-    res.setHeader('location', '/plugins/espdisp-manager/ui/firmware')
+    res.setHeader('location', '/plugins/yey-boats-display-manager/ui/firmware')
     res.end()
   }))
 
@@ -909,7 +909,7 @@ function registerRoutes (router, getManager) {
     const imported = importDashboardPreset(manager, req.body || {}, req.headers || {})
     if (String(req.headers['content-type'] || '').includes('application/x-www-form-urlencoded')) {
       res.statusCode = 303
-      res.setHeader('location', `/plugins/espdisp-manager/ui/profiles/${encodeURIComponent(imported.id)}`)
+      res.setHeader('location', `/plugins/yey-boats-display-manager/ui/profiles/${encodeURIComponent(imported.id)}`)
       res.end()
       return
     }
@@ -971,7 +971,7 @@ function registerRoutes (router, getManager) {
   //     config-push, Slice 7, once the device registers).
   //   - Device number is assigned server-side at registration, not on payload
   //     fetch (a plain GET/prefetch/reload must not burn device numbers).
-  // Every /plugins/espdisp-manager route is behind the SignalK session.
+  // Every /plugins/yey-boats-display-manager route is behind the SignalK session.
   // Do not add CORS; do not log the secrets.
   router.get('/provisioning/payload', wrap(getManager, (manager, req, res) => {
     const s = manager.getSettings()
@@ -1219,12 +1219,12 @@ function renderUi (manager, page, req) {
 }
 
 function renderUiShell (title, body, dashboard, page = '') {
-  dashboard = dashboard || { serverId: 'signalk-espdisp-manager', generatedAt: new Date().toISOString() }
+  dashboard = dashboard || { serverId: 'yey-boats-display-manager', generatedAt: new Date().toISOString() }
   return `<!doctype html>
 <html>
 <head>
   <meta charset="utf-8">
-  <title>ESP Display Manager · ${escapeHtml(title)}</title>
+  <title>YEY Boats Display Manager · ${escapeHtml(title)}</title>
   <style>
     :root { color-scheme: light dark; font-family: system-ui, sans-serif; }
     body { margin: 0; background: #f5f7f8; color: #172026; }
@@ -1274,7 +1274,7 @@ function renderUiShell (title, body, dashboard, page = '') {
 </head>
 <body>
   <header>
-    <h1>ESP Display Manager</h1>
+    <h1>YEY Boats Display Manager</h1>
     <div class="sub">${escapeHtml(dashboard.serverId)} · ${escapeHtml(dashboard.generatedAt)}</div>
     ${nav(page)}
   </header>
@@ -1353,7 +1353,7 @@ function renderDevicesSection (devices, req, manager) {
   // devices drop into the registered table without a navigation
   // switch.
   const host = req && req.headers && req.headers.host ? req.headers.host : ''
-  const managerUrl = host ? `http://${host}/plugins/espdisp-manager` : '/plugins/espdisp-manager'
+  const managerUrl = host ? `http://${host}/plugins/yey-boats-display-manager` : '/plugins/yey-boats-display-manager'
   const discovered = manager ? manager.listDiscoveredDevices().devices : []
   const pendingDevices = discovered.filter((d) => !d.registered)
   const offlineCount = devices.filter((d) => !d.online).length
@@ -1362,7 +1362,7 @@ function renderDevicesSection (devices, req, manager) {
     ? `<p class="muted" style="color:#2e8b57;">Removed ${escapeHtml(String(q.removed || 0))} ${q.cleared === 'all' ? 'device(s) — list cleared' : 'offline device(s)'}.</p>`
     : ''
   const act = (path, label, confirmMsg, danger) =>
-    `<form method="post" action="/plugins/espdisp-manager/ui/devices/${path}" style="display:inline"
+    `<form method="post" action="/plugins/yey-boats-display-manager/ui/devices/${path}" style="display:inline"
            onsubmit="return confirm('${escapeHtml(confirmMsg)}');">
       <button type="submit"${danger ? ' style="background:#c0392b;border-color:#a82716;"' : ''}>${escapeHtml(label)}</button>
     </form>`
@@ -1372,8 +1372,8 @@ function renderDevicesSection (devices, req, manager) {
       <p class="muted">${devices.length} registered · ${pendingDevices.length} pending</p>
       ${clearedBanner}
       <div class="actions">
-        <a href="/plugins/espdisp-manager/ui/devices">Refresh</a>
-        <a href="/signalk-espdisp-manager/flash.html" target="_blank" rel="noopener">Flash new device (USB)</a>
+        <a href="/plugins/yey-boats-display-manager/ui/devices">Refresh</a>
+        <a href="/yey-boats-display-manager/flash.html" target="_blank" rel="noopener">Flash new device (USB)</a>
         ${devices.length ? act('clear-offline', `Clear offline (${offlineCount})`, `Remove all ${offlineCount} offline device(s) from the list?`, false) : ''}
         ${devices.length ? act('clear-all', `Clear all (${devices.length})`, `Remove ALL ${devices.length} registered device(s)? This cannot be undone.`, true) : ''}
       </div>
@@ -1409,7 +1409,7 @@ function renderPendingDiscoverySection (manager, pendingDevices) {
 
 function renderSignalKRegisterForm (managerUrl) {
   return `
-      <form class="config-form" method="post" action="/plugins/espdisp-manager/devices/register-from-signalk">
+      <form class="config-form" method="post" action="/plugins/yey-boats-display-manager/devices/register-from-signalk">
         <fieldset>
           <legend>Register through SignalK</legend>
           <div class="form-grid">
@@ -1547,9 +1547,9 @@ function renderDevicePage (manager, id, live = {}) {
       <h2>${escapeHtml(device.name || device.id)}</h2>
       <p class="muted">${escapeHtml(device.id)} · ${escapeHtml(device.role)} · ${escapeHtml(device.location || 'unassigned')}</p>
       <p>
-        <a href="/plugins/espdisp-manager/ui/devices/${encodeURIComponent(id)}/config">Open generated config</a>
-        · <a href="/plugins/espdisp-manager/ui/devices/${encodeURIComponent(id)}/live/status">Live status</a>
-        · <a href="/plugins/espdisp-manager/ui/devices/${encodeURIComponent(id)}/live/logs">Live logs</a>
+        <a href="/plugins/yey-boats-display-manager/ui/devices/${encodeURIComponent(id)}/config">Open generated config</a>
+        · <a href="/plugins/yey-boats-display-manager/ui/devices/${encodeURIComponent(id)}/live/status">Live status</a>
+        · <a href="/plugins/yey-boats-display-manager/ui/devices/${encodeURIComponent(id)}/live/logs">Live logs</a>
       </p>
       <div class="lp-panel">
         <div class="lp-head">
@@ -1567,7 +1567,7 @@ function renderDevicePage (manager, id, live = {}) {
               <label class="lp-ctl lp-edit-toggle"><input type="checkbox" id="lp-edit">&nbsp;Edit fields</label>
             </div>
             <form id="lp-form" method="post"
-                  action="/plugins/espdisp-manager/ui/devices/${encodeURIComponent(id)}/save-screen">
+                  action="/plugins/yey-boats-display-manager/ui/devices/${encodeURIComponent(id)}/save-screen">
               <input type="hidden" name="screenId" id="lp-f-screen">
               <input type="hidden" name="edits" id="lp-f-edits">
               <input type="hidden" name="mode" id="lp-f-mode" value="update">
@@ -1588,7 +1588,7 @@ function renderDevicePage (manager, id, live = {}) {
         <datalist id="lp-paths">${previewPaths.map((p) => `<option value="${escapeHtml(p)}"></option>`).join('')}</datalist>
       </div>
       <form class="config-form lp-assign" method="post"
-            action="/plugins/espdisp-manager/ui/devices/${encodeURIComponent(id)}/switch-view">
+            action="/plugins/yey-boats-display-manager/ui/devices/${encodeURIComponent(id)}/switch-view">
         <label for="switch-view-profile">Assigned profile</label>
         <div class="actions">
           <select id="switch-view-profile" name="profileId">${profileOptions}</select>
@@ -1651,8 +1651,8 @@ function renderDevicePage (manager, id, live = {}) {
         .lp-assign label{font-size:12px;color:#8fb8da}
       </style>
       <script>window.__espdispPreview=${previewJson};window.__espdispDeviceId=${JSON.stringify(id)};</script>
-      <script src="/signalk-espdisp-manager/device-hud.js"></script>
-      <script src="/signalk-espdisp-manager/live-preview.js"></script>
+      <script src="/yey-boats-display-manager/device-hud.js"></script>
+      <script src="/yey-boats-display-manager/live-preview.js"></script>
       <div class="config-grid">
         ${renderLiveStatusWidget(live.status, live.statusError)}
         ${renderLiveLogsWidget(live.logs, live.logsError)}
@@ -1716,7 +1716,7 @@ function renderDeviceFirmwareSection (manager, device) {
           </select>
         </label>
         <div id="${formId}">
-          <form method="post" action="/plugins/espdisp-manager/ui/devices/${encodeURIComponent(id)}/firmware/update">
+          <form method="post" action="/plugins/yey-boats-display-manager/ui/devices/${encodeURIComponent(id)}/firmware/update">
             <label class="fw-ctl">Artifact
               <select name="artifactId" style="margin-left:6px;">
                 ${artifactOptions || '<option value="">(no artifacts in catalogue)</option>'}
@@ -1731,7 +1731,7 @@ function renderDeviceFirmwareSection (manager, device) {
           ${ready ? '' : '<p class="muted">Device offline or no artifact — resolve the checklist above before OTA.</p>'}
         </div>
         <div id="${serialId}" style="display:none;">
-          <p><a href="/signalk-espdisp-manager/flash.html" target="_blank" rel="noopener">Flash via USB →</a></p>
+          <p><a href="/yey-boats-display-manager/flash.html" target="_blank" rel="noopener">Flash via USB →</a></p>
           <p class="muted">Plug the device into this computer; flashing runs in your browser.</p>
         </div>
       </div>
@@ -1824,9 +1824,9 @@ function renderLiveStatusPage (manager, id, status) {
     <section class="panel">
       <h2>${escapeHtml(device.name || device.id)} live status</h2>
       <p>
-        <a href="/plugins/espdisp-manager/ui/devices/${encodeURIComponent(id)}">Back to device</a>
-        · <a href="/plugins/espdisp-manager/ui/devices/${encodeURIComponent(id)}/live/status">Refresh</a>
-        · <a href="/plugins/espdisp-manager/devices/${encodeURIComponent(id)}/live/status">Raw JSON</a>
+        <a href="/plugins/yey-boats-display-manager/ui/devices/${encodeURIComponent(id)}">Back to device</a>
+        · <a href="/plugins/yey-boats-display-manager/ui/devices/${encodeURIComponent(id)}/live/status">Refresh</a>
+        · <a href="/plugins/yey-boats-display-manager/devices/${encodeURIComponent(id)}/live/status">Raw JSON</a>
       </p>
       ${keyValueTable(rows)}
       ${status.manager && Array.isArray(status.manager.recentErrors) && status.manager.recentErrors.length
@@ -1854,9 +1854,9 @@ function renderLiveLogsPage (manager, id, logs) {
     <section class="panel">
       <h2>${escapeHtml(device.name || device.id)} live logs</h2>
       <p>
-        <a href="/plugins/espdisp-manager/ui/devices/${encodeURIComponent(id)}">Back to device</a>
-        · <a href="/plugins/espdisp-manager/ui/devices/${encodeURIComponent(id)}/live/logs${logs.lastSeq != null ? `?since=${encodeURIComponent(logs.lastSeq)}` : ''}">Refresh</a>
-        · <a href="/plugins/espdisp-manager/devices/${encodeURIComponent(id)}/live/logs">Raw JSON</a>
+        <a href="/plugins/yey-boats-display-manager/ui/devices/${encodeURIComponent(id)}">Back to device</a>
+        · <a href="/plugins/yey-boats-display-manager/ui/devices/${encodeURIComponent(id)}/live/logs${logs.lastSeq != null ? `?since=${encodeURIComponent(logs.lastSeq)}` : ''}">Refresh</a>
+        · <a href="/plugins/yey-boats-display-manager/devices/${encodeURIComponent(id)}/live/logs">Raw JSON</a>
       </p>
       ${simpleTable(['Seq', 'Time', 'Level', 'Message'], rows, 'No live log entries returned.')}
       <h2>Full log response</h2>
@@ -1878,9 +1878,9 @@ function renderLiveErrorPage (manager, id, title, err) {
     <section class="panel">
       <h2>${escapeHtml(device.name || device.id)} ${escapeHtml(title.toLowerCase())}</h2>
       <p>
-        <a href="/plugins/espdisp-manager/ui/devices/${encodeURIComponent(id)}">Back to device</a>
-        · <a href="/plugins/espdisp-manager/ui/devices/${encodeURIComponent(id)}/live/status">Live status</a>
-        · <a href="/plugins/espdisp-manager/ui/devices/${encodeURIComponent(id)}/live/logs">Live logs</a>
+        <a href="/plugins/yey-boats-display-manager/ui/devices/${encodeURIComponent(id)}">Back to device</a>
+        · <a href="/plugins/yey-boats-display-manager/ui/devices/${encodeURIComponent(id)}/live/status">Live status</a>
+        · <a href="/plugins/yey-boats-display-manager/ui/devices/${encodeURIComponent(id)}/live/logs">Live logs</a>
       </p>
       <table>
         <tbody>
@@ -1910,7 +1910,7 @@ function renderDeviceConfigPage (manager, id) {
         still requires <code>X-EspDisp-Authorization</code>.
       </p>
       <p>
-        <a href="/plugins/espdisp-manager/ui/devices/${encodeURIComponent(id)}">Back to device</a>
+        <a href="/plugins/yey-boats-display-manager/ui/devices/${encodeURIComponent(id)}">Back to device</a>
       </p>
       ${renderDeviceConfigForm(device, config, profiles, views)}
       ${renderDeviceConfigWidget(config, views)}
@@ -1955,7 +1955,7 @@ function saveDeviceConfigForm (manager, id, body) {
       payload: {
         version: config.version,
         hash: config.hash,
-        url: `/plugins/espdisp-manager/devices/${id}/config`
+        url: `/plugins/yey-boats-display-manager/devices/${id}/config`
       }
     })
   }
@@ -1981,7 +1981,7 @@ function applyPresetForm (manager, profileId, body) {
         payload: {
           version: config.version,
           hash: config.hash,
-          url: `/plugins/espdisp-manager/devices/${deviceId}/config`
+          url: `/plugins/yey-boats-display-manager/devices/${deviceId}/config`
         }
       })
     }
@@ -2047,7 +2047,7 @@ function renderDeviceConfigForm (device, config, profiles, views) {
     ? select('defaultScreen', current, dvViews.map((v) => [v.id, `${v.title || v.id} (${screenKindLabel(v.id)})`]))
     : input('defaultScreen', current || 'dashboard')
   return `
-    <form class="config-form" method="post" action="/plugins/espdisp-manager/ui/devices/${encodeURIComponent(device.id)}/config">
+    <form class="config-form" method="post" action="/plugins/yey-boats-display-manager/ui/devices/${encodeURIComponent(device.id)}/config">
       <h2>Configure device</h2>
       <div class="form-grid">
         ${field('Preset', profileSelect(profiles, device.assignedProfile || config.profile))}
@@ -2624,7 +2624,7 @@ function renderDiscoveryPage (manager, devices) {
       <h2>Discovered devices</h2>
       <p class="muted">Devices appear here from Bonjour/mDNS, UDP announcements, IP scans, or authenticated provisioning posts.</p>
       <div class="actions">
-        <a href="/plugins/espdisp-manager/ui/discovery">Refresh</a>
+        <a href="/plugins/yey-boats-display-manager/ui/discovery">Refresh</a>
       </div>
       ${renderDiscoveryScanForm()}
       <table>
@@ -2636,7 +2636,7 @@ function renderDiscoveryPage (manager, devices) {
 
 function renderDiscoveryScanForm () {
   return `
-      <form class="config-form" method="post" action="/plugins/espdisp-manager/discovery/scan">
+      <form class="config-form" method="post" action="/plugins/yey-boats-display-manager/discovery/scan">
         <fieldset>
           <legend>Scan network</legend>
           <div class="form-grid">
@@ -2654,7 +2654,7 @@ function renderDiscoveryScanForm () {
 
 function renderDiscoveryClaimControl (device, profiles) {
   if (device.registered) {
-    return `<a href="/plugins/espdisp-manager/ui/devices/${encodeURIComponent(device.deviceId)}">Open</a>`
+    return `<a href="/plugins/yey-boats-display-manager/ui/devices/${encodeURIComponent(device.deviceId)}">Open</a>`
   }
   const blocked = []
   if (device.stale) blocked.push('stale')
@@ -2662,14 +2662,14 @@ function renderDiscoveryClaimControl (device, profiles) {
   if (!device.address) blocked.push('missing address')
   if (blocked.length) {
     return `
-    <form method="post" action="/plugins/espdisp-manager/discovery/devices/${encodeURIComponent(device.deviceId)}/claim">
+    <form method="post" action="/plugins/yey-boats-display-manager/discovery/devices/${encodeURIComponent(device.deviceId)}/claim">
       ${profileSelect(profiles, 'default')}
       <button type="submit" disabled>Claim</button>
       <p class="muted">Resolve ${escapeHtml(blocked.join(', '))} before claiming.</p>
     </form>`
   }
   return `
-    <form method="post" action="/plugins/espdisp-manager/discovery/devices/${encodeURIComponent(device.deviceId)}/claim">
+    <form method="post" action="/plugins/yey-boats-display-manager/discovery/devices/${encodeURIComponent(device.deviceId)}/claim">
       <input type="hidden" name="role" value="${escapeHtml(device.role || 'display')}">
       <input type="hidden" name="location" value="${escapeHtml(device.location || '')}">
       <input type="hidden" name="sendReload" value="1">
@@ -2681,18 +2681,18 @@ function renderDiscoveryClaimControl (device, profiles) {
 function renderProfilesPage (profiles, devices) {
   const rows = profiles.map((profile) => `
         <tr>
-          <td><strong><a href="/plugins/espdisp-manager/ui/profiles/${encodeURIComponent(profile.id)}">${escapeHtml(profile.name || profile.id)}</a></strong><br><span>${escapeHtml(profile.id)}</span></td>
+          <td><strong><a href="/plugins/yey-boats-display-manager/ui/profiles/${encodeURIComponent(profile.id)}">${escapeHtml(profile.name || profile.id)}</a></strong><br><span>${escapeHtml(profile.id)}</span></td>
           <td>${escapeHtml(profile.version)}</td>
           <td>${escapeHtml(profile.updatedAt || '')}</td>
           <td>${escapeHtml(devices.filter((device) => device.profile === profile.id).length)}</td>
           <td>${escapeHtml(configSummary(profile.config || {}))}</td>
-          <td><code>${escapeHtml(profile.hash || '')}</code><br><span><a href="/plugins/espdisp-manager/profiles/${encodeURIComponent(profile.id)}/dashboard.json">json</a> · <a href="/plugins/espdisp-manager/profiles/${encodeURIComponent(profile.id)}/dashboard.yaml">yaml</a></span></td>
+          <td><code>${escapeHtml(profile.hash || '')}</code><br><span><a href="/plugins/yey-boats-display-manager/profiles/${encodeURIComponent(profile.id)}/dashboard.json">json</a> · <a href="/plugins/yey-boats-display-manager/profiles/${encodeURIComponent(profile.id)}/dashboard.yaml">yaml</a></span></td>
         </tr>`).join('')
   return `
     <section class="panel">
       <h2>Device presets</h2>
       <p class="muted">Presets are shared profiles. Assign them from a device config page, then save per-device overrides or save changes back as a new preset.</p>
-      <form class="config-form" method="post" action="/plugins/espdisp-manager/profiles/import-dashboard">
+      <form class="config-form" method="post" action="/plugins/yey-boats-display-manager/profiles/import-dashboard">
         <h2>Import dashboard preset</h2>
         <div class="form-grid">
           ${field('Preset id', input('presetId', 'imported-dashboard'))}
@@ -2717,7 +2717,7 @@ function renderPresetPage (manager, profileId, devices) {
     return `
       <tr>
         <td><input type="checkbox" name="deviceIds" value="${escapeHtml(device.id)}"${checked}></td>
-        <td><strong><a href="/plugins/espdisp-manager/ui/devices/${encodeURIComponent(device.id)}/config">${escapeHtml(device.name || device.id)}</a></strong><br><span>${escapeHtml(device.id)}</span></td>
+        <td><strong><a href="/plugins/yey-boats-display-manager/ui/devices/${encodeURIComponent(device.id)}/config">${escapeHtml(device.name || device.id)}</a></strong><br><span>${escapeHtml(device.id)}</span></td>
         <td>${escapeHtml(device.profile)}</td>
         <td>${escapeHtml(`${device.display.width}x${device.display.height}`)}</td>
         <td>${device.configDrift ? 'yes' : 'no'}</td>
@@ -2728,7 +2728,7 @@ function renderPresetPage (manager, profileId, devices) {
     <section class="panel">
       <h2>${escapeHtml(profile.name || profile.id)}</h2>
       <p class="muted">${escapeHtml(profile.id)} · version ${escapeHtml(profile.version)} · ${escapeHtml(assigned.length)} device(s)</p>
-      <p><a href="/plugins/espdisp-manager/ui/profiles">Back to presets</a></p>
+      <p><a href="/plugins/yey-boats-display-manager/ui/profiles">Back to presets</a></p>
       <table>
         <tbody>
           <tr><th>Updated</th><td>${escapeHtml(profile.updatedAt || '')}</td></tr>
@@ -2736,7 +2736,7 @@ function renderPresetPage (manager, profileId, devices) {
           <tr><th>Hash</th><td><code>${escapeHtml(profile.hash || '')}</code></td></tr>
         </tbody>
       </table>
-      <form class="config-form" method="post" action="/plugins/espdisp-manager/ui/profiles/${encodeURIComponent(profile.id)}/apply">
+      <form class="config-form" method="post" action="/plugins/yey-boats-display-manager/ui/profiles/${encodeURIComponent(profile.id)}/apply">
         <h2>Apply preset</h2>
         <table>
           <thead><tr><th></th><th>Device</th><th>Current preset</th><th>Display</th><th>Drift</th><th>Pending</th></tr></thead>
@@ -2781,7 +2781,7 @@ function renderFirmwarePage (catalog, jobs, upgrades) {
                  with arbitrary version strings, so we can't trust them
                  inside an inline onsubmit. Static prompt; the row
                  itself shows which artifact is being deleted. -->
-            <form method="post" action="/plugins/espdisp-manager/ui/firmware/artifacts/${encodeURIComponent(artifact.artifactId)}/delete"
+            <form method="post" action="/plugins/yey-boats-display-manager/ui/firmware/artifacts/${encodeURIComponent(artifact.artifactId)}/delete"
                   onsubmit="return confirm('Remove this artifact from catalogue?')"
                   style="margin:0;display:inline;">
               <button type="submit" style="background:#c0392b;border-color:#a82716;">Delete</button>
@@ -2798,7 +2798,7 @@ function renderFirmwarePage (catalog, jobs, upgrades) {
       : '<span>None for this board/chip.</span>'
     const action = device.availableArtifacts.length > 0
       ? device.availableArtifacts.map((artifact) => `
-          <form method="post" action="/plugins/espdisp-manager/ui/devices/${encodeURIComponent(device.deviceId)}/firmware/update" style="display:inline-block; margin:0 6px 6px 0;">
+          <form method="post" action="/plugins/yey-boats-display-manager/ui/devices/${encodeURIComponent(device.deviceId)}/firmware/update" style="display:inline-block; margin:0 6px 6px 0;">
             <input type="hidden" name="artifactId" value="${escapeHtml(artifact.artifactId)}">
             <input type="hidden" name="reboot" value="true">
             <input type="hidden" name="confirmAfterBoot" value="true">
@@ -2810,7 +2810,7 @@ function renderFirmwarePage (catalog, jobs, upgrades) {
       : ''
     return `
         <tr>
-          <td><strong><a href="/plugins/espdisp-manager/ui/devices/${encodeURIComponent(device.deviceId)}">${escapeHtml(device.name)}</a></strong><br><span>${escapeHtml(device.deviceId)}</span></td>
+          <td><strong><a href="/plugins/yey-boats-display-manager/ui/devices/${encodeURIComponent(device.deviceId)}">${escapeHtml(device.name)}</a></strong><br><span>${escapeHtml(device.deviceId)}</span></td>
           <td>${escapeHtml(device.board || '')}<br><span>${escapeHtml(device.chip || '')}</span></td>
           <td>${escapeHtml(device.currentVersion || 'unknown')}</td>
           <td>${versions}</td>
@@ -2822,7 +2822,7 @@ function renderFirmwarePage (catalog, jobs, upgrades) {
   return `
     <section class="panel">
       <h2>Device upgrade status</h2>
-      <form method="post" action="/plugins/espdisp-manager/ui/firmware/catalog/refresh" class="actions" style="margin-bottom: 12px;">
+      <form method="post" action="/plugins/yey-boats-display-manager/ui/firmware/catalog/refresh" class="actions" style="margin-bottom: 12px;">
         <button type="submit">Refresh catalog from GitHub</button>
         <span class="muted">Last GitHub check: ${escapeHtml(github.checkedAt || 'never')} · release ${escapeHtml(github.release || 'unknown')}</span>
       </form>
@@ -2844,14 +2844,14 @@ function renderFirmwarePage (catalog, jobs, upgrades) {
 function deviceTable (devices) {
   const rows = devices.map((device) => `
         <tr>
-          <td><strong><a href="/plugins/espdisp-manager/ui/devices/${encodeURIComponent(device.id)}">${escapeHtml(device.name || device.id)}</a></strong><br><span>${escapeHtml(device.id)}</span></td>
+          <td><strong><a href="/plugins/yey-boats-display-manager/ui/devices/${encodeURIComponent(device.id)}">${escapeHtml(device.name || device.id)}</a></strong><br><span>${escapeHtml(device.id)}</span></td>
           <td><span class="status ${device.online ? 'ok' : 'bad'}">${escapeHtml(device.health)}</span></td>
           <td>${escapeHtml(device.profile)}</td>
           <td>${escapeHtml(`${device.display.width}x${device.display.height}`)}</td>
           <td>${escapeHtml(device.desiredConfig.layoutVariant || '')}</td>
           <td>${escapeHtml(device.desiredConfig.widgetVariant || '')}</td>
           <td>${device.configDrift ? 'yes' : 'no'}</td>
-          <td>${device.pendingCommands}<br><span><a href="/plugins/espdisp-manager/ui/devices/${encodeURIComponent(device.id)}/config">config</a></span></td>
+          <td>${device.pendingCommands}<br><span><a href="/plugins/yey-boats-display-manager/ui/devices/${encodeURIComponent(device.id)}/config">config</a></span></td>
           <td>
             <!-- Static confirm prompt - device.name is attacker-controlled
                  in principle (registers via authenticated POST but still
@@ -2860,7 +2860,7 @@ function deviceTable (devices) {
                  A name like \`'); alert(1); //\` would execute. The device
                  row above already labels which device this Remove button
                  acts on, so a generic prompt is no UX loss. -->
-            <form method="post" action="/plugins/espdisp-manager/ui/devices/${encodeURIComponent(device.id)}/delete"
+            <form method="post" action="/plugins/yey-boats-display-manager/ui/devices/${encodeURIComponent(device.id)}/delete"
                   onsubmit="return confirm('Remove this device? Pending commands are dropped.')"
                   style="margin:0;display:inline;">
               <button type="submit" style="background:#c0392b;border-color:#a82716;">Remove</button>
@@ -2919,7 +2919,7 @@ function renderSettingsPage (manager, req) {
   const passwordInput = (name, isSet) =>
     `<input type="password" name="${escapeHtml(name)}" value=""${isSet ? ' placeholder="(unchanged)"' : ''}>`
   return `
-    <form class="config-form" method="post" action="/plugins/espdisp-manager/ui/settings">
+    <form class="config-form" method="post" action="/plugins/yey-boats-display-manager/ui/settings">
       <h2>System settings</h2>
       ${saved ? '<p class="muted">Saved.</p>' : ''}
       <fieldset>
@@ -2956,16 +2956,16 @@ function nav (active) {
   // editor surfaced as a top-level nav item. Editor link uses the
   // /plugins/.../ui/layout route which serves the editor INSIDE
   // the same iframe shell as the rest of the UI - linking directly
-  // to /signalk-espdisp-manager/layout-editor.html would break out
+  // to /yey-boats-display-manager/layout-editor.html would break out
   // of the iframe and confuse the SK admin sidebar's "back to
   // plugin" affordance.
   // Presets, Layout editor, and Overview dropped from the nav (2026-06).
   // Overview merged into the Devices home page; the /ui/profiles and
   // /ui/layout routes stay defined and reachable, just not surfaced here.
   const items = [
-    ['devices', '/plugins/espdisp-manager/ui', 'Devices'],
-    ['firmware', '/plugins/espdisp-manager/ui/firmware', 'Firmware'],
-    ['settings', '/plugins/espdisp-manager/ui/settings', 'Settings']
+    ['devices', '/plugins/yey-boats-display-manager/ui', 'Devices'],
+    ['firmware', '/plugins/yey-boats-display-manager/ui/firmware', 'Firmware'],
+    ['settings', '/plugins/yey-boats-display-manager/ui/settings', 'Settings']
   ]
   return `<nav>${items.map(([id, href, label]) => `<a class="${active === id ? 'active' : ''}" href="${href}">${label}</a>`).join('')}</nav>`
 }
@@ -3018,7 +3018,7 @@ function writeSignalKMeta (manager, path, limits) {
     }
     if (!Object.keys(value).length) return reject(new Error('no_limits_to_write'))
     try {
-      app.handleMessage('espdisp-manager', {
+      app.handleMessage('yey-boats-display-manager', {
         updates: [{ meta: [{ path: String(path), value }] }]
       })
       resolve()

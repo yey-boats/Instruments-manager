@@ -43,7 +43,7 @@
 
     try {
       log('Fetching provisioning payload from the manager…')
-      const res = await fetch('/plugins/espdisp-manager/provisioning/payload', { credentials: 'include' })
+      const res = await fetch('/plugins/yey-boats-display-manager/provisioning/payload', { credentials: 'include' })
       if (!res.ok) throw new Error('payload HTTP ' + res.status)
       const payload = await res.json()
       const ssid = payload && payload.wifi && payload.wifi.ssid

@@ -17,7 +17,7 @@ async function startHarness () {
   const server = http.createServer((req, res) => {
     try {
       const url = new URL(req.url, 'http://127.0.0.1')
-      if (req.method === 'GET' && url.pathname === '/plugins/espdisp-manager/ui/devices') {
+      if (req.method === 'GET' && url.pathname === '/plugins/yey-boats-display-manager/ui/devices') {
         res.setHeader('content-type', 'text/html; charset=utf-8')
         res.end(plugin._test.renderUi(manager, 'devices', { params: {}, query: {} }))
         return
@@ -45,7 +45,7 @@ test('relogin modal appears when a manager POST resolves to the login page', asy
       window.fetch = async () => ({ status: 200, url: 'http://x/admin/#/login' })
     })
 
-    await page.goto(`${harness.baseUrl}/plugins/espdisp-manager/ui/devices`)
+    await page.goto(`${harness.baseUrl}/plugins/yey-boats-display-manager/ui/devices`)
 
     // Modal starts hidden.
     await expect(page.locator('#relogin-modal')).toBeHidden()
@@ -54,7 +54,7 @@ test('relogin modal appears when a manager POST resolves to the login page', asy
     await page.evaluate(() => {
       const f = document.createElement('form')
       f.method = 'post'
-      f.action = '/plugins/espdisp-manager/ui/devices/clear-offline'
+      f.action = '/plugins/yey-boats-display-manager/ui/devices/clear-offline'
       document.body.appendChild(f)
       if (f.requestSubmit) f.requestSubmit()
       else f.submit()

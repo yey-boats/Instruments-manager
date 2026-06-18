@@ -26,7 +26,7 @@
 (function () {
   'use strict';
 
-  var API = '/plugins/espdisp-manager';
+  var API = '/plugins/yey-boats-display-manager';
 
   // Built-in default manifest mirrors lib/field-schema.js DEFAULT_MANIFEST. Used
   // when the device reports no ui.capabilities so the editor still works.

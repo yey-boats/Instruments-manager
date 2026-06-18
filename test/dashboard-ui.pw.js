@@ -50,12 +50,12 @@ async function startHarness () {
   const server = http.createServer(async (req, res) => {
     try {
       const url = new URL(req.url, 'http://127.0.0.1')
-      if (req.method === 'GET' && url.pathname === '/plugins/espdisp-manager/ui/profiles') {
+      if (req.method === 'GET' && url.pathname === '/plugins/yey-boats-display-manager/ui/profiles') {
         res.setHeader('content-type', 'text/html; charset=utf-8')
         res.end(plugin._test.renderUi(manager, 'profiles', { params: {}, query: {} }))
         return
       }
-      const presetMatch = url.pathname.match(/^\/plugins\/espdisp-manager\/ui\/profiles\/([^/]+)$/)
+      const presetMatch = url.pathname.match(/^\/plugins\/yey-boats-display-manager\/ui\/profiles\/([^/]+)$/)
       if (req.method === 'GET' && presetMatch) {
         res.setHeader('content-type', 'text/html; charset=utf-8')
         res.end(plugin._test.renderUi(manager, 'preset', {
@@ -64,7 +64,7 @@ async function startHarness () {
         }))
         return
       }
-      const configMatch = url.pathname.match(/^\/plugins\/espdisp-manager\/ui\/devices\/([^/]+)\/config$/)
+      const configMatch = url.pathname.match(/^\/plugins\/yey-boats-display-manager\/ui\/devices\/([^/]+)\/config$/)
       if (req.method === 'GET' && configMatch) {
         res.setHeader('content-type', 'text/html; charset=utf-8')
         res.end(plugin._test.renderUi(manager, 'deviceConfig', {
@@ -73,21 +73,21 @@ async function startHarness () {
         }))
         return
       }
-      if (req.method === 'POST' && url.pathname === '/plugins/espdisp-manager/profiles/import-dashboard') {
+      if (req.method === 'POST' && url.pathname === '/plugins/yey-boats-display-manager/profiles/import-dashboard') {
         const form = parseForm(await readBody(req))
         const imported = plugin._test.importDashboardPreset(manager, form, {
           'content-type': 'application/x-www-form-urlencoded'
         })
         res.statusCode = 303
-        res.setHeader('location', `/plugins/espdisp-manager/ui/profiles/${encodeURIComponent(imported.id)}`)
+        res.setHeader('location', `/plugins/yey-boats-display-manager/ui/profiles/${encodeURIComponent(imported.id)}`)
         res.end()
         return
       }
-      const applyMatch = url.pathname.match(/^\/plugins\/espdisp-manager\/ui\/profiles\/([^/]+)\/apply$/)
+      const applyMatch = url.pathname.match(/^\/plugins\/yey-boats-display-manager\/ui\/profiles\/([^/]+)\/apply$/)
       if (req.method === 'POST' && applyMatch) {
         plugin._test.applyPresetForm(manager, decodeURIComponent(applyMatch[1]), parseForm(await readBody(req)))
         res.statusCode = 303
-        res.setHeader('location', `/plugins/espdisp-manager/ui/profiles/${applyMatch[1]}`)
+        res.setHeader('location', `/plugins/yey-boats-display-manager/ui/profiles/${applyMatch[1]}`)
         res.end()
         return
       }
@@ -111,7 +111,7 @@ async function startHarness () {
 test('operator creates a missing dashboard preset and applies populated real-data widgets', async ({ page }) => {
   const harness = await startHarness()
   try {
-    await page.goto(`${harness.baseUrl}/plugins/espdisp-manager/ui/profiles`)
+    await page.goto(`${harness.baseUrl}/plugins/yey-boats-display-manager/ui/profiles`)
 
     const dashboard = {
       kind: 'espdisp.dashboard.v1',
@@ -154,7 +154,7 @@ test('operator creates a missing dashboard preset and applies populated real-dat
     harness.firmware.pollAndExecute()
     harness.firmware.heartbeat()
 
-    await page.goto(`${harness.baseUrl}/plugins/espdisp-manager/ui/devices/espdisp-playwright-wide/config`)
+    await page.goto(`${harness.baseUrl}/plugins/yey-boats-display-manager/ui/devices/espdisp-playwright-wide/config`)
     await expect(page.locator('select[name="profileId"]')).toHaveValue('playwright-real-data')
     await expect(page.getByText('navigation.speedOverGround')).toBeVisible()
     await expect(page.getByText('environment.wind.angleApparent')).toBeVisible()

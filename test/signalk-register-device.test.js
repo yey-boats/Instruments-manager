@@ -49,12 +49,12 @@ module.exports = (async () => {
       port,
       profileId: 'default',
       sendManagerRegister: true,
-      managerUrl: 'http://signalk.local:3000/plugins/espdisp-manager'
+      managerUrl: 'http://signalk.local:3000/plugins/yey-boats-display-manager'
     })
 
     assert.strictEqual(result.deviceId, 'espdisp-register-test')
     assert.strictEqual(result.deviceCommand.status, 'sent')
-    assert.strictEqual(postedCommand, 'manager-register http://signalk.local:3000/plugins/espdisp-manager')
+    assert.strictEqual(postedCommand, 'manager-register http://signalk.local:3000/plugins/yey-boats-display-manager')
 
     const device = manager.getDevice('espdisp-register-test')
     assert.strictEqual(device.claimed, true)

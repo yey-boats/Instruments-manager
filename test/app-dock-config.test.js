@@ -10,8 +10,8 @@ const config = readJson(
 assert.ok(config)
 const apps = config.configuration && config.configuration.apps
 assert.ok(Array.isArray(apps))
-const tile = apps.find((app) => app.url === '/signalk-espdisp-manager/')
+const tile = apps.find((app) => app.url === '/yey-boats-display-manager/')
 assert.ok(tile)
 assert.strictEqual(tile.enabled, true)
 assert.strictEqual(tile.label, 'ESP Displays')
-assert.strictEqual(tile.icon, '/signalk-espdisp-manager/icon.svg')
+assert.strictEqual(tile.icon, '/yey-boats-display-manager/icon.svg')

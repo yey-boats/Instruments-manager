@@ -13,7 +13,7 @@ function once (emitter, event) {
 }
 
 module.exports = (async () => {
-  const dataDir = fs.mkdtempSync(path.join(os.tmpdir(), 'espdisp-manager-udp-'))
+  const dataDir = fs.mkdtempSync(path.join(os.tmpdir(), 'yey-boats-display-manager-udp-'))
   const app = {
     getDataDirPath: () => dataDir,
     debug: () => {}
@@ -44,5 +44,5 @@ module.exports = (async () => {
   assert.strictEqual(reply.serverId, 'test-sk')
   assert.strictEqual(reply.host, 'auto')
   assert.strictEqual(reply.port, 3000)
-  assert.strictEqual(reply.manager.basePath, '/plugins/espdisp-manager')
+  assert.strictEqual(reply.manager.basePath, '/plugins/yey-boats-display-manager')
 })()

@@ -13,7 +13,7 @@ function once (emitter, event) {
 }
 
 module.exports = (async () => {
-  const dataDir = fs.mkdtempSync(path.join(os.tmpdir(), 'espdisp-manager-device-udp-'))
+  const dataDir = fs.mkdtempSync(path.join(os.tmpdir(), 'yey-boats-display-manager-device-udp-'))
   const app = {
     getDataDirPath: () => dataDir,
     debug: () => {}
