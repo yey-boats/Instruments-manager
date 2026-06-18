@@ -1541,6 +1541,7 @@ function renderDevicePage (manager, id, live = {}) {
       `${escapeHtml(s.title)}</option>`)
     .join('')
   const previewJson = JSON.stringify(previewData).replace(/</g, '\\u003c')
+  const otaSection = renderDeviceFirmwareSection(manager, device)
   return `
     <section class="panel">
       <h2>${escapeHtml(device.name || device.id)}</h2>
@@ -1668,9 +1669,87 @@ function renderDevicePage (manager, id, live = {}) {
       </table>
       <h2>Recent commands</h2>
       ${commandTable(commands)}
+      ${otaSection}
       <h2>Firmware jobs</h2>
       ${firmwareJobTable(jobs)}
     </section>`
+}
+
+// Per-device "Update Firmware" control. Reuses the EXISTING OTA mechanism: the
+// OTA form POSTs to .../firmware/update which calls manager.createFirmwareJob;
+// the device pulls + self-flashes the artifact. A connection pre-flight
+// (manager.validateOtaTarget — same online predicate as the device table)
+// renders a checklist and disables the OTA submit when an OTA can't succeed.
+// The serial path just links to the in-browser Flash tool (flash.html).
+function renderDeviceFirmwareSection (manager, device) {
+  const id = device.id
+  const v = manager.validateOtaTarget(id)
+  const artifacts = (manager.store.firmware.artifacts || [])
+    .slice()
+    .sort((a, b) => String((b.firmware && b.firmware.version) || b.version || '')
+      .localeCompare(String((a.firmware && a.firmware.version) || a.version || ''),
+        undefined, { numeric: true, sensitivity: 'base' }))
+  const artifactOptions = artifacts.map((artifact) => {
+    const version = (artifact.firmware && artifact.firmware.version) || artifact.version || artifact.artifactId
+    return `<option value="${escapeHtml(artifact.artifactId)}">${escapeHtml(`${version} · ${artifact.artifactId}`)}</option>`
+  }).join('')
+  const check = (label, ok, hint) =>
+    `<li><span class="status ${ok ? 'ok' : 'bad'}">${ok ? '✓' : '✗'}</span> ${escapeHtml(label)}${hint ? ` <span class="muted">${escapeHtml(hint)}</span>` : ''}</li>`
+  const ready = v.ready
+  // Unique ids so the inline toggle script is scoped to this section.
+  const formId = 'fw-ota-form'
+  const serialId = 'fw-serial'
+  const methodSel = 'fw-method'
+  return `
+      <h2>Update Firmware</h2>
+      <div class="config-section">
+        ${v.exists ? '' : '<p class="muted">Device is not registered.</p>'}
+        <ul class="fw-checklist" style="list-style:none;padding:0;margin:0 0 12px;display:flex;flex-direction:column;gap:6px;">
+          ${check('Online', v.online, v.online ? '' : 'no recent heartbeat')}
+          ${check('Address known', v.addressKnown, v.addressKnown ? '' : 'no IP / hostname resolved')}
+          ${check('Artifact in catalogue', v.hasArtifact, v.hasArtifact ? '' : 'upload firmware first')}
+        </ul>
+        <label class="fw-ctl" style="display:block;margin-bottom:10px;">Method
+          <select id="${methodSel}" style="margin-left:6px;">
+            <option value="ota" selected>OTA (over WiFi)</option>
+            <option value="serial">Serial (USB)</option>
+          </select>
+        </label>
+        <div id="${formId}">
+          <form method="post" action="/plugins/espdisp-manager/ui/devices/${encodeURIComponent(id)}/firmware/update">
+            <label class="fw-ctl">Artifact
+              <select name="artifactId" style="margin-left:6px;">
+                ${artifactOptions || '<option value="">(no artifacts in catalogue)</option>'}
+              </select>
+            </label>
+            <input type="hidden" name="reboot" value="true">
+            <input type="hidden" name="confirmAfterBoot" value="true">
+            <div class="actions" style="margin-top:10px;">
+              <button type="submit"${ready ? '' : ' disabled'}>Queue OTA update</button>
+            </div>
+          </form>
+          ${ready ? '' : '<p class="muted">Device offline or no artifact — resolve the checklist above before OTA.</p>'}
+        </div>
+        <div id="${serialId}" style="display:none;">
+          <p><a href="/signalk-espdisp-manager/flash.html" target="_blank" rel="noopener">Flash via USB →</a></p>
+          <p class="muted">Plug the device into this computer; flashing runs in your browser.</p>
+        </div>
+      </div>
+      <script>
+        (function () {
+          var sel = document.getElementById('${methodSel}')
+          var ota = document.getElementById('${formId}')
+          var serial = document.getElementById('${serialId}')
+          if (!sel || !ota || !serial) return
+          function sync () {
+            var serialMode = sel.value === 'serial'
+            ota.style.display = serialMode ? 'none' : ''
+            serial.style.display = serialMode ? '' : 'none'
+          }
+          sel.addEventListener('change', sync)
+          sync()
+        })()
+      </script>`
 }
 
 function renderLiveStatusWidget (status, err) {
