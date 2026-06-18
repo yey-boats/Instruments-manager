@@ -964,6 +964,20 @@ function registerRoutes (router, getManager) {
     res.json(manager.listFirmware())
   }))
 
+  // Server-sourced provisioning payload for the browser WebSerial flow
+  // (public/provision.js). Returns the REAL boat WiFi + OTA password and a
+  // freshly-allocated device number. This is acceptable because every
+  // /plugins/espdisp-manager route is behind the SignalK session, same as
+  // the rest of the manager. Do not add CORS; do not log the secrets.
+  router.get('/provisioning/payload', wrap(getManager, (manager, req, res) => {
+    const s = manager.getSettings()
+    res.json({
+      wifi: { ssid: s.network.ssid, password: s.network.password, mdnsDomain: s.network.mdnsDomain },
+      ota: s.ota.password,
+      number: manager.allocateDeviceNumber()
+    })
+  }))
+
   router.post('/firmware/catalog/refresh', wrap(getManager, async (manager, req, res) => {
     res.json(await manager.refreshFirmwareFromGithub())
   }))
@@ -1359,6 +1373,7 @@ function renderDevicesSection (devices, req, manager) {
       ${clearedBanner}
       <div class="actions">
         <a href="/plugins/espdisp-manager/ui/devices">Refresh</a>
+        <a href="/signalk-espdisp-manager/flash.html" target="_blank" rel="noopener">Flash new device (USB)</a>
         ${devices.length ? act('clear-offline', `Clear offline (${offlineCount})`, `Remove all ${offlineCount} offline device(s) from the list?`, false) : ''}
         ${devices.length ? act('clear-all', `Clear all (${devices.length})`, `Remove ALL ${devices.length} registered device(s)? This cannot be undone.`, true) : ''}
       </div>

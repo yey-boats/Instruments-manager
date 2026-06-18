@@ -1,0 +1,194 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Flash new device (USB) · ESP Display Manager</title>
+  <!--
+    esp-web-tools is vendored same-origin under vendor/ (version 10.2.1).
+    install-button.js is a code-split ES module: it lazily import()s its
+    sibling chunks (install-dialog, per-chip esptool stubs, styles) by
+    relative path, so the whole dist/web/ tree lives next to it in vendor/.
+    The <esp-web-install-button> custom element is defined when the module
+    loads. WebSerial (navigator.serial) only exists in a secure context
+    (https or http://localhost), so the page gates on that below.
+  -->
+  <script type="module" src="vendor/install-button.js"></script>
+  <style>
+    :root { color-scheme: dark; }
+    body {
+      margin: 0;
+      font: 15px/1.5 -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
+      background: #0f1720;
+      color: #e6edf3;
+      padding: 24px;
+    }
+    main { max-width: 720px; margin: 0 auto; }
+    h1 { font-size: 22px; margin: 0 0 4px; }
+    h2 { font-size: 17px; margin: 28px 0 8px; }
+    p { margin: 8px 0; }
+    .muted { color: #9fb0c0; }
+    .panel {
+      background: #161f2b;
+      border: 1px solid #243042;
+      border-radius: 10px;
+      padding: 18px;
+      margin: 16px 0;
+    }
+    .step { font-weight: 600; color: #6fb3ff; }
+    label { display: block; margin: 10px 0 4px; font-weight: 600; }
+    select, button {
+      font: inherit;
+      padding: 8px 12px;
+      border-radius: 8px;
+      border: 1px solid #34465c;
+      background: #1d2836;
+      color: #e6edf3;
+    }
+    select { min-width: 280px; }
+    button { cursor: pointer; }
+    button:hover { background: #25344a; }
+    button:disabled { opacity: .5; cursor: not-allowed; }
+    .notice {
+      background: #3a2a12;
+      border: 1px solid #8a5a18;
+      color: #ffd9a0;
+      border-radius: 8px;
+      padding: 12px 14px;
+      margin: 12px 0;
+    }
+    .notice code { background: rgba(0,0,0,.3); padding: 1px 5px; border-radius: 4px; }
+    pre#prov-log {
+      background: #0b121b;
+      border: 1px solid #243042;
+      border-radius: 8px;
+      padding: 12px;
+      max-height: 320px;
+      overflow: auto;
+      white-space: pre-wrap;
+      word-break: break-word;
+      font: 13px/1.45 "SFMono-Regular", Menlo, Consolas, monospace;
+      color: #b8c7d6;
+      margin-top: 12px;
+    }
+    a { color: #6fb3ff; }
+    .row { display: flex; align-items: center; gap: 12px; flex-wrap: wrap; }
+    esp-web-install-button { display: inline-block; margin-top: 12px; }
+  </style>
+</head>
+<body>
+<main>
+  <h1>Flash new device (USB)</h1>
+  <p class="muted">
+    Plug a fresh Sunton ESP32-4848S040 into this computer over USB, then
+    do two things in order: <strong>(1) flash</strong> the firmware, then
+    <strong>(2) provision</strong> it onto the boat WiFi. Both steps talk
+    to the device directly from your browser over USB serial.
+  </p>
+
+  <!-- Shown only when WebSerial / secure context is unavailable. -->
+  <div id="insecure-notice" class="notice" hidden>
+    USB flashing needs a secure context. Open this page via
+    <code>http://localhost</code> (e.g. the SSH tunnel) or HTTPS, on the
+    computer the device is plugged into. Browsers only expose USB serial
+    (<code>navigator.serial</code>) to secure origins, so the buttons
+    below are hidden until then.
+  </div>
+
+  <section class="panel">
+    <h2><span class="step">Step 1.</span> Flash firmware</h2>
+    <p class="muted">Pick the firmware build, then click Connect and follow the prompts to erase &amp; write.</p>
+    <label for="artifact">Firmware build</label>
+    <div class="row">
+      <select id="artifact"><option value="">Loading catalog…</option></select>
+      <esp-web-install-button id="btn">
+        <button slot="activate" type="button">Connect &amp; install</button>
+        <span slot="unsupported">WebSerial is not supported in this browser. Use Chrome or Edge over HTTPS / localhost.</span>
+        <span slot="not-allowed">Serial access was not granted.</span>
+      </esp-web-install-button>
+    </div>
+    <p id="artifact-status" class="muted"></p>
+  </section>
+
+  <section class="panel">
+    <h2><span class="step">Step 2.</span> Provision over serial</h2>
+    <p class="muted">
+      After the device finishes flashing and reboots, click below. The
+      manager sends the boat WiFi credentials over USB serial. The device
+      number and OTA password are applied later by the server once the
+      device registers, so they are not sent here.
+    </p>
+    <button id="provision" type="button">Provision over serial</button>
+    <pre id="prov-log">(provisioning log will appear here)</pre>
+  </section>
+
+  <p class="muted"><a href="/plugins/espdisp-manager/ui/devices">&larr; Back to Devices</a></p>
+</main>
+
+<script>
+  // ---- artifact catalog → <select> ------------------------------------
+  // The catalog route returns the firmware store: { artifacts: [ ... ] }.
+  // Each artifact has an `artifactId` and the version under
+  // `firmware.version` (falling back to `version` for older records).
+  const sel = document.getElementById('artifact')
+  const btn = document.getElementById('btn')
+  const status = document.getElementById('artifact-status')
+
+  function applyManifest () {
+    const id = sel.value
+    if (!id) { btn.removeAttribute('manifest'); return }
+    btn.manifest = '/plugins/espdisp-manager/firmware/manifest/' + encodeURIComponent(id)
+  }
+
+  async function loadCatalog () {
+    try {
+      const res = await fetch('/plugins/espdisp-manager/firmware/catalog', { credentials: 'include' })
+      if (!res.ok) throw new Error('catalog HTTP ' + res.status)
+      const catalog = await res.json()
+      const artifacts = (catalog && catalog.artifacts) || []
+      sel.innerHTML = ''
+      if (!artifacts.length) {
+        sel.innerHTML = '<option value="">No firmware artifacts — import some on the Firmware page</option>'
+        status.textContent = 'The catalog is empty. Add or refresh firmware artifacts first.'
+        applyManifest()
+        return
+      }
+      for (const a of artifacts) {
+        const ver = (a.firmware && a.firmware.version) || a.version || '?'
+        const opt = document.createElement('option')
+        opt.value = a.artifactId
+        opt.textContent = 'v' + ver
+        sel.appendChild(opt)
+      }
+      applyManifest()
+      status.textContent = artifacts.length + ' build(s) available.'
+    } catch (err) {
+      sel.innerHTML = '<option value="">Failed to load catalog</option>'
+      status.textContent = 'Could not load the firmware catalog: ' + err.message
+    }
+  }
+
+  sel.addEventListener('change', applyManifest)
+
+  // ---- secure-context gate --------------------------------------------
+  // navigator.serial is only present in secure contexts. Hide the flash
+  // button and the provision button, and show the notice, when we cannot
+  // talk to USB serial. esp-web-tools itself also needs this.
+  function gateSecureContext () {
+    const ok = ('serial' in navigator) && window.isSecureContext
+    if (!ok) {
+      document.getElementById('insecure-notice').hidden = false
+      btn.style.display = 'none'
+      const prov = document.getElementById('provision')
+      prov.disabled = true
+      prov.title = 'WebSerial unavailable — open via localhost or HTTPS'
+    }
+    return ok
+  }
+
+  gateSecureContext()
+  loadCatalog()
+</script>
+<script type="module" src="provision.js"></script>
+</body>
+</html>
