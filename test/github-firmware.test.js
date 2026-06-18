@@ -17,35 +17,35 @@ module.exports = (async () => {
   }, auth)
 
   const githubFetch = async (url) => {
-    if (url === 'https://api.github.com/repos/navado/esp32-boat-mfd/releases/latest') {
+    if (url === 'https://api.github.com/repos/yey-boats/instruments/releases/latest') {
       return {
         ok: true,
         json: async () => ({
           tag_name: 'v0.6.0',
           prerelease: false,
-          html_url: 'https://github.com/navado/esp32-boat-mfd/releases/tag/v0.6.0',
+          html_url: 'https://github.com/yey-boats/instruments/releases/tag/v0.6.0',
           assets: [
             {
               name: 'esp32-4848s040-merged_firmware.bin',
               size: 2097152,
               content_type: 'application/octet-stream',
-              browser_download_url: 'https://github.com/navado/esp32-boat-mfd/releases/download/v0.6.0/esp32-4848s040-merged_firmware.bin'
+              browser_download_url: 'https://github.com/yey-boats/instruments/releases/download/v0.6.0/esp32-4848s040-merged_firmware.bin'
             },
             {
               name: 'waveshare-touch-lcd-7b_1024x600-merged_firmware.bin',
               size: 2098000,
               content_type: 'application/octet-stream',
-              browser_download_url: 'https://github.com/navado/esp32-boat-mfd/releases/download/v0.6.0/waveshare-touch-lcd-7b_1024x600-merged_firmware.bin'
+              browser_download_url: 'https://github.com/yey-boats/instruments/releases/download/v0.6.0/waveshare-touch-lcd-7b_1024x600-merged_firmware.bin'
             },
             {
               name: 'SHA256SUMS',
-              browser_download_url: 'https://github.com/navado/esp32-boat-mfd/releases/download/v0.6.0/SHA256SUMS'
+              browser_download_url: 'https://github.com/yey-boats/instruments/releases/download/v0.6.0/SHA256SUMS'
             }
           ]
         })
       }
     }
-    if (url === 'https://github.com/navado/esp32-boat-mfd/releases/download/v0.6.0/SHA256SUMS') {
+    if (url === 'https://github.com/yey-boats/instruments/releases/download/v0.6.0/SHA256SUMS') {
       return {
         ok: true,
         text: async () => [

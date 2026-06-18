@@ -54,7 +54,7 @@ const ack = manager.ackCommand('espdisp-aabbccddeeff', command.id, {
 assert.strictEqual(ack.status, 'acknowledged')
 
 const artifact = manager.addFirmwareArtifact({
-  vendor: { id: 'navado', name: 'Navado' },
+  vendor: { id: 'yey-boats', name: 'Yey Boats Project' },
   product: { id: 'espdisp', name: 'ESP Display' },
   firmware: { version: '0.4.1' },
   compatibility: { boards: ['esp32-4848s040'] },

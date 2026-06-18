@@ -45,7 +45,7 @@ firmware.heartbeat()
 assert.strictEqual(manager.getDevice(firmware.deviceId).status.ui.theme, 'night')
 
 const artifact = manager.addFirmwareArtifact({
-  vendor: { id: 'navado', name: 'Navado' },
+  vendor: { id: 'yey-boats', name: 'Yey Boats Project' },
   product: { id: 'espdisp', name: 'ESP Display' },
   firmware: { name: 'espdisp', version: '0.5.1', channel: 'dev' },
   compatibility: { boards: ['sunton_4848s040'], chip: 'ESP32-S3' },

@@ -209,7 +209,7 @@ const automation = manager.automationEvent({
 assert.strictEqual(automation.actions.length, 1)
 
 const artifact = manager.addFirmwareArtifact({
-  vendor: { id: 'navado', name: 'Navado', trust: { level: 'local', allowUnsigned: true } },
+  vendor: { id: 'yey-boats', name: 'Yey Boats Project', trust: { level: 'local', allowUnsigned: true } },
   product: { id: 'espdisp', name: 'ESP Display' },
   firmware: {
     name: 'espdisp',
@@ -301,7 +301,7 @@ const expired = manager.createCommand(deviceId, {
 assert.strictEqual(manager.getCommand(deviceId, expired.id).status, 'expired')
 
 const incompatible = manager.addFirmwareArtifact({
-  vendor: { id: 'navado', name: 'Navado' },
+  vendor: { id: 'yey-boats', name: 'Yey Boats Project' },
   product: { id: 'espdisp', name: 'ESP Display' },
   firmware: { name: 'espdisp', version: '9.9.9' },
   compatibility: { boards: ['other-board'] },

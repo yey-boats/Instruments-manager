@@ -140,8 +140,8 @@ module.exports = function yeyBoatsDisplayManagerPlugin (app) {
               description: 'Imports firmware artifacts from GitHub release assets for software upgrades.',
               properties: {
                 enabled: { type: 'boolean', title: 'Enabled', default: true },
-                owner: { type: 'string', title: 'GitHub owner', default: 'navado' },
-                repo: { type: 'string', title: 'GitHub repository', default: 'esp32-boat-mfd' },
+                owner: { type: 'string', title: 'GitHub owner', default: 'yey-boats' },
+                repo: { type: 'string', title: 'GitHub repository', default: 'instruments' },
                 includePrereleases: { type: 'boolean', title: 'Include prereleases', default: false }
               }
             }
