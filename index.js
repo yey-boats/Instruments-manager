@@ -965,17 +965,17 @@ function registerRoutes (router, getManager) {
   }))
 
   // Server-sourced provisioning payload for the browser WebSerial flow
-  // (public/provision.js). Returns the REAL boat WiFi + OTA password and a
-  // freshly-allocated device number. This is acceptable because every
-  // /plugins/espdisp-manager route is behind the SignalK session, same as
-  // the rest of the manager. Do not add CORS; do not log the secrets.
+  // (public/provision.js). Returns only the WiFi credentials needed for the
+  // serial bootstrap. OTA password and device number are NEVER returned here:
+  //   - OTA password must not transit the client (applied server-side via
+  //     config-push, Slice 7, once the device registers).
+  //   - Device number is assigned server-side at registration, not on payload
+  //     fetch (a plain GET/prefetch/reload must not burn device numbers).
+  // Every /plugins/espdisp-manager route is behind the SignalK session.
+  // Do not add CORS; do not log the secrets.
   router.get('/provisioning/payload', wrap(getManager, (manager, req, res) => {
     const s = manager.getSettings()
-    res.json({
-      wifi: { ssid: s.network.ssid, password: s.network.password, mdnsDomain: s.network.mdnsDomain },
-      ota: s.ota.password,
-      number: manager.allocateDeviceNumber()
-    })
+    res.json({ wifi: { ssid: s.network.ssid, password: s.network.password, mdnsDomain: s.network.mdnsDomain } })
   }))
 
   router.post('/firmware/catalog/refresh', wrap(getManager, async (manager, req, res) => {

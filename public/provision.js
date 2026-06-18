@@ -50,7 +50,7 @@
       const pass = (payload && payload.wifi && payload.wifi.password) || ''
       if (!ssid) throw new Error('no WiFi SSID configured in System Settings')
       // Never log the password.
-      log('Will join WiFi network "' + ssid + '". Allocated device number: ' + (payload.number || '(none)') + '.')
+      log('Will join WiFi network "' + ssid + '".')
 
       log('Requesting a serial port — pick the device in the browser prompt…')
       port = await navigator.serial.requestPort()
