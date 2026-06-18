@@ -31,19 +31,17 @@ It is used for local firmware testing with:
 - repo-owned `yey-boats-display-manager` plugin for display registry, dashboard presets,
   generated dashboard config, command delivery, and firmware job testing
 
-Project-level manager concepts and screenshots are documented in
-[`docs/yey-boats-display-manager.md`](../docs/yey-boats-display-manager.md).
+Project-level manager concepts and screenshots are documented in the
+[plugin README](../README.md).
 
-Current manager UI screenshots are stored under `docs/images/`:
+Current manager UI screenshots are stored under `docs/images/` (see the
+[plugin README](../README.md) for these rendered inline):
 
 ```text
-signalk-manager-overview.png
-signalk-manager-devices.png
-signalk-manager-device-config.png
-signalk-manager-device-config-day.png
-signalk-manager-presets.png
-signalk-manager-preset-apply.png
-signalk-manager-preset-apply-day.png
+devices-home.png      # merged Devices console (stats, discovery, registered table)
+system-settings.png   # network / OTA password / device-numbering defaults
+device-detail.png     # live HUD, command queue, Update Firmware (serial/OTA + validation)
+flash-usb.png         # ESP Web Tools USB flashing
 ```
 
 ## Start
@@ -373,8 +371,7 @@ keep the same generated dashboard schema while adding:
 - import/export compatibility with the existing `espdisp.dashboard.v1`
   preset format
 
-The detailed builder scope, implementation outline, and documentation critique
-are in [SignalK YEY Boats Display Manager](../docs/yey-boats-display-manager.md#visual-layout-builder).
+The layout builder is summarized in the [plugin README](../README.md#capabilities).
 
 Presets are implemented with the plugin profile store. A device's generated
 dashboard config is:
