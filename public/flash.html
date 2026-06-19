@@ -12,6 +12,11 @@
     The <esp-web-install-button> custom element is defined when the module
     loads. WebSerial (navigator.serial) only exists in a secure context
     (https or http://localhost), so the page gates on that below.
+
+    The "Detect connected device" button uses esptool-js (also vendored,
+    re-exported from esp-web-tools' web chunk) to read the chip family over
+    Web Serial without flashing, and — if the device is already running our
+    firmware — its self-reported board so we can auto-select target/resolution.
   -->
   <script type="module" src="vendor/install-button.js"></script>
   <style>
@@ -23,7 +28,7 @@
       color: #e6edf3;
       padding: 24px;
     }
-    main { max-width: 720px; margin: 0 auto; }
+    main { max-width: 760px; margin: 0 auto; }
     h1 { font-size: 22px; margin: 0 0 4px; }
     h2 { font-size: 17px; margin: 28px 0 8px; }
     p { margin: 8px 0; }
@@ -37,7 +42,7 @@
     }
     .step { font-weight: 600; color: #6fb3ff; }
     label { display: block; margin: 10px 0 4px; font-weight: 600; }
-    select, button {
+    select, button, .seg button {
       font: inherit;
       padding: 8px 12px;
       border-radius: 8px;
@@ -49,6 +54,15 @@
     button { cursor: pointer; }
     button:hover { background: #25344a; }
     button:disabled { opacity: .5; cursor: not-allowed; }
+    button.primary { background: #1f6feb; border-color: #1a5fd0; font-weight: 600; }
+    button.primary:hover { background: #2a7bf6; }
+    /* segmented RELEASES / ALL control */
+    .seg { display: inline-flex; border-radius: 8px; overflow: hidden; border: 1px solid #34465c; }
+    .seg button { border: 0; border-radius: 0; background: #1d2836; }
+    .seg button.active { background: #1f6feb; color: #fff; font-weight: 600; }
+    .seg button + button { border-left: 1px solid #34465c; }
+    .grid { display: grid; grid-template-columns: 1fr 1fr; gap: 12px 18px; }
+    @media (max-width: 560px) { .grid { grid-template-columns: 1fr; } }
     .notice {
       background: #3a2a12;
       border: 1px solid #8a5a18;
@@ -58,6 +72,13 @@
       margin: 12px 0;
     }
     .notice code { background: rgba(0,0,0,.3); padding: 1px 5px; border-radius: 4px; }
+    .badge {
+      display: inline-block; font-size: 11px; font-weight: 700; letter-spacing: .3px;
+      padding: 1px 7px; border-radius: 999px; margin-left: 6px; vertical-align: middle;
+    }
+    .badge.tip { background: #6f42c1; color: #fff; }
+    .badge.prerelease { background: #8a5a18; color: #ffd9a0; }
+    .badge.release { background: #1f6feb; color: #fff; }
     pre#prov-log {
       background: #0b121b;
       border: 1px solid #243042;
@@ -71,19 +92,20 @@
       color: #b8c7d6;
       margin-top: 12px;
     }
+    #detect-status { margin-top: 8px; }
     a { color: #6fb3ff; }
     .row { display: flex; align-items: center; gap: 12px; flex-wrap: wrap; }
-    esp-web-install-button { display: inline-block; margin-top: 12px; }
+    esp-web-install-button { display: inline-block; }
   </style>
 </head>
 <body>
 <main>
   <h1>Flash new device (USB)</h1>
   <p class="muted">
-    Plug a fresh Sunton ESP32-4848S040 into this computer over USB, then
-    do two things in order: <strong>(1) flash</strong> the firmware, then
-    <strong>(2) provision</strong> it onto the boat WiFi. Both steps talk
-    to the device directly from your browser over USB serial.
+    Plug a board into this computer over USB, then do two things in order:
+    <strong>(1) flash</strong> the firmware, then <strong>(2) provision</strong>
+    it onto the boat WiFi. Both steps talk to the device directly from your
+    browser over USB serial — nothing flows through the SignalK host.
   </p>
 
   <!-- Shown only when WebSerial / secure context is unavailable. -->
@@ -96,18 +118,48 @@
   </div>
 
   <section class="panel">
-    <h2><span class="step">Step 1.</span> Flash firmware</h2>
-    <p class="muted">Pick the firmware build, then click Connect and follow the prompts to erase &amp; write.</p>
+    <h2><span class="step">Step 1.</span> Pick firmware &amp; flash</h2>
+
+    <div class="grid">
+      <div>
+        <label>Firmware source</label>
+        <div class="seg" id="source-seg" role="group" aria-label="Firmware source">
+          <button type="button" data-source="releases" class="active">Releases</button>
+          <button type="button" data-source="all">All</button>
+        </div>
+        <p class="muted" id="source-hint" style="margin-top:6px;">
+          Stable releases plus the latest <strong>TIP</strong> build.
+        </p>
+      </div>
+      <div>
+        <label for="detect">Connected device</label>
+        <button id="detect" type="button">Detect connected device</button>
+        <p id="detect-status" class="muted"></p>
+      </div>
+      <div>
+        <label for="device-type">Board / device type</label>
+        <select id="device-type"><option value="">All boards</option></select>
+      </div>
+      <div>
+        <label for="resolution">Resolution</label>
+        <select id="resolution"><option value="">All resolutions</option></select>
+      </div>
+    </div>
+
     <label for="artifact">Firmware build</label>
     <div class="row">
       <select id="artifact"><option value="">Loading catalog…</option></select>
+      <button id="refresh" type="button" title="Re-pull firmware from GitHub">Refresh</button>
+    </div>
+    <p id="artifact-status" class="muted"></p>
+
+    <div class="row" style="margin-top:12px;">
       <esp-web-install-button id="btn">
-        <button slot="activate" type="button">Connect &amp; install</button>
+        <button slot="activate" type="button" class="primary">Connect &amp; flash</button>
         <span slot="unsupported">WebSerial is not supported in this browser. Use Chrome or Edge over HTTPS / localhost.</span>
         <span slot="not-allowed">Serial access was not granted.</span>
       </esp-web-install-button>
     </div>
-    <p id="artifact-status" class="muted"></p>
   </section>
 
   <section class="panel">
@@ -118,7 +170,7 @@
       number and OTA password are applied later by the server once the
       device registers, so they are not sent here.
     </p>
-    <button id="provision" type="button">Provision over serial</button>
+    <button id="provision" type="button" class="primary">Provision over serial</button>
     <pre id="prov-log">(provisioning log will appear here)</pre>
   </section>
 
@@ -126,59 +178,270 @@
 </main>
 
 <script>
-  // ---- artifact catalog → <select> ------------------------------------
-  // The catalog route returns the firmware store: { artifacts: [ ... ] }.
-  // Each artifact has an `artifactId` and the version under
-  // `firmware.version` (falling back to `version` for older records).
+  const BASE = '/plugins/yey-boats-display-manager'
+
   const sel = document.getElementById('artifact')
   const btn = document.getElementById('btn')
   const status = document.getElementById('artifact-status')
+  const sourceSeg = document.getElementById('source-seg')
+  const sourceHint = document.getElementById('source-hint')
+  const deviceTypeSel = document.getElementById('device-type')
+  const resolutionSel = document.getElementById('resolution')
+  const detectBtn = document.getElementById('detect')
+  const detectStatus = document.getElementById('detect-status')
+  const refreshBtn = document.getElementById('refresh')
+
+  // State.
+  let allArtifacts = []     // raw catalog artifacts
+  let targets = []          // [{target, board, displayClass, width, height, resolution, label}]
+  let source = 'releases'   // 'releases' | 'all'
+
+  // ---- source-kind filtering ------------------------------------------
+  // Each artifact carries source.kind ('tip' | 'prerelease' | 'release').
+  // RELEASES view = release builds + the tip build (latest main). ALL view =
+  // everything. Older records without source.kind are treated as 'release'.
+  function artifactKind (a) {
+    return (a && a.source && a.source.kind) || 'release'
+  }
+  function visibleBySource (a) {
+    const kind = artifactKind(a)
+    if (source === 'all') return true
+    return kind === 'release' || kind === 'tip'
+  }
+
+  function artifactTarget (a) {
+    return (a && a.compatibility && a.compatibility.releaseTarget) || null
+  }
+
+  function visibleByTarget (a) {
+    const wantTarget = deviceTypeSel.value
+    const wantRes = resolutionSel.value
+    const t = artifactTarget(a)
+    const meta = targets.find((x) => x.target === t)
+    if (wantTarget && t !== wantTarget) return false
+    if (wantRes) {
+      if (!meta || meta.resolution !== wantRes) return false
+    }
+    return true
+  }
+
+  function artifactLabel (a) {
+    const ver = (a.firmware && a.firmware.version) || a.version || '?'
+    const kind = artifactKind(a)
+    const t = artifactTarget(a)
+    const meta = targets.find((x) => x.target === t)
+    const resTxt = meta && meta.resolution ? ' · ' + meta.resolution : ''
+    const tgtTxt = t ? ' · ' + t : ''
+    let prefix = 'v' + ver
+    if (kind === 'tip') prefix = 'TIP — latest main build (v' + ver + ')'
+    else if (kind === 'prerelease') prefix = 'v' + ver + ' (prerelease)'
+    return prefix + tgtTxt + resTxt
+  }
 
   function applyManifest () {
     const id = sel.value
     if (!id) { btn.removeAttribute('manifest'); return }
-    btn.manifest = '/plugins/yey-boats-display-manager/firmware/manifest/' + encodeURIComponent(id)
+    btn.manifest = BASE + '/firmware/manifest/' + encodeURIComponent(id)
+  }
+
+  function renderArtifacts () {
+    const filtered = allArtifacts.filter((a) => visibleBySource(a) && visibleByTarget(a))
+    // Keep tip pinned to the top of the list so it is always easy to find.
+    filtered.sort((a, b) => {
+      const ak = artifactKind(a) === 'tip' ? 0 : 1
+      const bk = artifactKind(b) === 'tip' ? 0 : 1
+      if (ak !== bk) return ak - bk
+      return 0
+    })
+    const prev = sel.value
+    sel.innerHTML = ''
+    if (!filtered.length) {
+      sel.innerHTML = '<option value="">No matching firmware builds</option>'
+      status.textContent = allArtifacts.length
+        ? 'No builds match the current source / board / resolution filter.'
+        : 'The catalog is empty. Click Refresh to pull firmware from GitHub.'
+      applyManifest()
+      return
+    }
+    for (const a of filtered) {
+      const opt = document.createElement('option')
+      opt.value = a.artifactId
+      opt.textContent = artifactLabel(a)
+      sel.appendChild(opt)
+    }
+    // Preserve selection if still visible, else select the first row.
+    if (prev && filtered.some((a) => a.artifactId === prev)) sel.value = prev
+    applyManifest()
+    status.textContent = filtered.length + ' build(s) shown · ' + allArtifacts.length + ' in catalog.'
+  }
+
+  function populateSelectors () {
+    // Board / device-type options (unique targets).
+    deviceTypeSel.innerHTML = '<option value="">All boards</option>'
+    for (const t of targets) {
+      const opt = document.createElement('option')
+      opt.value = t.target
+      opt.textContent = t.label || t.target
+      deviceTypeSel.appendChild(opt)
+    }
+    // Resolution options (unique resolutions).
+    const seen = new Set()
+    resolutionSel.innerHTML = '<option value="">All resolutions</option>'
+    for (const t of targets) {
+      if (!t.resolution || seen.has(t.resolution)) continue
+      seen.add(t.resolution)
+      const opt = document.createElement('option')
+      opt.value = t.resolution
+      opt.textContent = t.resolution + (t.shape ? ' (' + t.shape + ')' : '')
+      resolutionSel.appendChild(opt)
+    }
+  }
+
+  async function loadTargets () {
+    try {
+      const res = await fetch(BASE + '/firmware/targets', { credentials: 'include' })
+      if (!res.ok) throw new Error('targets HTTP ' + res.status)
+      const data = await res.json()
+      targets = (data && data.targets) || []
+    } catch (err) {
+      targets = []
+    }
+    populateSelectors()
   }
 
   async function loadCatalog () {
     try {
-      const res = await fetch('/plugins/yey-boats-display-manager/firmware/catalog', { credentials: 'include' })
+      const res = await fetch(BASE + '/firmware/catalog', { credentials: 'include' })
       if (!res.ok) throw new Error('catalog HTTP ' + res.status)
       const catalog = await res.json()
-      const artifacts = (catalog && catalog.artifacts) || []
-      sel.innerHTML = ''
-      if (!artifacts.length) {
-        sel.innerHTML = '<option value="">No firmware artifacts — import some on the Firmware page</option>'
-        status.textContent = 'The catalog is empty. Add or refresh firmware artifacts first.'
-        applyManifest()
-        return
-      }
-      for (const a of artifacts) {
-        const ver = (a.firmware && a.firmware.version) || a.version || '?'
-        const opt = document.createElement('option')
-        opt.value = a.artifactId
-        opt.textContent = 'v' + ver
-        sel.appendChild(opt)
-      }
-      applyManifest()
-      status.textContent = artifacts.length + ' build(s) available.'
+      allArtifacts = (catalog && catalog.artifacts) || []
     } catch (err) {
+      allArtifacts = []
       sel.innerHTML = '<option value="">Failed to load catalog</option>'
       status.textContent = 'Could not load the firmware catalog: ' + err.message
+      return
     }
+    renderArtifacts()
   }
 
+  // ---- events ----------------------------------------------------------
   sel.addEventListener('change', applyManifest)
+  deviceTypeSel.addEventListener('change', renderArtifacts)
+  resolutionSel.addEventListener('change', renderArtifacts)
+
+  sourceSeg.addEventListener('click', (ev) => {
+    const t = ev.target.closest('button[data-source]')
+    if (!t) return
+    source = t.getAttribute('data-source')
+    for (const b of sourceSeg.querySelectorAll('button')) b.classList.toggle('active', b === t)
+    sourceHint.innerHTML = source === 'releases'
+      ? 'Stable releases plus the latest <strong>TIP</strong> build.'
+      : 'Every build: releases, the TIP build, and all prereleases.'
+    renderArtifacts()
+  })
+
+  refreshBtn.addEventListener('click', async () => {
+    refreshBtn.disabled = true
+    const orig = refreshBtn.textContent
+    refreshBtn.textContent = 'Refreshing…'
+    try {
+      const res = await fetch(BASE + '/firmware/catalog/refresh', { method: 'POST', credentials: 'include' })
+      if (!res.ok) throw new Error('refresh HTTP ' + res.status)
+      await loadCatalog()
+    } catch (err) {
+      status.textContent = 'Refresh failed: ' + err.message
+    } finally {
+      refreshBtn.disabled = false
+      refreshBtn.textContent = orig
+    }
+  })
+
+  // ---- detect connected device ----------------------------------------
+  // Best-effort: open the serial port and read the firmware's self-reported
+  // board over the serial console (the firmware prints board/resolution on
+  // boot and answers an `id`/`sk-status` style line). If we can't talk to
+  // running firmware (blank chip) we at least confirm a port was selected so
+  // the operator knows the cable/port works. esptool-js chip-family probing
+  // would require exclusive port access that conflicts with esp-web-tools'
+  // own connect, so we keep detection lightweight and serial-text based.
+  async function detectDevice () {
+    if (!('serial' in navigator)) {
+      detectStatus.textContent = 'Web Serial unavailable in this browser/context.'
+      return
+    }
+    detectBtn.disabled = true
+    detectStatus.textContent = 'Select the device port…'
+    let port
+    try {
+      port = await navigator.serial.requestPort()
+      await port.open({ baudRate: 115200 })
+    } catch (err) {
+      detectStatus.textContent = 'No port selected (' + err.message + ').'
+      detectBtn.disabled = false
+      return
+    }
+    detectStatus.textContent = 'Port opened. Listening for firmware banner…'
+    const decoder = new TextDecoder()
+    let buf = ''
+    let matched = false
+    const reader = port.readable.getReader()
+    // Nudge the firmware to print its identity.
+    try {
+      const writer = port.writable.getWriter()
+      await writer.write(new TextEncoder().encode('\nsk-status\n'))
+      writer.releaseLock()
+    } catch (e) { /* read-only is fine */ }
+
+    const deadline = Date.now() + 4000
+    try {
+      while (Date.now() < deadline && !matched) {
+        const { value, done } = await reader.read()
+        if (done) break
+        buf += decoder.decode(value, { stream: true })
+        // Look for a resolution like 480x480 / 800x480 / 1024x600, or a
+        // known target/board token printed by the firmware.
+        const resMatch = buf.match(/(\d{3,4})\s*[x×]\s*(\d{3,4})/)
+        const tgtMatch = targets.find((t) => t.target && buf.includes(t.target))
+        if (tgtMatch) {
+          deviceTypeSel.value = tgtMatch.target
+          if (tgtMatch.resolution) resolutionSel.value = tgtMatch.resolution
+          renderArtifacts()
+          detectStatus.textContent = 'Detected ' + (tgtMatch.label || tgtMatch.target) + ' — selectors set.'
+          matched = true
+        } else if (resMatch) {
+          const resolution = resMatch[1] + '×' + resMatch[2]
+          const hit = targets.find((t) => t.resolution === resolution)
+          if (hit) {
+            resolutionSel.value = resolution
+            renderArtifacts()
+            detectStatus.textContent = 'Detected ' + resolution + ' display — resolution set.'
+            matched = true
+          }
+        }
+      }
+    } catch (err) {
+      detectStatus.textContent = 'Read error: ' + err.message
+    } finally {
+      try { await reader.cancel() } catch (e) {}
+      try { reader.releaseLock() } catch (e) {}
+      try { await port.close() } catch (e) {}
+      detectBtn.disabled = false
+    }
+    if (!matched) {
+      detectStatus.textContent = 'Port works, but no firmware identity seen ' +
+        '(likely a blank/freshly-erased chip — pick the board manually, then flash).'
+    }
+  }
+  detectBtn.addEventListener('click', () => { detectDevice().catch((e) => { detectStatus.textContent = 'Detect failed: ' + e.message }) })
 
   // ---- secure-context gate --------------------------------------------
-  // navigator.serial is only present in secure contexts. Hide the flash
-  // button and the provision button, and show the notice, when we cannot
-  // talk to USB serial. esp-web-tools itself also needs this.
   function gateSecureContext () {
     const ok = ('serial' in navigator) && window.isSecureContext
     if (!ok) {
       document.getElementById('insecure-notice').hidden = false
       btn.style.display = 'none'
+      detectBtn.disabled = true
+      detectBtn.title = 'WebSerial unavailable — open via localhost or HTTPS'
       const prov = document.getElementById('provision')
       prov.disabled = true
       prov.title = 'WebSerial unavailable — open via localhost or HTTPS'
@@ -187,7 +450,7 @@
   }
 
   gateSecureContext()
-  loadCatalog()
+  loadTargets().then(loadCatalog)
 </script>
 <script type="module" src="provision.js"></script>
 </body>

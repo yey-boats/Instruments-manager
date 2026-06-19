@@ -282,6 +282,9 @@ module.exports = function yeyBoatsDisplayManagerPlugin (app) {
         '/plugins/yey-boats-display-manager/firmware/catalog/refresh': {
           post: { summary: 'Refresh firmware artifacts from GitHub releases' }
         },
+        '/plugins/yey-boats-display-manager/firmware/targets': {
+          get: { summary: 'List firmware target/board/resolution table' }
+        },
         '/plugins/yey-boats-display-manager/devices/{deviceId}/firmware/jobs': {
           get: { summary: 'List firmware jobs' },
           post: { summary: 'Create firmware update job' }
@@ -1000,8 +1003,13 @@ function registerRoutes (router, getManager) {
     res.end(JSON.stringify(man))
   }))
 
-  router.get('/firmware/artifacts/:artifactId/binary', wrap(getManager, (manager, req, res) => {
-    const file = manager.firmwareArtifactFile(req.params.artifactId)
+  // esp-web-tools (browser USB flasher) streams the binary from this
+  // same-origin route. Local uploads have file.path; GitHub artifacts only
+  // have file.url, so firmwareArtifactBinary downloads-on-demand into a
+  // sha-verified local cache, then we stream that — flashing stays
+  // browser-local, GitHub is never proxied through the device/network.
+  router.get('/firmware/artifacts/:artifactId/binary', wrap(getManager, async (manager, req, res) => {
+    const file = await manager.firmwareArtifactBinary(req.params.artifactId)
     if (!file) {
       res.status(404).json({ error: { code: 'artifact_binary_missing' } })
       return
@@ -1018,6 +1026,10 @@ function registerRoutes (router, getManager) {
         }
       })
       .pipe(res)
+  }))
+
+  router.get('/firmware/targets', wrap(getManager, (manager, req, res) => {
+    res.json(manager.firmwareTargets())
   }))
 
   router.get('/firmware/download/:jobId', wrap(getManager, (manager, req, res) => {

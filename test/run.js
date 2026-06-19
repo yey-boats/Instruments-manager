@@ -48,6 +48,7 @@ require('./proto-control.test')
   .then(() => Promise.all([
     require('./knob-contract.test'),
     require('./github-firmware.test'),
+    require('./firmware-source-kind.test'),
     require('./udp-discovery.test'),
     require('./device-udp-discovery.test'),
     require('./discovery-scan.test'),
