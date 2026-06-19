@@ -1,6 +1,6 @@
 const assert = require('assert')
 const { makeManager } = require('./test-utils')
-const { manager } = makeManager({ auth: { mode: 'dev-shared-token', devToken: 't' }, network: { domain: 'local', hostnamePrefix: 'espdisp', namingPolicy: 'device-id' } })
+const { manager } = makeManager({ auth: { mode: 'dev-shared-token', devToken: 't' }, network: { domain: 'local', hostnamePrefix: 'yey-d', namingPolicy: 'device-id' } })
 manager.store.firmware.artifacts.push({ artifactId: 'fw-1', version: '0.5.0', file: { path: '/tmp/firmware-factory.bin', name: 'firmware-factory.bin', sha256: 'abc', size: 2202336, contentType: 'application/octet-stream' } })
 const man = manager.firmwareManifest('fw-1')
 assert.equal(man.name, 'yey-display')

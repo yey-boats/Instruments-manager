@@ -6,37 +6,37 @@ const { manager } = makeManager({
 })
 
 const reg = manager.registerDevice({
-  device: { id: 'espdisp-token-test', name: 'Token Test' }
+  device: { id: 'yey-d-token-test', name: 'Token Test' }
 }, { provision: 'provision-secret' })
 
 assert.ok(reg.deviceToken)
-let device = manager.getDevice('espdisp-token-test')
+let device = manager.getDevice('yey-d-token-test')
 assert.strictEqual(device.deviceToken, undefined)
 assert.ok(device.deviceTokenHash.startsWith('sha256:'))
-assert.strictEqual(manager.authStatus('espdisp-token-test').provisioned, true)
+assert.strictEqual(manager.authStatus('yey-d-token-test').provisioned, true)
 
-const heartbeat = manager.updateStatus('espdisp-token-test', {
-  config: { hash: manager.generateConfig('espdisp-token-test').hash, applied: true }
+const heartbeat = manager.updateStatus('yey-d-token-test', {
+  config: { hash: manager.generateConfig('yey-d-token-test').hash, applied: true }
 }, { bearer: reg.deviceToken })
 assert.strictEqual(heartbeat.status, 'ok')
 
-const rotated = manager.rotateDeviceToken('espdisp-token-test')
+const rotated = manager.rotateDeviceToken('yey-d-token-test')
 assert.ok(rotated.deviceToken)
-device = manager.getDevice('espdisp-token-test')
+device = manager.getDevice('yey-d-token-test')
 assert.strictEqual(device.deviceToken, undefined)
 assert.ok(device.deviceTokenHash.startsWith('sha256:'))
 
 assert.throws(() => {
-  manager.updateStatus('espdisp-token-test', {}, { bearer: reg.deviceToken })
+  manager.updateStatus('yey-d-token-test', {}, { bearer: reg.deviceToken })
 }, /invalid device token/)
-assert.strictEqual(manager.updateStatus('espdisp-token-test', {}, {
+assert.strictEqual(manager.updateStatus('yey-d-token-test', {}, {
   bearer: rotated.deviceToken
 }).status, 'ok')
 
-manager.revokeDeviceToken('espdisp-token-test')
-assert.strictEqual(manager.authStatus('espdisp-token-test').provisioned, false)
+manager.revokeDeviceToken('yey-d-token-test')
+assert.strictEqual(manager.authStatus('yey-d-token-test').provisioned, false)
 assert.throws(() => {
-  manager.updateStatus('espdisp-token-test', {}, { bearer: rotated.deviceToken })
+  manager.updateStatus('yey-d-token-test', {}, { bearer: rotated.deviceToken })
 }, /invalid device token/)
 
 const legacy = makeManager({ auth: { mode: 'provision-token', provisionToken: 'legacy-provision' } })
@@ -46,13 +46,13 @@ assert.strictEqual(legacy.manager.store.provisioning.tokens[0].token, undefined)
 assert.ok(legacy.manager.store.provisioning.tokens[0].tokenHash.startsWith('sha256:'))
 
 const provisioned = legacy.manager.registerDevice({
-  device: { id: 'espdisp-provision-hash' }
+  device: { id: 'yey-d-provision-hash' }
 }, { provision: 'one-time-provision' })
 assert.strictEqual(provisioned.status, 'registered')
 assert.strictEqual(legacy.manager.store.provisioning.tokens[0].usesRemaining, 0)
 
-legacy.manager.store.registry.devices['espdisp-legacy-token'] = {
-  id: 'espdisp-legacy-token',
+legacy.manager.store.registry.devices['yey-d-legacy-token'] = {
+  id: 'yey-d-legacy-token',
   name: 'Legacy Token',
   deviceToken: 'old-cleartext-token',
   deviceTokenId: 'old',
@@ -60,10 +60,10 @@ legacy.manager.store.registry.devices['espdisp-legacy-token'] = {
 }
 legacy.manager.store.saveRegistry()
 
-assert.strictEqual(legacy.manager.updateStatus('espdisp-legacy-token', {}, {
+assert.strictEqual(legacy.manager.updateStatus('yey-d-legacy-token', {}, {
   bearer: 'old-cleartext-token'
 }).status, 'ok')
-const migrated = legacy.manager.getDevice('espdisp-legacy-token')
+const migrated = legacy.manager.getDevice('yey-d-legacy-token')
 assert.strictEqual(migrated.deviceToken, undefined)
 assert.ok(migrated.deviceTokenHash.startsWith('sha256:'))
 
@@ -77,7 +77,7 @@ legacy.manager.store.provisioning.tokens.push({
 })
 legacy.manager.store.saveProvisioning()
 const legacyProvReg = legacy.manager.registerDevice({
-  device: { id: 'espdisp-legacy-provision' }
+  device: { id: 'yey-d-legacy-provision' }
 }, { provision: 'legacy-clear-provision' })
 assert.strictEqual(legacyProvReg.status, 'registered')
 const legacyProv = legacy.manager.store.provisioning.tokens.find((item) => {

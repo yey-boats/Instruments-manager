@@ -4,21 +4,21 @@ const { MockFirmware } = require('./mock-firmware')
 
 const { manager, auth } = makeManager({
   auth: { mode: 'dev-shared-token', devToken: 'test-token' },
-  network: { domain: 'local', hostnamePrefix: 'espdisp', namingPolicy: 'device-id' }
+  network: { domain: 'local', hostnamePrefix: 'yey-d', namingPolicy: 'device-id' }
 })
 
 const firmware = new MockFirmware(manager, {
-  deviceId: 'espdisp-mockfw',
+  deviceId: 'yey-d-mockfw',
   auth,
   version: '0.5.0-dev'
 })
 
 const registration = firmware.register()
 assert.strictEqual(registration.status, 'registered')
-assert.strictEqual(registration.deviceId, 'espdisp-mockfw')
+assert.strictEqual(registration.deviceId, 'yey-d-mockfw')
 
 const config = firmware.fetchConfig()
-assert.strictEqual(config.deviceId, 'espdisp-mockfw')
+assert.strictEqual(config.deviceId, 'yey-d-mockfw')
 assert.strictEqual(config.hash, firmware.fetchConfig().hash)
 
 const heartbeat = firmware.heartbeat()
@@ -46,11 +46,11 @@ assert.strictEqual(manager.getDevice(firmware.deviceId).status.ui.theme, 'night'
 
 const artifact = manager.addFirmwareArtifact({
   vendor: { id: 'yey-boats', name: 'Yey Boats Project' },
-  product: { id: 'espdisp', name: 'ESP Display' },
+  product: { id: 'yey-display', name: 'YEY Display' },
   firmware: { name: 'yey-display', version: '0.5.1', channel: 'dev' },
   compatibility: { boards: ['sunton_4848s040'], chip: 'ESP32-S3' },
   file: {
-    name: 'espdisp-0.5.1-esp32-4848s040.bin',
+    name: 'yey-d-0.5.1-esp32-4848s040.bin',
     size: 2048,
     sha256: 'sha256:dddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddd'
   }

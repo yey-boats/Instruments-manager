@@ -11,7 +11,7 @@ const { makeManager } = require('./test-utils')
 async function startHarness () {
   const { manager } = makeManager({
     auth: { mode: 'dev-shared-token', devToken: 'test-token' },
-    network: { domain: 'local', hostnamePrefix: 'espdisp', namingPolicy: 'device-id' }
+    network: { domain: 'local', hostnamePrefix: 'yey-d', namingPolicy: 'device-id' }
   })
 
   const server = http.createServer((req, res) => {

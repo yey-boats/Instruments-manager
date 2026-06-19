@@ -46,9 +46,9 @@ const { manager, auth } = makeManager({
   auth: { mode: 'dev-shared-token', devToken: 'test-token' }
 })
 
-const ownId = 'espdisp-knob00000001' // the knob's own id (firmware skips this)
-const withScreensId = 'espdisp-helm00000002' // device with a resolved layout
-const noScreensId = 'espdisp-aux000000003' // device that falls back
+const ownId = 'yey-d-knob00000001' // the knob's own id (firmware skips this)
+const withScreensId = 'yey-d-helm00000002' // device with a resolved layout
+const noScreensId = 'yey-d-aux000000003' // device that falls back
 
 manager.registerDevice({
   device: {

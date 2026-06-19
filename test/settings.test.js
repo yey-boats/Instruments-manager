@@ -2,7 +2,7 @@ const assert = require('assert')
 const { makeManager } = require('./test-utils')
 const { manager } = makeManager({
   auth: { mode: 'dev-shared-token', devToken: 't' },
-  network: { domain: 'local', hostnamePrefix: 'espdisp', namingPolicy: 'device-id' }
+  network: { domain: 'local', hostnamePrefix: 'yey-d', namingPolicy: 'device-id' }
 })
 const s0 = manager.getSettings()
 assert.equal(typeof s0.network, 'object'); assert.equal(typeof s0.ota, 'object')

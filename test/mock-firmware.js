@@ -1,7 +1,7 @@
 class MockFirmware {
   constructor (manager, options) {
     this.manager = manager
-    this.deviceId = options.deviceId || 'espdisp-mock'
+    this.deviceId = options.deviceId || 'yey-d-mock'
     this.auth = options.auth
     this.name = options.name !== undefined ? options.name : 'Mock ESP Display'
     this.screen = 'dashboard'

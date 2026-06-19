@@ -9,7 +9,7 @@ const DEFAULTS = {
   durationSec: 120,
   heartbeatMs: 30000,
   commandPollMs: 15000,
-  deviceToken: process.env.ESPDISP_MANAGER_TOKEN || 'espdisp-dev',
+  deviceToken: process.env.ESPDISP_MANAGER_TOKEN || 'yeyboats-dev',
   signalkToken: process.env.SIGNALK_TOKEN || '',
   username: process.env.SIGNALK_USERNAME || 'admin',
   password: process.env.SIGNALK_PASSWORD || 'admin',
@@ -74,7 +74,7 @@ Options:
   --heartbeat-ms <n>          Status POST interval per device (default: ${DEFAULTS.heartbeatMs})
   --command-poll-ms <n>       Command poll GET interval per device (default: ${DEFAULTS.commandPollMs})
   --config-every <n>          Fetch config every n heartbeats; 0 disables periodic config GET
-  --device-token <token>      ESP manager device/dev token (default: $ESPDISP_MANAGER_TOKEN or espdisp-dev)
+  --device-token <token>      ESP manager device/dev token (default: $ESPDISP_MANAGER_TOKEN or yeyboats-dev)
   --token <token>             Alias for --device-token
   --signalk-token <token>     Existing SignalK bearer token (default: $SIGNALK_TOKEN)
   --username <name>           SignalK login username when no --signalk-token (default: $SIGNALK_USERNAME or admin)
@@ -241,7 +241,7 @@ function statusBody (id, heartbeatNo) {
       domain: 'local',
       fqdn: `${id}.local`,
       ota_address: `${id}.local:3232`,
-      mdns: { enabled: true, services: ['_espdisp._tcp', '_arduino._tcp'] }
+      mdns: { enabled: true, services: ['_yeyboats._tcp', '_arduino._tcp'] }
     },
     sk: { state: 'live' },
     signalk: { connected: true, state: 'live' },
@@ -306,7 +306,7 @@ function statusBody (id, heartbeatNo) {
       pendingConfirm: false,
       policy: { enabled: true, requireSha256: true, maxSizeBytes: 0 }
     },
-    webAuth: { enabled: true, username: 'espdisp', passwordSet: true },
+    webAuth: { enabled: true, username: 'yeyboats', passwordSet: true },
     config: { version: 'load-test', hash: '', applied: true },
     errors: []
   }

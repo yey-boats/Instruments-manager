@@ -6,7 +6,7 @@ module.exports = (async () => {
     auth: { mode: 'dev-shared-token', devToken: 'test-token' },
     firmware: { github: { enabled: false } }
   })
-  const deviceId = 'espdisp-github-fw'
+  const deviceId = 'yey-d-github-fw'
   manager.registerDevice({
     device: {
       id: deviceId,

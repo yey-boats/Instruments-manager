@@ -18,7 +18,7 @@ module.exports = (async () => {
     if (req.url === '/api/state') {
       res.setHeader('content-type', 'application/json')
       res.end(JSON.stringify({
-        device: { id: 'espdisp-register-test', build: 'register-build' },
+        device: { id: 'yey-d-register-test', build: 'register-build' },
         wifi: { ip: '127.0.0.1' },
         webAuth: { enabled: false },
         manager: { registered: false },
@@ -52,11 +52,11 @@ module.exports = (async () => {
       managerUrl: 'http://signalk.local:3000/plugins/yey-boats-display-manager'
     })
 
-    assert.strictEqual(result.deviceId, 'espdisp-register-test')
+    assert.strictEqual(result.deviceId, 'yey-d-register-test')
     assert.strictEqual(result.deviceCommand.status, 'sent')
     assert.strictEqual(postedCommand, 'manager-register http://signalk.local:3000/plugins/yey-boats-display-manager')
 
-    const device = manager.getDevice('espdisp-register-test')
+    const device = manager.getDevice('yey-d-register-test')
     assert.strictEqual(device.claimed, true)
     assert.strictEqual(device.discovery.address, '127.0.0.1')
     assert.strictEqual(device.discovery.port, port)

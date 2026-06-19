@@ -3,10 +3,10 @@ const { makeManager } = require('./test-utils')
 
 const { manager, auth } = makeManager({
   auth: { mode: 'dev-shared-token', devToken: 'test-token' },
-  network: { domain: 'local', hostnamePrefix: 'espdisp', namingPolicy: 'device-id' }
+  network: { domain: 'local', hostnamePrefix: 'yey-d', namingPolicy: 'device-id' }
 })
 
-const deviceId = 'espdisp-112233445566'
+const deviceId = 'yey-d-112233445566'
 const registration = manager.registerDevice({
   protocol: 'yeyboats.management.v2',
   device: {
@@ -98,8 +98,8 @@ const { manager: openWebManager, auth: openWebAuth } = makeManager({
   auth: { mode: 'dev-shared-token', devToken: 'test-token' },
   deviceWebAuth: { enabled: false, username: 'yeyboats', password: 'unused' }
 })
-openWebManager.registerDevice({ device: { id: 'espdisp-open-web', name: 'Open Web' } }, openWebAuth)
-assert.deepStrictEqual(openWebManager.generateConfig('espdisp-open-web').webAuth, {
+openWebManager.registerDevice({ device: { id: 'yey-d-open-web', name: 'Open Web' } }, openWebAuth)
+assert.deepStrictEqual(openWebManager.generateConfig('yey-d-open-web').webAuth, {
   enabled: false,
   username: 'yeyboats',
   password: 'unused'
@@ -210,7 +210,7 @@ assert.strictEqual(automation.actions.length, 1)
 
 const artifact = manager.addFirmwareArtifact({
   vendor: { id: 'yey-boats', name: 'Yey Boats Project', trust: { level: 'local', allowUnsigned: true } },
-  product: { id: 'espdisp', name: 'ESP Display' },
+  product: { id: 'yey-display', name: 'YEY Display' },
   firmware: {
     name: 'yey-display',
     version: '0.5.1',
@@ -225,7 +225,7 @@ const artifact = manager.addFirmwareArtifact({
     partitionScheme: 'ota_16mb'
   },
   file: {
-    name: 'espdisp-0.5.1-esp32-4848s040.bin',
+    name: 'yey-d-0.5.1-esp32-4848s040.bin',
     size: 1784512,
     sha256: 'sha256:cccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccc'
   },
@@ -302,7 +302,7 @@ assert.strictEqual(manager.getCommand(deviceId, expired.id).status, 'expired')
 
 const incompatible = manager.addFirmwareArtifact({
   vendor: { id: 'yey-boats', name: 'Yey Boats Project' },
-  product: { id: 'espdisp', name: 'ESP Display' },
+  product: { id: 'yey-display', name: 'YEY Display' },
   firmware: { name: 'yey-display', version: '9.9.9' },
   compatibility: { boards: ['other-board'] },
   file: { name: 'bad.bin', size: 1, sha256: 'sha256:bad' }
@@ -312,7 +312,7 @@ assert.throws(
   /firmware board is not compatible/
 )
 
-const boardIdDeviceId = 'espdisp-board-id'
+const boardIdDeviceId = 'yey-d-board-id'
 manager.registerDevice({
   device: {
     id: boardIdDeviceId,
@@ -333,7 +333,7 @@ const provisioned = makeManager({
 const token = provisioned.manager.createProvisioningToken({ ttlMs: 60000, uses: 1 })
 assert.strictEqual(provisioned.manager.listProvisioningTokens().tokens.length, 1)
 const provisionedReg = provisioned.manager.registerDevice({
-  device: { id: 'espdisp-provisioned', board: 'sunton_4848s040' }
+  device: { id: 'yey-d-provisioned', board: 'sunton_4848s040' }
 }, { provision: token.token })
 assert.strictEqual(provisionedReg.status, 'registered')
-assert.strictEqual(provisioned.manager.authStatus('espdisp-provisioned').provisioned, true)
+assert.strictEqual(provisioned.manager.authStatus('yey-d-provisioned').provisioned, true)

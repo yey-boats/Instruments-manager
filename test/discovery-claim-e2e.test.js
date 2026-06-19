@@ -4,7 +4,7 @@ const { MockFirmware } = require('./mock-firmware')
 
 const { manager, auth } = makeManager({
   auth: { mode: 'dev-shared-token', devToken: 'test-token' },
-  network: { domain: 'local', hostnamePrefix: 'espdisp', namingPolicy: 'device-id' }
+  network: { domain: 'local', hostnamePrefix: 'yey-d', namingPolicy: 'device-id' }
 })
 
 const helmPreset = manager.upsertProfile({
@@ -77,7 +77,7 @@ const nightPreset = manager.upsertProfile({
 assert.strictEqual(nightPreset.id, 'night-managed')
 
 const firmware = new MockFirmware(manager, {
-  deviceId: 'espdisp-e2e-wide',
+  deviceId: 'yey-d-e2e-wide',
   auth,
   display: {
     width: 800,

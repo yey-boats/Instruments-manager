@@ -21,7 +21,7 @@ module.exports = (async () => {
     }
     res.setHeader('content-type', 'application/json')
     res.end(JSON.stringify({
-      device: { id: 'espdisp-scan-test', build: 'scan-build' },
+      device: { id: 'yey-d-scan-test', build: 'scan-build' },
       wifi: { ip: '127.0.0.1' },
       webAuth: { enabled: false },
       manager: { registered: false },
@@ -44,7 +44,7 @@ module.exports = (async () => {
 
     assert.strictEqual(scan.status, 'ok')
     assert.strictEqual(scan.found, 1)
-    assert.strictEqual(scan.devices[0].deviceId, 'espdisp-scan-test')
+    assert.strictEqual(scan.devices[0].deviceId, 'yey-d-scan-test')
     assert.strictEqual(scan.devices[0].source, 'ip-scan')
     assert.strictEqual(scan.devices[0].address, '127.0.0.1')
     assert.strictEqual(scan.devices[0].port, port)
@@ -52,7 +52,7 @@ module.exports = (async () => {
 
     const listed = manager.listDiscoveredDevices().devices
     assert.strictEqual(listed.length, 1)
-    assert.strictEqual(listed[0].deviceId, 'espdisp-scan-test')
+    assert.strictEqual(listed[0].deviceId, 'yey-d-scan-test')
     assert.strictEqual(listed[0].capabilities.web, true)
   })
 

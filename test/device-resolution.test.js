@@ -14,15 +14,15 @@ test('deviceHttpCandidates lists ip then fqdn, deduped, port 80', () => {
     status: { network: { ip: '10.75.205.170' } },
     networkIdentity: {
       lastResolvedAddress: '10.75.205.170',
-      currentFqdn: 'espdisp.local',
-      desiredFqdn: 'espdisp-device.local'
+      currentFqdn: 'yey-d.local',
+      desiredFqdn: 'yey-d-device.local'
     }
   }
   const got = mgr().deviceHttpCandidates(device)
   assert.deepStrictEqual(got, [
     'http://10.75.205.170:80',
-    'http://espdisp.local:80',
-    'http://espdisp-device.local:80'
+    'http://yey-d.local:80',
+    'http://yey-d-device.local:80'
   ])
 })
 
@@ -49,21 +49,21 @@ test('fetchDeviceJson falls through to the next candidate on failure', async () 
   }
   const device = {
     status: { network: { ip: '10.75.205.170' } },
-    networkIdentity: { currentFqdn: 'espdisp.local' }
+    networkIdentity: { currentFqdn: 'yey-d.local' }
   }
   const out = await m.fetchDeviceJson(device, '/api/state')
   assert.deepStrictEqual(attempted, [
     'http://10.75.205.170:80/api/state',
-    'http://espdisp.local:80/api/state'
+    'http://yey-d.local:80/api/state'
   ])
-  assert.strictEqual(out.from, 'http://espdisp.local:80/api/state')
+  assert.strictEqual(out.from, 'http://yey-d.local:80/api/state')
 })
 
 test('fetchDeviceJson rethrows the last error when all candidates fail', async () => {
   const m = mgr()
   m.deviceWebAuth = () => null
   m._httpGetJson = () => Promise.reject(new Error('device request timeout'))
-  const device = { networkIdentity: { currentFqdn: 'espdisp.local' } }
+  const device = { networkIdentity: { currentFqdn: 'yey-d.local' } }
   await assert.rejects(() => m.fetchDeviceJson(device, '/api/state'),
     /device request timeout/)
 })
@@ -76,18 +76,18 @@ test('hostnameConflict ignores stale/offline peers, flags only live ones', () =>
   m.store = {
     registry: {
       devices: {
-        live: { id: 'live', lastSeen: fresh, networkIdentity: { desiredHostname: 'espdisp-boat' } },
+        live: { id: 'live', lastSeen: fresh, networkIdentity: { desiredHostname: 'yey-d-boat' } },
         // a stale duplicate (mock/old registration) wanting the same hostname
-        stale: { id: 'stale', lastSeen: ancient, networkIdentity: { desiredHostname: 'espdisp-boat' } },
-        never: { id: 'never', networkIdentity: { desiredHostname: 'espdisp-boat' } }
+        stale: { id: 'stale', lastSeen: ancient, networkIdentity: { desiredHostname: 'yey-d-boat' } },
+        never: { id: 'never', networkIdentity: { desiredHostname: 'yey-d-boat' } }
       }
     }
   }
   // The live device must NOT conflict against stale/never-seen duplicates.
-  assert.strictEqual(m.hostnameConflict('live', 'espdisp-boat'), false)
+  assert.strictEqual(m.hostnameConflict('live', 'yey-d-boat'), false)
   // A peer that is itself online DOES count as a real conflict.
-  m.store.registry.devices.other = { id: 'other', lastSeen: fresh, networkIdentity: { desiredHostname: 'espdisp-boat' } }
-  assert.strictEqual(m.hostnameConflict('live', 'espdisp-boat'), true)
+  m.store.registry.devices.other = { id: 'other', lastSeen: fresh, networkIdentity: { desiredHostname: 'yey-d-boat' } }
+  assert.strictEqual(m.hostnameConflict('live', 'yey-d-boat'), true)
   // deviceHealth surfaces a live, unflagged device as ok (no conflict).
   assert.strictEqual(m.deviceHealth({ networkIdentity: { conflict: false } }, true, 0), 'ok')
 })
@@ -140,16 +140,16 @@ test('a non-primary winning candidate is promoted to lastResolvedAddress', async
   const m = mgr()
   m.deviceWebAuth = () => null
   m._httpGetJson = (url) =>
-    url.startsWith('http://espdisp.local')
+    url.startsWith('http://yey-d.local')
       ? Promise.resolve({ ok: true })
       : Promise.reject(new Error('device request timeout'))
   const writes = []
   m.noteResolvedAddress = (device, host) => writes.push(host)
   const device = {
-    id: 'espdisp',
+    id: 'yey-display',
     status: { network: { ip: '10.75.205.170' } },
-    networkIdentity: { currentFqdn: 'espdisp.local' }
+    networkIdentity: { currentFqdn: 'yey-d.local' }
   }
   await m.fetchDeviceJson(device, '/api/state')
-  assert.deepStrictEqual(writes, ['espdisp.local'])
+  assert.deepStrictEqual(writes, ['yey-d.local'])
 })

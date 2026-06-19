@@ -8,8 +8,8 @@ const { manager, auth } = makeManager({
   auth: { mode: 'dev-shared-token', devToken: 'test-token' }
 })
 
-const helmId = 'espdisp-aaaaaaaaaaaa'
-const cockpitId = 'espdisp-bbbbbbbbbbbb'
+const helmId = 'yey-d-aaaaaaaaaaaa'
+const cockpitId = 'yey-d-bbbbbbbbbbbb'
 
 manager.registerDevice({
   device: {
@@ -88,7 +88,7 @@ assert.ok(fallbackIds.includes('dashboard'), 'fallback includes dashboard')
 assert.ok(fallbackIds.includes('autopilot'), 'fallback includes autopilot')
 
 // Unknown device id is a 404 (httpError), consistent with getDevice().
-assert.throws(() => manager.deviceViews('espdisp-does-not-exist'), /device not found/)
+assert.throws(() => manager.deviceViews('yey-d-does-not-exist'), /device not found/)
 
 // --- screen.set command (backs POST /ui/devices/:id/switch-screen) ---------
 // The new per-screen switcher queues a screen.set command the firmware maps to

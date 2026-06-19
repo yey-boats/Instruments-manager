@@ -4,7 +4,7 @@ const { MockFirmware } = require('./mock-firmware')
 
 const { manager, auth } = makeManager({
   auth: { mode: 'dev-shared-token', devToken: 'test-token' },
-  network: { domain: 'local', hostnamePrefix: 'espdisp', namingPolicy: 'device-id' }
+  network: { domain: 'local', hostnamePrefix: 'yey-d', namingPolicy: 'device-id' }
 })
 
 manager.upsertProfile({
@@ -79,7 +79,7 @@ manager.upsertProfile({
 })
 
 const square = new MockFirmware(manager, {
-  deviceId: 'espdisp-square',
+  deviceId: 'yey-d-square',
   auth,
   display: { width: 480, height: 480, shape: 'square', rotation: 0, colorDepth: 16 }
 })
@@ -95,7 +95,7 @@ assert.strictEqual(squareConfig.widgets.items.sog.valueFontSize, 48)
 assert.strictEqual(squareConfig.widgets.items.mapPreview, undefined)
 
 const wide = new MockFirmware(manager, {
-  deviceId: 'espdisp-wide',
+  deviceId: 'yey-d-wide',
   auth,
   display: { width: 800, height: 480, shape: 'wide', rotation: 0, colorDepth: 16 }
 })
@@ -107,7 +107,7 @@ assert.strictEqual(wideConfig.layout.screens[0].tiles.length, 2)
 assert.strictEqual(wideConfig.widgets.defaults.valueFontSize, 48)
 
 const small = new MockFirmware(manager, {
-  deviceId: 'espdisp-small',
+  deviceId: 'yey-d-small',
   auth,
   display: { width: 320, height: 240, shape: 'wide', rotation: 0, colorDepth: 16 }
 })
@@ -141,7 +141,7 @@ manager.upsertProfile({
 })
 
 const autoWide = new MockFirmware(manager, {
-  deviceId: 'espdisp-wide-auto',
+  deviceId: 'yey-d-wide-auto',
   auth,
   display: { width: 800, height: 480, shape: 'wide', rotation: 0, colorDepth: 16 }
 })

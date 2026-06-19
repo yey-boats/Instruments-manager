@@ -11,11 +11,13 @@ flashing, and OTA-updating every display on the boat.
 - **Plugin UI:** `/plugins/yey-boats-display-manager/ui`
 - **Plugin id:** `yey-boats-display-manager`
 
-> **Renamed from “ESP Display Manager”.** The plugin id, webapp slug, and all
-> API routes moved from `espdisp-manager` → `yey-boats-display-manager`. See
-> [Upgrading](#upgrading-from-esp-display-manager) for the migration. Device
-> wire-protocol identifiers (`.well-known/espdisp-management`,
-> `espdisp.management.v1`, the `espdisp-` device-number prefix) are unchanged.
+> **Renamed from “ESP Display Manager”.** A full `espdisp` → `yeyboats`/`yey-display`
+> rebrand: the plugin id/webapp/API routes (`yey-boats-display-manager`), the wire
+> protocol (`yeyboats.*.v2`, control proto major v2), mDNS services (`_yeyboats._tcp`),
+> the well-known path (`/.well-known/yeyboats-management`), the auth header
+> (`X-YeyBoats-Authorization`), the device-id prefix (`yey-d-`), and firmware identity
+> (`yey-display`). See [Upgrading](#upgrading-from-esp-display-manager) — devices must
+> be reflashed and re-provisioned.
 
 ---
 
@@ -40,7 +42,7 @@ Server-held provisioning defaults that are pushed to devices **from the server**
   firmware image and never sent over the USB cable; delivered only over the
   device’s authenticated config-fetch.
 - **Device numbering** — prefix + zero-pad + next-number, so each newly
-  provisioned device is auto-named (e.g. `espdisp-001`).
+  provisioned device is auto-named (e.g. `yey-d-001`).
 
 ![System settings](docs/images/system-settings.png)
 

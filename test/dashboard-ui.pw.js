@@ -29,10 +29,10 @@ async function readBody (req) {
 async function startHarness () {
   const { manager, auth } = makeManager({
     auth: { mode: 'dev-shared-token', devToken: 'test-token' },
-    network: { domain: 'local', hostnamePrefix: 'espdisp', namingPolicy: 'device-id' }
+    network: { domain: 'local', hostnamePrefix: 'yey-d', namingPolicy: 'device-id' }
   })
   const firmware = new MockFirmware(manager, {
-    deviceId: 'espdisp-playwright-wide',
+    deviceId: 'yey-d-playwright-wide',
     auth,
     display: {
       width: 800,
@@ -148,13 +148,13 @@ test('operator creates a missing dashboard preset and applies populated real-dat
 
     await expect(page).toHaveURL(/\/ui\/profiles\/playwright-real-data$/)
     await expect(page.getByRole('heading', { name: 'Playwright Real Data' })).toBeVisible()
-    await page.locator('input[name="deviceIds"][value="espdisp-playwright-wide"]').check()
+    await page.locator('input[name="deviceIds"][value="yey-d-playwright-wide"]').check()
     await page.getByRole('button', { name: 'Apply to selected devices' }).click()
 
     harness.firmware.pollAndExecute()
     harness.firmware.heartbeat()
 
-    await page.goto(`${harness.baseUrl}/plugins/yey-boats-display-manager/ui/devices/espdisp-playwright-wide/config`)
+    await page.goto(`${harness.baseUrl}/plugins/yey-boats-display-manager/ui/devices/yey-d-playwright-wide/config`)
     await expect(page.locator('select[name="profileId"]')).toHaveValue('playwright-real-data')
     await expect(page.getByText('navigation.speedOverGround')).toBeVisible()
     await expect(page.getByText('environment.wind.angleApparent')).toBeVisible()

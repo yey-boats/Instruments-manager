@@ -12,7 +12,7 @@ const { makeManager } = require('./test-utils')
 
 function freshManager () {
   const { manager, auth } = makeManager({ auth: { mode: 'dev-shared-token', devToken: 'test-token' } })
-  const id = 'espdisp-cccccccccccc'
+  const id = 'yey-d-cccccccccccc'
   manager.registerDevice({
     device: { id, name: 'Bench', role: 'display', board: 'sunton_4848s040', display: { width: 480, height: 480, shape: 'square' } }
   }, auth)

@@ -4,11 +4,11 @@ const { MockFirmware } = require('./mock-firmware')
 
 const { manager, auth } = makeManager({
   auth: { mode: 'dev-shared-token', devToken: 'test-token' },
-  network: { domain: 'local', hostnamePrefix: 'espdisp', namingPolicy: 'device-id' }
+  network: { domain: 'local', hostnamePrefix: 'yey-d', namingPolicy: 'device-id' }
 })
 
 const helm = new MockFirmware(manager, {
-  deviceId: 'espdisp-dashboard-helm',
+  deviceId: 'yey-d-dashboard-helm',
   auth,
   display: { width: 480, height: 480, shape: 'square', rotation: 0, colorDepth: 16 }
 })
@@ -17,7 +17,7 @@ helm.fetchConfig()
 helm.heartbeat()
 
 const cockpit = new MockFirmware(manager, {
-  deviceId: 'espdisp-dashboard-cockpit',
+  deviceId: 'yey-d-dashboard-cockpit',
   auth,
   display: { width: 800, height: 480, shape: 'wide', rotation: 0, colorDepth: 16 }
 })

@@ -12,7 +12,7 @@ async function withServer (handler, fn) {
   }
 }
 
-function registerLiveDevice (manager, auth, port, id = 'espdisp-live') {
+function registerLiveDevice (manager, auth, port, id = 'yey-d-live') {
   manager.registerDevice({ device: { id, name: 'Live' } }, auth)
   manager.updateStatus(id, {
     network: { ip: '127.0.0.1', hostname: id, domain: 'local' },
@@ -62,7 +62,7 @@ module.exports = (async () => {
       auth: { mode: 'dev-shared-token', devToken: 'test-token' },
       deviceWebAuth: { enabled: false, username: 'yeyboats', password: 'secret' }
     })
-    const id = registerLiveDevice(manager, auth, port, 'espdisp-open')
+    const id = registerLiveDevice(manager, auth, port, 'yey-d-open')
 
     const status = await manager.getLiveStatus(id)
     assert.strictEqual(status.sk.state, 'open')
@@ -77,7 +77,7 @@ module.exports = (async () => {
       auth: { mode: 'dev-shared-token', devToken: 'test-token' },
       deviceWebAuth: { enabled: true, username: 'yeyboats', password: 'wrong' }
     })
-    const id = registerLiveDevice(manager, auth, port, 'espdisp-unauthorized')
+    const id = registerLiveDevice(manager, auth, port, 'yey-d-unauthorized')
 
     await assert.rejects(
       () => manager.getLiveStatus(id),
