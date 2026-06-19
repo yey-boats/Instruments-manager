@@ -614,7 +614,8 @@ function registerRoutes (router, getManager) {
     // Render immediately with placeholder live sections; the browser lazy-loads
     // live status + logs from the *-fragment endpoints after DOMContentLoaded so
     // a slow/offline device never blocks (or hangs) the page render.
-    res.end(renderUiShell('Device detail', renderDevicePage(manager, req.params.id), dashboard, 'device'))
+    const selScreen = req.query && req.query.screen ? String(req.query.screen) : null
+    res.end(renderUiShell('Device detail', renderDevicePage(manager, req.params.id, {}, { selectScreen: selScreen }), dashboard, 'device'))
   }))
 
   // The config page was merged into the device detail page as a collapsed
@@ -795,10 +796,19 @@ function registerRoutes (router, getManager) {
     let edits = []
     try { edits = JSON.parse(body.edits || '[]') } catch (e) { edits = [] }
     let status = 'noop'
+    // AJAX clients (the live preview's "Show on device") set ajax=1 / send an
+    // Accept: application/json header so we answer with JSON instead of a 303
+    // full-page reload — that keeps the operator's selected preview screen put.
+    const wantsJson = body.ajax === '1' || body.ajax === 1 ||
+      /application\/json/.test(String(req.headers && req.headers.accept))
     if (mode === 'switch') {
       if (body.screenId) {
         manager.createCommand(id, { type: 'screen.set', payload: { screen: body.screenId } })
         status = 'switched'
+      }
+      if (wantsJson) {
+        res.json({ status, screenId: body.screenId || null })
+        return
       }
     } else {
       const device = manager.getDevice(id)
@@ -809,13 +819,50 @@ function registerRoutes (router, getManager) {
         cfg.widgets = cfg.widgets || {}
         cfg.widgets.items = cfg.widgets.items || {}
         const items = cfg.widgets.items
+        cfg.layout = cfg.layout || {}
+        cfg.layout.screens = Array.isArray(cfg.layout.screens) ? cfg.layout.screens : []
+        const screens = cfg.layout.screens
+        // Reject keys that are not safe own-property names (blocks
+        // __proto__/constructor/prototype prototype-pollution).
+        const SAFE_KEY = (k) => typeof k === 'string' && k && !['__proto__', 'constructor', 'prototype'].includes(k)
         edits.forEach((e) => {
-          if (!e || typeof e.widgetId !== 'string') return
-          // Prototype-pollution guard: only rebind an EXISTING own widget key
-          // (hasOwnProperty rejects __proto__/constructor/prototype, which are
-          // not own keys), so a crafted widgetId can't write onto Object.prototype.
-          if (!Object.prototype.hasOwnProperty.call(items, e.widgetId)) return
-          items[e.widgetId].path = String(e.path || '')
+          if (!e) return
+          // (1) Authored tile carrying an existing widget key -> rebind in place.
+          if (typeof e.widgetId === 'string' && e.widgetId &&
+              Object.prototype.hasOwnProperty.call(items, e.widgetId)) {
+            items[e.widgetId].path = String(e.path || '')
+            return
+          }
+          // (2) Preset/managed tile with no own widget key (synthetic id from
+          // the preview): materialize a stable widget + author its screen so
+          // the rebind actually reaches the device on the next config reload.
+          const screenId = typeof e.screenId === 'string' ? e.screenId : null
+          const ti = Number.isInteger(e.tileIndex) ? e.tileIndex : null
+          if (!screenId || ti == null) return
+          const wid = 'w_' + screenId.replace(/[^a-z0-9]+/gi, '_') + '_' + ti
+          if (!SAFE_KEY(wid)) return
+          // Create/update the widget definition (preserve any prior fields).
+          const prev = Object.prototype.hasOwnProperty.call(items, wid) ? items[wid] : {}
+          items[wid] = Object.assign({}, prev, {
+            type: e.widget || prev.type || 'numeric',
+            title: e.title != null ? e.title : (prev.title || ''),
+            path: String(e.path || ''),
+            unit: e.unit != null ? e.unit : (prev.unit || ''),
+            precision: e.precision != null ? e.precision : (prev.precision != null ? prev.precision : null)
+          })
+          // Ensure the screen exists in the authored layout and references the
+          // widget at its tile slot.
+          let scr = screens.find((s) => s && s.id === screenId)
+          if (!scr) { scr = { id: screenId, tiles: [] }; screens.push(scr) }
+          scr.tiles = Array.isArray(scr.tiles) ? scr.tiles : []
+          while (scr.tiles.length <= ti) scr.tiles.push({})
+          // Bind the tile to the synthetic widget and drop any stale inline
+          // path (primary/path) so the device reads the rebind unambiguously
+          // (widget-ref wins, but a leftover primary would be misleading).
+          const merged = Object.assign({}, scr.tiles[ti], { widget: wid })
+          delete merged.primary
+          delete merged.path
+          scr.tiles[ti] = merged
         })
         if (mode === 'create') {
           const name = String(body.profileName || 'New View').trim()
@@ -830,9 +877,17 @@ function registerRoutes (router, getManager) {
         }
       }
     }
+    if (wantsJson) {
+      res.json({ status, screenId: body.screenId || null })
+      return
+    }
+    // Carry the operator's selected preview screen through the redirect so the
+    // dropdown pre-selects it after the full-page reload (no snapping back to
+    // the default screen).
+    const scr = body.screenId ? `&screen=${encodeURIComponent(body.screenId)}` : ''
     res.statusCode = 303
     res.setHeader('location',
-      `/plugins/yey-boats-display-manager/ui/devices/${encodeURIComponent(id)}?status=${encodeURIComponent(status)}`)
+      `/plugins/yey-boats-display-manager/ui/devices/${encodeURIComponent(id)}?status=${encodeURIComponent(status)}${scr}`)
     res.end()
   }))
 
@@ -1272,9 +1327,12 @@ function renderUiShell (title, body, dashboard, page = '') {
 <html>
 <head>
   <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
   <title>YEY Boats Display Manager · ${escapeHtml(title)}</title>
   <style>
     :root { color-scheme: light dark; font-family: system-ui, sans-serif; }
+    *, *::before, *::after { box-sizing: border-box; }
+    html, body { max-width: 100%; overflow-x: hidden; }
     body { margin: 0; background: #f5f7f8; color: #172026; }
     header { padding: 18px 28px 0; background: #15323b; color: white; }
     main { padding: 24px 28px; }
@@ -1350,6 +1408,10 @@ function renderUiShell (title, body, dashboard, page = '') {
     @media (max-width: 850px) {
       .grid, .config-grid, .form-grid { grid-template-columns: 1fr; }
       table { font-size: 12px; }
+      /* Long, unbroken tokens (config hashes, hostnames) must wrap, not push
+         the table wider than the viewport and force horizontal scroll. */
+      td, th { word-break: break-word; overflow-wrap: anywhere; }
+      td code, td a { overflow-wrap: anywhere; word-break: break-all; }
       .dev-sum { flex-basis: 100%; }
       .dev-detail dl { grid-template-columns: 1fr; }
       .dev-detail dt { margin-top: 6px; }
@@ -1659,13 +1721,32 @@ function renderDevicePage (manager, id, live = {}, opts = {}) {
       // the preset catalogue so the preview still shows live objects.
       const a = authored[screenId]
       if (a && Array.isArray(a.tiles) && a.tiles.length) {
-        const mapped = a.tiles.map((t) => {
-          const w = items[t.widget] || {}
+        // Authored tiles come in two flavours: a `widget` reference into
+        // widgets.items (managed/edited), and inline `primary`/`title` tiles
+        // (the seeded layouts). Read both so a mixed screen — e.g. an edited
+        // tile next to seeded ones — projects every tile's real binding (and
+        // a single rebind doesn't blank the rest of the screen).
+        const preset = presetTiles(screenId) || []
+        const mapped = a.tiles.map((t, i) => {
+          // Managed tile: `t.widget` is a KEY into widgets.items. Seeded tile:
+          // `t.widget` is the widget TYPE (compass/numeric/text) and the path
+          // lives inline on `t.primary`/`t.path`. Distinguish by whether the
+          // key resolves to a widget item.
+          const refKey = (t && t.widget && Object.prototype.hasOwnProperty.call(items, t.widget)) ? t.widget : null
+          const w = refKey ? items[refKey] : {}
+          const p = preset[i] || {}
+          const inlineType = (t && t.widget && !refKey) ? t.widget : null
+          const inlinePath = (t && (t.primary || t.path)) || ''
           return {
-            widgetId: t.widget, editable: true,
-            widget: w.type || 'numeric', title: w.title || t.widget,
-            path: w.path || '', unit: w.unit || '', precision: w.precision != null ? w.precision : null,
-            markers: Array.isArray(w.markers) ? w.markers : (Array.isArray(t.markers) ? t.markers : null)
+            widgetId: refKey,
+            editable: !!refKey,
+            widget: w.type || inlineType || p.widget || 'numeric',
+            title: w.title || (t && t.title) || p.title || inlineType || '',
+            path: w.path || inlinePath || p.path || '',
+            unit: w.unit || (t && t.unit) || p.unit || '',
+            precision: w.precision != null ? w.precision : (t && t.precision != null ? t.precision : (p.precision != null ? p.precision : null)),
+            markers: Array.isArray(w.markers) ? w.markers
+              : (Array.isArray(t && t.markers) ? t.markers : (Array.isArray(p.markers) ? p.markers : null))
           }
         })
         if (mapped.some((m) => m.path)) return mapped
@@ -1698,10 +1779,17 @@ function renderDevicePage (manager, id, live = {}, opts = {}) {
   // SK path catalogue for the edit datalist (the layout-editor's curated list).
   let previewPaths = []
   try { previewPaths = require('./lib/screen-presets').ALL_PATHS || [] } catch (e) { previewPaths = [] }
+  // A ?screen= carried through a save redirect pre-selects that screen (and
+  // becomes the preview's initial screen) so a full-page reload doesn't snap
+  // back to the device's current screen.
+  const selectScreen = (opts && opts.selectScreen &&
+    previewData.screens.some((s) => s.id === opts.selectScreen)) ? opts.selectScreen : null
+  const previewSelected = selectScreen || currentScreen
   const previewScreenOptions = previewData.screens
-    .map((s) => `<option value="${escapeHtml(s.id)}"${s.id === currentScreen ? ' selected' : ''}>` +
+    .map((s) => `<option value="${escapeHtml(s.id)}"${s.id === previewSelected ? ' selected' : ''}>` +
       `${escapeHtml(s.title)}</option>`)
     .join('')
+  if (selectScreen) previewData.initialScreen = selectScreen
   const previewJson = JSON.stringify(previewData).replace(/</g, '\\u003c')
   const otaSection = renderDeviceFirmwareSection(manager, device)
   return `
@@ -1783,12 +1871,20 @@ function renderDevicePage (manager, id, live = {}, opts = {}) {
         .lp-controls{display:flex;flex-direction:column;gap:10px;background:#0a1420;border:1px solid #1c3043;border-radius:9px;padding:12px}
         .lp-ctl-block{flex-direction:column;align-items:stretch;gap:5px;color:#9fc0dd;font-size:11px;letter-spacing:.04em;text-transform:uppercase}
         .lp-ctl-block select{margin-left:0;font-size:14px;padding:7px 8px;text-transform:none}
-        .lp-stage{background:radial-gradient(120% 120% at 50% 0%,#0c151f,#070b11);border:1px solid #16242f;border-radius:10px;aspect-ratio:1/1;width:360px;max-width:46vw;min-width:300px;margin:0;padding:10px;display:flex;align-items:center;justify-content:center;flex:0 0 auto}
+        /* Square stage that never overflows: cap at 360px but shrink with the
+           container (no vw — unreliable inside the SignalK admin iframe), and
+           drop the min-width so a 390px phone can't be forced wider. */
+        .lp-stage{box-sizing:border-box;background:radial-gradient(120% 120% at 50% 0%,#0c151f,#070b11);border:1px solid #16242f;border-radius:10px;aspect-ratio:1/1;width:min(360px,100%);max-width:100%;min-width:0;margin:0;padding:10px;display:flex;align-items:center;justify-content:center;flex:0 0 auto}
         .lp-hud{width:100%;height:100%;display:flex;align-items:center;justify-content:center}
         .lp-hud .hud-svg{width:100%;height:100%;display:block}
         .lp-compass{width:100%;height:100%;display:flex;align-items:center;justify-content:center}
-        .lp-compass .hud-tile-svg{width:100%;height:100%;max-height:130px}
-        .lp-ring{position:relative;width:130px;height:130px;border-radius:50%;border:2px solid #4fc3f7;display:flex;align-items:center;justify-content:center;margin:0 auto}
+        /* SVG dial: square via aspect-ratio, sized by the smaller dimension so
+           it stays a circle in any tile shape (height:auto, never stretched). */
+        .lp-compass .hud-tile-svg{width:100%;height:auto;max-width:100%;max-height:100%;aspect-ratio:1/1}
+        /* CSS-circle ring: force a square box (aspect-ratio) and cap by the
+           tile width so it renders as a perfect circle on a phone, never an
+           ellipse. */
+        .lp-ring{position:relative;width:130px;max-width:100%;aspect-ratio:1/1;height:auto;border-radius:50%;border:2px solid #4fc3f7;display:flex;align-items:center;justify-content:center;margin:0 auto}
         .lp-ring.lp-rose{border-color:#ffb84d}
         .lp-ring .lp-card{position:absolute;color:#8fa7bd;font-size:12px;font-weight:700}
         .lp-card-n{top:6px;left:50%;transform:translateX(-50%);color:#eef4fa}
@@ -1797,10 +1893,13 @@ function renderDevicePage (manager, id, live = {}, opts = {}) {
         .lp-card-w{left:8px;top:50%;transform:translateY(-50%)}
         .lp-ring .lp-rmark{position:absolute;font-size:13px;line-height:1;font-weight:700}
         .lp-val-pos{font-size:18px;line-height:1.25;white-space:pre-line;font-weight:600}
-        .lp-grid{display:grid;grid-template-columns:1fr 1fr;grid-auto-rows:1fr;gap:10px;width:100%;height:100%}
-        .lp-tile{background:#11202f;border:1px solid #1c2f42;border-radius:9px;padding:10px;display:flex;flex-direction:column;justify-content:center;align-items:flex-start;min-height:80px}
+        .lp-grid{display:grid;grid-template-columns:minmax(0,1fr) minmax(0,1fr);grid-auto-rows:1fr;gap:10px;width:100%;height:100%}
+        /* min-width:0 lets the grid tracks actually share the width equally —
+           without it a tile's big value text sets an auto min-width that pushes
+           the column (and the whole grid) past the square stage. */
+        .lp-tile{min-width:0;overflow:hidden;background:#11202f;border:1px solid #1c2f42;border-radius:9px;padding:10px;display:flex;flex-direction:column;justify-content:center;align-items:flex-start;min-height:80px}
         .lp-cap{font-size:11px;letter-spacing:.1em;color:#6f97ba;text-transform:uppercase}
-        .lp-val{font-size:34px;font-weight:650;color:#eaf2fb;line-height:1.05;align-self:flex-start}
+        .lp-val{font-size:34px;font-weight:650;color:#eaf2fb;line-height:1.05;align-self:flex-start;max-width:100%;overflow:hidden;text-overflow:ellipsis}
         .lp-val-sm{font-size:18px}
         .lp-unit{font-size:14px;color:#9bb6d0;margin-left:5px;font-weight:400}
         .lp-bar{width:20px;flex:1;background:#0a1420;border-radius:5px;display:flex;align-items:flex-end;margin:8px 0;min-height:40px;align-self:center}

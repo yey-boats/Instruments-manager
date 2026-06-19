@@ -352,7 +352,7 @@
       const [x, y] = polar(b - hdg, R - 16)
       cards.push(`<text x="${x}" y="${y + 5}" font-family="Montserrat" font-size="14" font-weight="700" fill="${lab === 'N' ? '#ff5252' : '#8fa7bd'}" text-anchor="middle">${lab}</text>`)
     }
-    return `<svg viewBox="0 0 200 200" class="hud-tile-svg">
+    return `<svg viewBox="0 0 200 200" preserveAspectRatio="xMidYMid meet" class="hud-tile-svg">
       <circle cx="${CX}" cy="${CY}" r="${R}" fill="none" stroke="#26384a" stroke-width="4"/>
       <path d="M ${CX - 7},${CY - R - 2} L ${CX + 7},${CY - R - 2} L ${CX},${CY - R + 12} Z" fill="#ff5252"/>
       ${cards.join('')}
