@@ -23,12 +23,20 @@
   function unitFor (tile) {
     if (tile.unit) return tile.unit
     const p = tile.path || ''
-    if (/speed|drift/i.test(p)) return 'kn'
-    if (/angle|heading|course|bearing|setTrue/i.test(p)) return '°'
+    // Classify by the LEAF segment, not the whole path: every route metric
+    // lives under navigation.courseRhumbline.*, so a naive /course/ test made
+    // XTE / VMG / DTW all read as degrees (XTE 23 m -> "1318°"). The length +
+    // speed leaves must be matched BEFORE the angle leaf (crossTrackError /
+    // bearingTrackTrue both contain "track").
+    const leaf = (p.split('.').pop() || '')
+    if (/crossTrackError/i.test(leaf)) return 'm'
+    if (/distance/i.test(leaf)) return 'nm'
+    if (/speed|drift|velocityMadeGood/i.test(leaf)) return 'kn'
+    if (/angle|heading|bearing|direction|course|cog|track|setTrue/i.test(leaf)) return '°'
     if (/depth/i.test(p)) return 'm'
-    if (/temperature/i.test(p)) return '°C'
-    if (/stateOfCharge|currentLevel|relativeHumidity/i.test(p)) return '%'
-    if (/voltage/i.test(p)) return 'V'
+    if (/temperature/i.test(leaf)) return '°C'
+    if (/stateOfCharge|currentLevel|relativeHumidity/i.test(leaf)) return '%'
+    if (/voltage/i.test(leaf)) return 'V'
     return ''
   }
   function valueFor (tile) {
@@ -48,6 +56,8 @@
     else if (unit === '°' || unit === 'deg') x = v * 180 / Math.PI
     else if (unit === '%') x = v <= 1.0001 ? v * 100 : v
     else if (unit === '°C') x = v - 273.15
+    else if (unit === 'nm') x = v / 1852 // SK distance is metres
+    // 'm' (XTE / depth) and 'V' are already in display units — no conversion.
     const p = tile.precision != null ? tile.precision : (unit === '°' ? 0 : 1)
     return x.toFixed(p)
   }

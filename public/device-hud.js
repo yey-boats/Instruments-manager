@@ -116,8 +116,13 @@
     const target = a.deg('apTarget')
     // apState is the only externally-sourced string drawn here; hard-limit it
     // to a short alphanumeric token so it can never inject markup into the SVG.
+    const hasState = a.has('apState')
     const state = String(a.raw('apState') || 'standby').replace(/[^a-z0-9 _-]/gi, '').slice(0, 12)
     const engaged = /auto|track|wind|route|nav/i.test(state)
+    // Mirror the device: left chip ON/STBY by engagement; center badge is the
+    // live state (green engaged / dim disengaged), OFFLINE when no AP data.
+    const chip = engaged ? 'ON' : 'STBY'
+    const badge = hasState ? String(state).toUpperCase() : 'OFFLINE'
     const polar = (deg, r) => { const t = (deg - 90) * Math.PI / 180; return [CX + r * Math.cos(t), CYc + r * Math.sin(t)] }
     const ticks = []
     for (let d = -90; d <= 90; d += 15) {
@@ -161,8 +166,8 @@
     ])
     return svgWrap(`
       <rect x="10" y="10" width="110" height="40" rx="10" fill="#101b29" stroke="#1f2d3d"/>
-      <text x="65" y="37" font-family="Montserrat" font-size="20" fill="${engaged ? '#8fa7bd' : '#eef4fa'}" text-anchor="middle">STBY</text>
-      <text x="240" y="32" font-family="Montserrat" font-size="20" font-weight="700" fill="${engaged ? '#36d399' : '#5a6b78'}" text-anchor="middle">${esc(engaged ? String(state).toUpperCase() : 'AUTO')}</text>
+      <text x="65" y="37" font-family="Montserrat" font-size="20" fill="${engaged ? '#36d399' : '#eef4fa'}" text-anchor="middle">${chip}</text>
+      <text x="240" y="32" font-family="Montserrat" font-size="20" font-weight="700" fill="${engaged ? '#36d399' : '#5a6b78'}" text-anchor="middle">${esc(badge)}</text>
       <rect x="360" y="10" width="110" height="40" rx="10" fill="#101b29" stroke="#1f2d3d"/>
       <text x="415" y="37" font-family="Montserrat" font-size="20" fill="#eef4fa" text-anchor="middle">HOME</text>
       <path d="${railPath}" fill="none" stroke="#36d399" stroke-width="10"/>
@@ -279,6 +284,12 @@
     }
     const twdTxt = isNaN(twd) ? '--' : String(Math.round(twd)).padStart(3, '0') + '°'
     const sub = `TWA ${sideStr(twaSide)}  |  TWD ${twdTxt}`
+    // Top-bar AP state, live (matches the device wind-steer header). See autopilotHud.
+    const hasState = a.has('apState')
+    const apSt = String(a.raw('apState') || 'standby').replace(/[^a-z0-9 _-]/gi, '').slice(0, 12)
+    const engaged = /auto|track|wind|route|nav/i.test(apSt)
+    const chip = engaged ? 'ON' : 'STBY'
+    const badge = hasState ? apSt.toUpperCase() : 'OFFLINE'
     const xte = a.num('xte'); let needle = ''
     if (!isNaN(xte)) { let nm = xte / 1852; nm = Math.max(-1, Math.min(1, nm)); needle = `<rect x="${240 + nm * 200 - 1.5}" y="302" width="3" height="32" rx="1" fill="#ff5252"/>` }
     const tiles = gridRow([
@@ -289,8 +300,8 @@
     ])
     return svgWrap(`
       <rect x="10" y="10" width="110" height="40" rx="10" fill="#101b29" stroke="#1f2d3d"/>
-      <text x="65" y="37" font-family="Montserrat" font-size="20" fill="#eef4fa" text-anchor="middle">STBY</text>
-      <text x="240" y="32" font-family="Montserrat" font-size="20" font-weight="700" fill="#36d399" text-anchor="middle">AUTO</text>
+      <text x="65" y="37" font-family="Montserrat" font-size="20" fill="${engaged ? '#36d399' : '#eef4fa'}" text-anchor="middle">${chip}</text>
+      <text x="240" y="32" font-family="Montserrat" font-size="20" font-weight="700" fill="${engaged ? '#36d399' : '#5a6b78'}" text-anchor="middle">${esc(badge)}</text>
       <rect x="360" y="10" width="110" height="40" rx="10" fill="#101b29" stroke="#1f2d3d"/>
       <text x="415" y="37" font-family="Montserrat" font-size="20" fill="#eef4fa" text-anchor="middle">HOME</text>
       <path d="${railPath}" fill="none" stroke="#36d399" stroke-width="10"/>
@@ -324,9 +335,16 @@
   // ====================================================================== //
   //  Grid tile: compass widget (nav / steering)                            //
   // ====================================================================== //
+  const SEC_LABELS = { cog: 'COG', cts: 'CTS', btw: 'BTW', heading: 'HDG', twd: 'TWD', apTarget: 'TGT' }
   function compassTileSVG (a, tile) {
     const hdg = a.has('heading') ? a.deg('heading') : 0
-    const sec = a.deg('cog')
+    // Secondary readout: honor the tile's configured secondary path (device
+    // shows CTS on steering, COG on nav, ...), defaulting to COG when unset.
+    let secKey = 'cog'
+    const sp = tile && (tile.secondary || tile.secondaryPath)
+    if (sp) { const k = Object.keys(PATHS).find((kk) => PATHS[kk] === sp); if (k && SEC_LABELS[k]) secKey = k }
+    const secLabel = SEC_LABELS[secKey]
+    const sec = a.deg(secKey)
     const CX = 100, CY = 100, R = 86
     const polar = (deg, r) => { const t = (deg - 90) * Math.PI / 180; return [CX + r * Math.cos(t), CY + r * Math.sin(t)] }
     const cards = []
@@ -339,7 +357,7 @@
       <path d="M ${CX - 7},${CY - R - 2} L ${CX + 7},${CY - R - 2} L ${CX},${CY - R + 12} Z" fill="#ff5252"/>
       ${cards.join('')}
       <text x="${CX}" y="${CY + 4}" font-family="Montserrat" font-size="40" font-weight="700" fill="#4fc3f7" text-anchor="middle">${isNaN(hdg) ? '---' : String(Math.round(hdg)).padStart(3, '0')}</text>
-      <text x="${CX}" y="${CY + 30}" font-family="Montserrat" font-size="13" fill="#8fa7bd" text-anchor="middle">COG ${isNaN(sec) ? '---' : String(Math.round(sec)).padStart(3, '0')}</text>
+      <text x="${CX}" y="${CY + 30}" font-family="Montserrat" font-size="13" fill="#8fa7bd" text-anchor="middle">${secLabel} ${isNaN(sec) ? '---' : String(Math.round(sec)).padStart(3, '0')}</text>
     </svg>`
   }
 
@@ -371,7 +389,7 @@
       ['WIFI', t.wifiState || '--', NaN],
       ['SSID', t.ssid || '--', NaN],
       ['IP', t.ip || '--', NaN],
-      ['RSSI', t.rssi != null ? t.rssi + ' dBm' : '--', NaN],
+      ['RSSI', t.rssi ? t.rssi + ' dBm' : '--', NaN],
       ['BLE', t.ble || '--', NaN],
       ['SIGNALK', t.signalk || '--', NaN],
       ['HEAP', t.heapKb != null ? t.heapKb + ' kB' : '--', NaN],
