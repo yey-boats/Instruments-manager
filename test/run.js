@@ -49,6 +49,7 @@ require('./proto-control.test')
     require('./knob-contract.test'),
     require('./github-firmware.test'),
     require('./firmware-source-kind.test'),
+    require('./tip-artifacts.test'),
     require('./udp-discovery.test'),
     require('./device-udp-discovery.test'),
     require('./discovery-scan.test'),

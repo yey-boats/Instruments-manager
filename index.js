@@ -142,7 +142,18 @@ module.exports = function yeyBoatsDisplayManagerPlugin (app) {
                 enabled: { type: 'boolean', title: 'Enabled', default: true },
                 owner: { type: 'string', title: 'GitHub owner', default: 'yey-boats' },
                 repo: { type: 'string', title: 'GitHub repository', default: 'instruments' },
-                includePrereleases: { type: 'boolean', title: 'Include prereleases', default: false }
+                includePrereleases: { type: 'boolean', title: 'Include prereleases', default: false },
+                tipFromArtifacts: {
+                  type: 'boolean',
+                  title: 'TIP build from CI Actions artifacts',
+                  description: 'Import the rolling latest-main "TIP" firmware build from the repo CI workflow Actions artifacts (firmware-<env>-latest) instead of a GitHub release. Requires a token below.',
+                  default: true
+                },
+                token: {
+                  type: 'string',
+                  title: 'GitHub token (for TIP build)',
+                  description: 'Personal Access Token / fine-grained token with Actions:read + Contents:read. REQUIRED to download CI Actions artifacts for the TIP build — GitHub requires authentication to download Actions artifacts even for public repos. Leave empty to disable the TIP-from-artifacts source (tagged releases still import without a token).'
+                }
               }
             }
           }
@@ -849,6 +860,7 @@ function registerRoutes (router, getManager) {
 
   router.post('/ui/firmware/catalog/refresh', wrap(getManager, async (manager, req, res) => {
     await manager.refreshFirmwareFromGithub()
+    await manager.refreshTipFromArtifacts().catch(() => {})
     res.statusCode = 303
     res.setHeader('location', '/plugins/yey-boats-display-manager/ui/firmware')
     res.end()
@@ -1004,7 +1016,9 @@ function registerRoutes (router, getManager) {
   }))
 
   router.post('/firmware/catalog/refresh', wrap(getManager, async (manager, req, res) => {
-    res.json(await manager.refreshFirmwareFromGithub())
+    const result = await manager.refreshFirmwareFromGithub()
+    await manager.refreshTipFromArtifacts().catch(() => {})
+    res.json(manager.listFirmware ? { ...result, ...manager.listFirmware() } : result)
   }))
 
   router.post('/firmware/artifacts', wrap(getManager, (manager, req, res) => {
