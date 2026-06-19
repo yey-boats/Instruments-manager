@@ -92,6 +92,9 @@
   }
   function fixed (v, p) { return isNaN(v) ? '--' : v.toFixed(p) }
   function sideStr (s) { return s ? (s.mag + s.side) : '--' }
+  // Coerce an arbitrary value to a finite number, NaN otherwise (used for the
+  // device-telemetry trip accumulators which may be absent or non-numeric).
+  function num (v) { return (typeof v === 'number' && isFinite(v)) ? v : NaN }
 
   // --- shared svg helpers ---------------------------------------------------
   // Escape any value interpolated into the SVG string. The HUD numerics are
@@ -229,6 +232,188 @@
       <text x="${CX}" y="${CY - RF + 30}" font-family="Montserrat" font-size="14" fill="#8fa7bd" text-anchor="middle">HDG</text>
       <text x="${CX}" y="${CY - RF + 52}" font-family="Montserrat" font-size="22" font-weight="700" fill="#4fc3f7" text-anchor="middle">${isNaN(hdg) ? '---' : String(Math.round(hdg)).padStart(3, '0')}°</text>
       ${tiles}`)
+  }
+
+  // ====================================================================== //
+  //  Fullscreen: WIND CLASSIC  (screen_wind_classic.cpp)                    //
+  // ====================================================================== //
+  // The CLASSICAL marine wind rose: a full-screen circular dial centred on the
+  // panel (NOT the top-half dial of windDial). Distinct from windDial:
+  //   - thick rim bezel (rim ring + outer shadow + inner highlight) that
+  //     rotates heading-up, with 8 inward tick marks at the inter-cardinals
+  //   - an UPRIGHT cardinal overlay (N/NE/E/... laid out at bearing-heading so
+  //     the labels stay horizontal while the dial rotates)
+  //   - a 30/60/90/120/150 wind-angle-off-bow numeric scale on BOTH sides
+  //   - red/green close-hauled arcs at ~30° each side of the bow
+  //   - a stylised boat-hull polyline + centreline down the middle
+  //   - AWS (amber) + TWS (white) HERO readouts flanking the hull, each with a
+  //     port/starboard wind-angle sub-line; HDG hero above the bow; a centred
+  //     blue tide/current arrow (rotates to set-heading) with its drift text
+  //   - A (amber) / T (white) wind index triangles orbiting the rim at AWA/TWA
+  //   - SOG (green) + SOW (cyan) glass boxes in the bottom screen corners
+  // Mirrors src/ui/screen_wind_classic.cpp geometry on the 480 viewBox.
+  function windClassic (a) {
+    const CX = 240, CY = 240
+    const R_BEZEL = 218, R_FACE = R_BEZEL - 28, R_CLOSE = R_BEZEL - 43
+    const R_MARKER = R_BEZEL - 18, R_CARD = R_BEZEL - 22, R_SCALE = R_FACE - 26
+    const hdg = a.has('heading') ? a.deg('heading') : NaN
+    const href = isNaN(hdg) ? 0 : hdg // marker reference (north-up when no hdg)
+    const awa = a.deg('awa'); const twa = a.deg('twa')
+    // bearing measured clockwise from bow/north (up); 0 = up (12 o'clock).
+    const polar = (deg, r) => { const t = (deg - 90) * Math.PI / 180; return [CX + r * Math.cos(t), CY + r * Math.sin(t)] }
+
+    // --- rim bezel (rotates -heading, heading-up) + inter-cardinal ticks ----
+    const ticks = []
+    for (let deg = 0; deg < 360; deg += 45) {
+      const [x1, y1] = polar(deg + 22.5, R_BEZEL - 4)
+      const [x2, y2] = polar(deg + 22.5, R_BEZEL - 14)
+      ticks.push(`<line x1="${x1.toFixed(1)}" y1="${y1.toFixed(1)}" x2="${x2.toFixed(1)}" y2="${y2.toFixed(1)}" stroke="#5a6b78" stroke-width="2"/>`)
+    }
+    const bezel = `<g transform="rotate(${(-href).toFixed(1)} ${CX} ${CY})">
+      <circle cx="${CX}" cy="${CY}" r="${R_BEZEL}" fill="none" stroke="#26384a" stroke-width="6"/>
+      <circle cx="${CX}" cy="${CY}" r="${R_BEZEL + 5}" fill="none" stroke="#111a26" stroke-width="2"/>
+      <circle cx="${CX}" cy="${CY}" r="${R_BEZEL - 7}" fill="none" stroke="#0c1828" stroke-width="1"/>
+      ${ticks.join('')}
+    </g>`
+
+    // --- upright cardinal overlay (laid out at bearing - heading) -----------
+    const CARD = [['N', 0, 1], ['NE', 45, 0], ['E', 90, 1], ['SE', 135, 0], ['S', 180, 1], ['SW', 225, 0], ['W', 270, 1], ['NW', 315, 0]]
+    const cards = CARD.map(([lab, b, big]) => {
+      const [x, y] = polar(b - href, R_CARD)
+      const f = big ? 20 : 14
+      return `<text x="${x.toFixed(1)}" y="${(y + f * 0.34).toFixed(1)}" font-family="Montserrat" font-weight="700" font-size="${f}" fill="${big ? '#eef4fa' : '#5a6b78'}" text-anchor="middle">${lab}</text>`
+    }).join('')
+
+    // --- wind-angle-off-bow numeric scale, both sides (bow-relative) --------
+    const scale = []
+    for (const ang of [30, 60, 90, 120, 150]) {
+      for (const s of [-1, 1]) {
+        const [x, y] = polar(s * ang, R_SCALE)
+        scale.push(`<text x="${x.toFixed(1)}" y="${(y + 5).toFixed(1)}" font-family="Montserrat" font-size="14" fill="#5a6b78" text-anchor="middle">${ang}</text>`)
+      }
+    }
+
+    // --- close-hauled arcs (±30° of bow) ------------------------------------
+    const arc = (t0, t1, r) => { const [x0, y0] = polar(t0, r); const [x1, y1] = polar(t1, r); return `M ${x0.toFixed(1)} ${y0.toFixed(1)} A ${r} ${r} 0 0 1 ${x1.toFixed(1)} ${y1.toFixed(1)}` }
+    const closeHauled =
+      `<path d="${arc(-30, 0, R_CLOSE)}" fill="none" stroke="#ff5252" stroke-width="6" opacity="0.7"/>` +
+      `<path d="${arc(0, 30, R_CLOSE)}" fill="none" stroke="#36d399" stroke-width="6" opacity="0.7"/>`
+
+    // --- stylised boat hull + centreline ------------------------------------
+    const hull = `M ${CX - 28},${CY + 63} L ${CX - 28},${CY - 7} L ${CX - 22},${CY - 42} L ${CX},${CY - 92} L ${CX + 22},${CY - 42} L ${CX + 28},${CY - 7} L ${CX + 28},${CY + 63}`
+    const boat =
+      `<line x1="${CX}" y1="${CY - R_FACE / 2}" x2="${CX}" y2="${CY + R_FACE / 2}" stroke="#eef4fa" stroke-opacity="0.2" stroke-width="1"/>` +
+      `<path d="${hull}" fill="none" stroke="#eef4fa" stroke-opacity="0.3" stroke-width="3" stroke-linejoin="round" stroke-linecap="round"/>`
+
+    // --- tide / current arrow at centre (rotates set - heading) -------------
+    const cset = a.deg('currentSet'); const cdrift = a.kn('currentDrift')
+    let tide = ''
+    if (!isNaN(cset) && !isNaN(cdrift) && !isNaN(hdg) && cdrift > 0.05 * MPS2KN) {
+      const rel = norm360(cset - hdg)
+      // The arrow is drawn pointing up (toward the bow at 12 o'clock) inside a
+      // <g> rotated by (set - heading), so it ends up pointing toward the set.
+      tide = `<g transform="rotate(${rel.toFixed(1)} ${CX} ${CY})">
+        <line x1="${CX}" y1="${CY}" x2="${CX}" y2="${CY - 54}" stroke="#288cff" stroke-width="5" stroke-linecap="round"/>
+        <path d="M ${CX - 10},${CY - 46} L ${CX + 10},${CY - 46} L ${CX},${CY - 64} Z" fill="#288cff"/>
+      </g>
+      <text x="${CX - 22}" y="${CY + 4}" font-family="Montserrat" font-size="18" fill="#eef4fa">${fixed(cdrift, 1)}</text>`
+    } else if (!isNaN(cset) && !isNaN(cdrift) && !isNaN(hdg)) {
+      tide = `<circle cx="${CX}" cy="${CY}" r="13" fill="none" stroke="#288cff" stroke-width="3"/>`
+    }
+
+    // --- A / T wind index triangles orbiting the rim (point inward) ---------
+    const windMark = (deg, color, letter) => {
+      if (isNaN(deg)) return ''
+      return `<g transform="rotate(${deg.toFixed(1)} ${CX} ${CY})">
+        <path d="M ${CX - 11},${CY - R_MARKER} L ${CX + 11},${CY - R_MARKER} L ${CX},${CY - R_MARKER + 20} Z" fill="${color}"/>
+        <text x="${CX}" y="${CY - R_MARKER + 40}" font-family="Montserrat" font-size="20" font-weight="700" fill="${color}" text-anchor="middle" transform="rotate(${(-deg).toFixed(1)} ${CX} ${CY - R_MARKER + 34})">${letter}</text>
+      </g>`
+    }
+    const markers = windMark(twa, '#eef4fa', 'T') + windMark(awa, '#f6a21a', 'A')
+
+    // --- hero readouts inside the face --------------------------------------
+    const awsSide = a.side('awa'); const twsSide = a.side('twa')
+    const hero = (cap, val, sub, dx, dy, vcol) =>
+      `<text x="${CX + dx}" y="${CY + dy - 40}" font-family="Montserrat" font-size="20" fill="#8fa7bd" text-anchor="middle">${cap}</text>` +
+      `<text x="${CX + dx}" y="${CY + dy + 16}" font-family="Montserrat" font-size="48" font-weight="700" fill="${vcol}" text-anchor="middle">${val}</text>` +
+      (sub != null ? `<text x="${CX + dx}" y="${CY + dy + 56}" font-family="Montserrat" font-size="20" fill="#8fa7bd" text-anchor="middle">${sub}</text>` : '')
+    const hdgTxt = isNaN(hdg) ? '--°' : String(Math.round(hdg)).padStart(3, '0') + '°'
+    const heroes =
+      hero('HDG', hdgTxt, null, 0, -96, '#4fc3f7') +
+      hero('AWS', fixed(a.kn('aws'), 1), sideStr(awsSide), -96, 0, '#f6a21a') +
+      hero('TWS', fixed(a.kn('tws'), 1), sideStr(twsSide), 96, 0, '#eef4fa')
+
+    // --- SOG / SOW glass corner boxes (outside the ring) --------------------
+    const cornerBox = (label, val, x, vcol) =>
+      `<rect x="${x}" y="404" width="104" height="68" rx="8" fill="#101b29" stroke="#1f2d3d"/>` +
+      `<text x="${x + 8}" y="424" font-family="Montserrat" font-size="14" fill="#8fa7bd">${label}</text>` +
+      `<text x="${x + 96}" y="424" font-family="Montserrat" font-size="14" fill="#8fa7bd" text-anchor="end">kn</text>` +
+      `<text x="${x + 52}" y="464" font-family="Montserrat" font-size="38" font-weight="700" fill="${vcol}" text-anchor="middle">${val}</text>`
+    const corners = cornerBox('SOG', fixed(a.kn('sog'), 1), 8, '#36d399') +
+      cornerBox('SOW', fixed(a.kn('stw'), 1), 368, '#4fc3f7')
+
+    return svgWrap(`
+      <circle cx="${CX}" cy="${CY}" r="${R_FACE}" fill="#101b29" stroke="#1f2d3d" stroke-opacity="0.6"/>
+      ${closeHauled}
+      ${scale.join('')}
+      ${boat}
+      ${tide}
+      ${markers}
+      ${bezel}
+      ${cards}
+      <path d="M ${CX - 4},${CY - R_BEZEL - 14} h 8 v 12 h -8 Z" fill="#eef4fa" fill-opacity="0.9"/>
+      ${heroes}
+      ${corners}`)
+  }
+
+  // ====================================================================== //
+  //  Fullscreen: TRIP ODOMETER  (screen_trip.cpp)                           //
+  // ====================================================================== //
+  // The device Trip screen is a bespoke odometer, NOT a metric grid: a big
+  // DISTANCE hero spanning the top, then TIME UNDERWAY / AVG SPEED / MAX SPEED
+  // stat cards, then a live SOG strip. Distance / time / avg / max are device-
+  // side NVS-integrated accumulators (the firmware integrates SOG locally and
+  // persists across reboots); they are NOT in the SignalK stream, so we source
+  // them from the device telemetry (`t`) when present, else show "--". The NOW
+  // SOG reads live from SignalK.
+  function tripHud (a, t) {
+    t = t || {}
+    const fmtDist = (nm) => isNaN(nm) ? '--' : (nm >= 10 ? nm.toFixed(1) : nm.toFixed(2))
+    const fmtTime = (s) => {
+      if (s == null || isNaN(s)) return '--'
+      const hh = Math.floor(s / 3600); const mm = Math.floor(s / 60) % 60; const ss = Math.floor(s % 60)
+      return hh + ':' + String(mm).padStart(2, '0') + ':' + String(ss).padStart(2, '0')
+    }
+    // Device telemetry odometer fields (absent today -> "--"). distM in metres,
+    // underwayS in seconds, avg/max in m/s; tolerate a few likely key spellings.
+    const trip = t.trip || {}
+    const distM = num(trip.distM != null ? trip.distM : trip.distance_m)
+    const distNm = isNaN(distM) ? num(trip.distNm) : distM / 1852
+    const underwayS = num(trip.underwayS != null ? trip.underwayS : trip.underway_s)
+    const avgMps = num(trip.avgMps != null ? trip.avgMps : trip.avg_mps)
+    const maxMps = num(trip.maxMps != null ? trip.maxMps : trip.max_mps)
+    const avgKn = isNaN(avgMps) ? num(trip.avgKn) : avgMps * MPS2KN
+    const maxKn = isNaN(maxMps) ? num(trip.maxKn) : maxMps * MPS2KN
+    const sogKn = a.kn('sog')
+
+    const statCard = (cap, val, x, w, vcol) =>
+      `<rect x="${x}" y="248" width="${w}" height="100" rx="8" fill="#101b29" stroke="#1f2d3d"/>` +
+      `<text x="${x + 12}" y="274" font-family="Montserrat" font-size="14" fill="#8fa7bd">${cap}</text>` +
+      `<text x="${x + 12}" y="330" font-family="Montserrat" font-size="28" font-weight="700" fill="${vcol}" text-anchor="start">${val}</text>`
+    const colW = (480 - 32) / 3
+    return svgWrap(`
+      <text x="240" y="28" font-family="Montserrat" font-size="20" font-weight="700" fill="#4fc3f7" text-anchor="middle">TRIP</text>
+      <rect x="8" y="40" width="464" height="200" rx="8" fill="#101b29" stroke="#1f2d3d"/>
+      <text x="20" y="66" font-family="Montserrat" font-size="14" fill="#8fa7bd">DISTANCE</text>
+      <text x="210" y="158" font-family="Montserrat" font-size="64" font-weight="700" fill="#eef4fa" text-anchor="end">${fmtDist(distNm)}</text>
+      <text x="452" y="158" font-family="Montserrat" font-size="28" fill="#8fa7bd" text-anchor="end">nm</text>
+      ${statCard('TIME UNDERWAY', fmtTime(underwayS), 8, colW, '#eef4fa')}
+      ${statCard('AVG SPEED', isNaN(avgKn) ? '-.-- kn' : avgKn.toFixed(1) + ' kn', 8 + colW + 8, colW, '#eef4fa')}
+      ${statCard('MAX SPEED', isNaN(maxKn) ? '-.-- kn' : maxKn.toFixed(1) + ' kn', 8 + (colW + 8) * 2, colW - 8, '#36d399')}
+      <rect x="8" y="356" width="464" height="60" rx="8" fill="#101b29" stroke="#1f2d3d"/>
+      <text x="24" y="392" font-family="Montserrat" font-size="14" fill="#8fa7bd">NOW</text>
+      <text x="240" y="396" font-family="Montserrat" font-size="28" font-weight="700" fill="#4fc3f7" text-anchor="middle">${isNaN(sogKn) ? '-.- kn' : sogKn.toFixed(1) + ' kn'}</text>
+      <text x="240" y="448" font-family="Montserrat" font-size="14" fill="#5a6b78" text-anchor="middle">console: trip-reset</text>`)
   }
 
   // ====================================================================== //
@@ -419,12 +604,14 @@
   // ====================================================================== //
   //  Public surface                                                        //
   // ====================================================================== //
-  const FULLSCREEN = { autopilotHud, windDial, windSteer }
-  // device built-in screen id -> fullscreen renderer (prefix-matched too)
+  const FULLSCREEN = { autopilotHud, windDial, windClassic, windSteer }
+  // device built-in screen id -> fullscreen renderer (prefix-matched too).
+  // wind_classic resolves to the CLASSICAL dial (windClassic), distinct from
+  // the redesigned `wind` (windDial).
   const SCREEN_FULLSCREEN = {
     autopilot: autopilotHud,
     wind: windDial,
-    wind_classic: windDial,
+    wind_classic: windClassic,
     wind_steer: windSteer
   }
 
@@ -448,6 +635,11 @@
     // fed by live SignalK + the device's heartbeat telemetry `t`).
     isSystemScreen (id) { return id === 'status' || id === 'system' },
     systemPanel,
+    // The device's bespoke Trip odometer screen (distance hero + time/avg/max
+    // stat cards + live SOG), rendered from live SignalK (`a`) + device
+    // telemetry (`t`) instead of the generic preset metric grid.
+    isTripScreen (id) { return id === 'trip' },
+    tripHud,
     compassTileSVG
   }
 }())

@@ -354,6 +354,17 @@
       root.appendChild(stage)
       return
     }
+    // The built-in Trip screen: the device renders a bespoke odometer (distance
+    // hero + time/avg/max stat cards + live SOG), not a metric grid. Render it
+    // faithfully from live SignalK + device telemetry (the odometer
+    // accumulators are device-side state; absent ones show "--").
+    if (scr && Hud && Hud.isTripScreen(scr.id) && Hud.tripHud) {
+      const stage = document.createElement('div')
+      stage.className = 'lp-hud'
+      stage.innerHTML = Hud.tripHud(Hud.accessor(values), cfg.telemetry || {})
+      root.appendChild(stage)
+      return
+    }
     const kind = fullscreenKind(scr)
     if (kind && Hud) {
       const stage = document.createElement('div')

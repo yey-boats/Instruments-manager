@@ -1,15 +1,16 @@
 // Preset coverage contract.
 //
 // Asserts every supported display class produces a complete preset library
-// (dashboard, wind, wind-steer, nav, depth, steering, route, trip, autopilot,
-// system) and that each grid-type preset's tile count matches the display's
-// grid budget. Wind and wind-steer are fullscreen HUDs (1 tile) on every class.
+// (dashboard, wind, wind_classic, wind-steer, nav, depth, steering, route,
+// trip, autopilot, system) and that each grid-type preset's tile count matches
+// the display's grid budget. Wind, wind_classic and wind-steer are fullscreen
+// HUDs (1 tile) on every class.
 
 const assert = require('assert')
 const presets = require('../lib/screen-presets')
 
 const EXPECTED_IDS = [
-  'dashboard', 'wind', 'wind-steer', 'nav', 'depth', 'steering',
+  'dashboard', 'wind', 'wind_classic', 'wind-steer', 'nav', 'depth', 'steering',
   'route', 'trip', 'autopilot', 'system'
 ]
 
