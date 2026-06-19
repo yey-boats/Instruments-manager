@@ -61,13 +61,13 @@ ssh -o BatchMode=yes -o ConnectTimeout=5 "$REMOTE_HOST" \
   'command -v docker >/dev/null || { echo "docker not on PATH on remote" >&2; exit 1; }'
 
 # 1. sync config + plugin to the remote so changes here propagate
-ssh "$REMOTE_HOST" "mkdir -p '$REMOTE_DIR/config/plugin-config-data' '$REMOTE_DIR/plugins/signalk-espdisp-manager'"
+ssh "$REMOTE_HOST" "mkdir -p '$REMOTE_DIR/config/plugin-config-data' '$REMOTE_DIR/plugins/yey-boats-display-manager'"
 rsync -az --delete \
   --exclude 'node_modules' --exclude '*.log' \
   "$CONFIG_DIR/" "$REMOTE_HOST:$REMOTE_DIR/config/"
 rsync -az --delete \
   --exclude 'node_modules' --exclude '*.log' --exclude 'deploy' --exclude '.git' \
-  "$PLUGIN_DIR/" "$REMOTE_HOST:$REMOTE_DIR/plugins/signalk-espdisp-manager/"
+  "$PLUGIN_DIR/" "$REMOTE_HOST:$REMOTE_DIR/plugins/yey-boats-display-manager/"
 
 # The signalk image runs as uid 1000 (node) inside the container.  On
 # Linux remotes (unlike macOS docker desktop), bind mounts enforce
@@ -102,7 +102,7 @@ docker run -d \
   -v "$REMOTE_DIR/plugins:/home/node/plugins" \
   "$IMAGE" >/dev/null
 # --network host: the container sees every interface on the box
-# (eth0 + wlan-ap0), so UDP broadcasts from the esp-lab subnet land
+# (eth0 + wlan-ap0), so UDP broadcasts from the yey-net subnet land
 # on the SK discovery responder.  This is required for the device's
 # 34300 discovery probe to be answered from nav-server.
 REMOTE

@@ -22,7 +22,7 @@ fi
 docker run --rm \
   --entrypoint npm \
   -v "$CONFIG_DIR:/home/node/.signalk" \
-  -v "$PLUGIN_DIR:/home/node/plugins/signalk-espdisp-manager" \
+  -v "$PLUGIN_DIR:/home/node/plugins/yey-boats-display-manager" \
   -w /home/node/.signalk \
   "$IMAGE" \
   install
@@ -35,7 +35,7 @@ docker run -d \
   -p 34301:34301/udp \
   -p "$SIM_WEB_PORT:$SIM_WEB_PORT" \
   -v "$CONFIG_DIR:/home/node/.signalk" \
-  -v "$PLUGIN_DIR:/home/node/plugins/signalk-espdisp-manager" \
+  -v "$PLUGIN_DIR:/home/node/plugins/yey-boats-display-manager" \
   "$IMAGE" >/dev/null
 
 for _ in 1 2 3 4 5 6 7 8 9 10; do

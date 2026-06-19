@@ -9,7 +9,7 @@ services:
       - "34301:34301/udp"
     volumes:
       - ./config:/home/node/.signalk
-      - ../:/home/node/plugins/signalk-espdisp-manager
+      - ../:/home/node/plugins/yey-boats-display-manager
 
   simulator:
     image: ghcr.io/yey-boats/simulator:latest

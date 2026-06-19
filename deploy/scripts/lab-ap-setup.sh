@@ -1,12 +1,12 @@
 #!/usr/bin/env bash
-# Run on nav-server as root.  Brings up `esp-lab` AP on virtual wlan-ap0
+# Run on nav-server as root.  Brings up `yey-net` AP on virtual wlan-ap0
 # and a dnsmasq DHCP server for 10.42.0.0/24.  Forwarding is pure
 # routed (no NAT) — the Router/Starlink/etc. WAN router needs a static route
 # `10.42.0.0/24 via 192.168.2.11` for return traffic.
 #
 # Usage:
 #   sudo bash lab-ap-setup.sh <wpa2-psk>
-#   ESP_LAB_PSK=<psk> sudo -E bash lab-ap-setup.sh
+#   YEY_NET_PSK=<psk> sudo -E bash lab-ap-setup.sh
 #
 # The PSK is required.  Source `.env.test.local` in your shell first
 # to pick it up from there.  The script refuses to write hostapd.conf
@@ -14,15 +14,15 @@
 set -euo pipefail
 export PATH=/usr/sbin:/sbin:/usr/local/sbin:$PATH
 
-PSK="${1:-${ESP_LAB_PSK:-changeme}}"
+PSK="${1:-${YEY_NET_PSK:-changeme}}"
 if [ "$PSK" = "changeme" ] || [ "${#PSK}" -lt 8 ]; then
   echo "lab-ap-setup.sh: refusing to start AP with placeholder/short PSK." >&2
-  echo "Pass it as the first argument, or export ESP_LAB_PSK before running:" >&2
+  echo "Pass it as the first argument, or export YEY_NET_PSK before running:" >&2
   echo "    sudo bash $0 'your-wpa2-psk'" >&2
   exit 64
 fi
 
-CONF_DIR=/etc/espdisp-lab
+CONF_DIR=/etc/yeydisp-lab
 LOG_DIR=/var/log
 mkdir -p "$CONF_DIR"
 
@@ -30,7 +30,7 @@ mkdir -p "$CONF_DIR"
 cat > "$CONF_DIR/hostapd.conf" <<EOF
 interface=wlan-ap0
 driver=nl80211
-ssid=esp-lab
+ssid=yey-net
 # 2.4 GHz / channel 6 — no regulatory-db requirement, works on the
 # default world regdom (country 00).  ESP32-S3 only does 2.4 GHz
 # anyway, so we'd never get the 5 GHz speedup with this client.
@@ -77,7 +77,7 @@ EOF
 
 # --- NM stay-away --------------------------------------------------------
 mkdir -p /etc/NetworkManager/conf.d
-cat > /etc/NetworkManager/conf.d/99-espdisp-lab-ap.conf <<'EOF'
+cat > /etc/NetworkManager/conf.d/99-yeydisp-lab-ap.conf <<'EOF'
 [keyfile]
 unmanaged-devices=interface-name:wlan-ap0
 EOF
@@ -107,22 +107,22 @@ pkill -f "$CONF_DIR/hostapd.conf"  2>/dev/null || true
 pkill -f "$CONF_DIR/dnsmasq.conf"  2>/dev/null || true
 sleep 1
 
-setsid hostapd -B -f "$LOG_DIR/espdisp-lab-hostapd.log" "$CONF_DIR/hostapd.conf"
+setsid hostapd -B -f "$LOG_DIR/yeydisp-lab-hostapd.log" "$CONF_DIR/hostapd.conf"
 sleep 2
 setsid dnsmasq -C "$CONF_DIR/dnsmasq.conf" \
-  --log-facility="$LOG_DIR/espdisp-lab-dnsmasq.log"
+  --log-facility="$LOG_DIR/yeydisp-lab-dnsmasq.log"
 sleep 1
 
 # --- self-install + systemd unit so AP survives nav-server reboot ------
 SELF="$(readlink -f "$0")"
-PERSIST=/usr/local/sbin/espdisp-lab-ap-setup.sh
+PERSIST=/usr/local/sbin/yeydisp-lab-ap-setup.sh
 if [ "$SELF" != "$PERSIST" ]; then
   install -m 0755 "$SELF" "$PERSIST"
 fi
-UNIT=/etc/systemd/system/espdisp-lab-ap.service
+UNIT=/etc/systemd/system/yeydisp-lab-ap.service
 cat > "$UNIT" <<EOF
 [Unit]
-Description=esp-lab AP (hostapd + dnsmasq on wlan-ap0)
+Description=yey-net AP (hostapd + dnsmasq on wlan-ap0)
 After=network-online.target NetworkManager.service
 Wants=network-online.target
 
@@ -136,7 +136,7 @@ ExecStop=/bin/bash -c 'pkill -f $CONF_DIR/hostapd.conf; pkill -f $CONF_DIR/dnsma
 WantedBy=multi-user.target
 EOF
 systemctl daemon-reload
-systemctl enable espdisp-lab-ap.service >/dev/null 2>&1 || true
+systemctl enable yeydisp-lab-ap.service >/dev/null 2>&1 || true
 echo "installed: $PERSIST + $UNIT"
 
 # --- status report -----------------------------------------------------
@@ -146,7 +146,7 @@ iw dev wlan-ap0 info 2>&1 | grep -E "ssid|type|channel|txpower" || true
 echo "=== running procs ==="
 pgrep -af "$CONF_DIR" || echo "(no procs matched)"
 echo "=== hostapd tail ==="
-tail -15 "$LOG_DIR/espdisp-lab-hostapd.log" 2>&1 || true
+tail -15 "$LOG_DIR/yeydisp-lab-hostapd.log" 2>&1 || true
 echo "=== iptables forward ==="
 iptables -S FORWARD | grep 10.42 || true
 echo "=== iptables nat (should have NO 10.42 line for routed mode) ==="
