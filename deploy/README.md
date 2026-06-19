@@ -129,7 +129,7 @@ Firmware reads ArduinoOTA auth from `OTA_PASSWORD` in generated
 generates it from repository secrets:
 
 ```text
-ESPDISP_OTA_PASSWORD
+YEYBOATS_OTA_PASSWORD
 ```
 
 The regular CI firmware matrix uses this secret when available. The tagged
@@ -141,8 +141,8 @@ For local builds, set the same environment variable before `make build` or
 `make ota`:
 
 ```sh
-ESPDISP_OTA_PASSWORD='<ota-password>' make build
-ESPDISP_OTA_PASSWORD='<ota-password>' make ota DEVICE_IP=<device-ip>
+YEYBOATS_OTA_PASSWORD='<ota-password>' make build
+YEYBOATS_OTA_PASSWORD='<ota-password>' make ota DEVICE_IP=<device-ip>
 ```
 
 The OTA password is embedded in the firmware image. If release assets are
@@ -212,21 +212,21 @@ curl http://localhost:3000/signalk
 
 ESP display firmware in default `sk-host auto` mode first tries mDNS
 `_signalk-ws._tcp`. If that is not advertised by the LAN or Docker setup, it
-broadcasts `espdisp.signalk.discover.v1` to UDP `34300`. The manager plugin
+broadcasts `yeyboats.signalk.discover.v2` to UDP `34300`. The manager plugin
 replies with the SignalK HTTP/WebSocket port; the device uses the reply source
 address when no explicit advertised host is configured, then TCP-probes the
 target before opening the SignalK WebSocket.
 
-For manager discovery, the plugin can also advertise `_espdisp-mgmt._tcp.local`
+For manager discovery, the plugin can also advertise `_yeyboats-mgmt._tcp.local`
 with TXT metadata for protocol, base path, auth mode, TLS flag, SignalK port,
 and NMEA TCP port. Firmware can query this with `manager-discover`. This works
 on LANs or containers where multicast DNS UDP `5353` reaches the display.
 
-ESP display firmware also broadcasts `espdisp.device.announce.v1` to UDP
+ESP display firmware also broadcasts `yeyboats.device.announce.v2` to UDP
 `34301` after joining WiFi. The manager plugin listens on that port and adds
 unclaimed displays to the Discovery page without needing a subnet scan.
 
-The firmware also advertises Bonjour/mDNS service `_espdisp._tcp.local`.
+The firmware also advertises Bonjour/mDNS service `_yeyboats._tcp.local`.
 The manager plugin passively listens for those advertisements and uses the
 TXT fields (`device_id`, `board`, `firmware`, `version`, `display`, `auth`,
 `cfg_ver`, `cfg_hash`, `seq`) to update the same Discovery page. Firmware
@@ -251,7 +251,7 @@ If the device does not appear:
 - use an explicit host as a fallback:
 
 ```sh
-ESPDISP_HOST=<device-ip> pytest tests/system/unattended/test_boot_health.py
+YEYBOATS_HOST=<device-ip> pytest tests/system/unattended/test_boot_health.py
 ```
 
 ## Verify NMEA 0183 TCP
@@ -296,7 +296,7 @@ Then query the state path again.
 ## Verify YEY Boats Display Manager
 
 SignalK protects plugin routes with its normal HTTP auth. Device management
-auth is carried separately with `X-EspDisp-Authorization`.
+auth is carried separately with `X-YeyBoats-Authorization`.
 
 ```sh
 TOKEN=$(curl -s -H 'Content-Type: application/json' \
@@ -305,13 +305,13 @@ TOKEN=$(curl -s -H 'Content-Type: application/json' \
 
 curl -s \
   -H "Authorization: Bearer $TOKEN" \
-  http://localhost:3000/plugins/yey-boats-display-manager/.well-known/espdisp-management
+  http://localhost:3000/plugins/yey-boats-display-manager/.well-known/yeyboats-management
 
 curl -s -X POST \
   -H "Authorization: Bearer $TOKEN" \
-  -H "X-EspDisp-Authorization: Bearer espdisp-dev" \
+  -H "X-YeyBoats-Authorization: Bearer yeyboats-dev" \
   -H 'Content-Type: application/json' \
-  -d '{"device":{"id":"espdisp-aabbccddeeff","board":"esp32-4848s040"}}' \
+  -d '{"device":{"id":"yey-d-aabbccddeeff","board":"esp32-4848s040"}}' \
   http://localhost:3000/plugins/yey-boats-display-manager/devices/register
 ```
 
@@ -352,7 +352,7 @@ The operator UI is intentionally structured, not a raw JSON editor:
   `config.reload` command for the device to poll
 - `Save as preset` stores the same settings as a reusable profile/preset
 - preset rows export dashboard configs as JSON or YAML
-- the preset import form accepts `espdisp.dashboard.v1` JSON/YAML
+- the preset import form accepts `yeyboats.dashboard.v2` JSON/YAML
 - the preset detail page applies one preset to multiple selected devices and
   can clear device overrides before queuing reload commands
 
@@ -368,7 +368,7 @@ keep the same generated dashboard schema while adding:
 - role/display templates for common helm, cabin, nav, and engine pages
 - validation for missing widgets, duplicate tile positions, unsupported widget
   types, and layouts that do not fit the target display
-- import/export compatibility with the existing `espdisp.dashboard.v1`
+- import/export compatibility with the existing `yeyboats.dashboard.v2`
   preset format
 
 The layout builder is summarized in the [plugin README](../README.md#capabilities).
@@ -399,7 +399,7 @@ Full block-style YAML import/export is handled by the SignalK plugin.
 Implemented v1 endpoints:
 
 ```text
-GET  /plugins/yey-boats-display-manager/.well-known/espdisp-management
+GET  /plugins/yey-boats-display-manager/.well-known/yeyboats-management
 GET  /plugins/yey-boats-display-manager/capabilities
 GET  /plugins/yey-boats-display-manager/dashboard
 GET  /plugins/yey-boats-display-manager/discovery/devices

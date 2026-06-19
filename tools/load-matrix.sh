@@ -15,7 +15,7 @@ CONFIG_EVERY="${CONFIG_EVERY:-10}"
 SAMPLE_SEC="${SAMPLE_SEC:-5}"
 USERNAME="${SIGNALK_USERNAME:-admin}"
 PASSWORD="${SIGNALK_PASSWORD:-admin}"
-DEVICE_TOKEN="${ESPDISP_MANAGER_TOKEN:-espdisp-dev}"
+DEVICE_TOKEN="${YEYBOATS_MANAGER_TOKEN:-yeyboats-dev}"
 OUT_DIR="${OUT_DIR:-$ROOT/.tmp/load-bench-$(date +%Y%m%d-%H%M%S)}"
 RESUME="${RESUME:-0}"
 SUMMARY_ONLY="${SUMMARY_ONLY:-0}"
@@ -46,7 +46,7 @@ Environment:
   SIGNALK_USERNAME  SignalK login username. Default: admin
   SIGNALK_PASSWORD  SignalK login password. Default: admin
   SIGNALK_TOKEN     Optional existing SignalK bearer token.
-  ESPDISP_MANAGER_TOKEN Device/dev token. Default: espdisp-dev
+  YEYBOATS_MANAGER_TOKEN Device/dev token. Default: yeyboats-dev
   OUT_DIR           Result directory. Default: $OUT_DIR
   RESUME            Skip levels whose meta.txt has EXIT_CODE=0. Default: 0
   SUMMARY_ONLY      Only regenerate summary.txt from OUT_DIR. Default: 0

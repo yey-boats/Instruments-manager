@@ -1907,7 +1907,7 @@ function renderDeviceConfigPage (manager, id) {
       <h2>${escapeHtml(device.name || device.id)} config</h2>
       <p class="muted">
         Operator preview for ${escapeHtml(device.id)}. The device pull endpoint
-        still requires <code>X-EspDisp-Authorization</code>.
+        still requires <code>X-YeyBoats-Authorization</code>.
       </p>
       <p>
         <a href="/plugins/yey-boats-display-manager/ui/devices/${encodeURIComponent(id)}">Back to device</a>

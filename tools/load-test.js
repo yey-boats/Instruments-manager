@@ -9,7 +9,7 @@ const DEFAULTS = {
   durationSec: 120,
   heartbeatMs: 30000,
   commandPollMs: 15000,
-  deviceToken: process.env.ESPDISP_MANAGER_TOKEN || 'yeyboats-dev',
+  deviceToken: process.env.YEYBOATS_MANAGER_TOKEN || 'yeyboats-dev',
   signalkToken: process.env.SIGNALK_TOKEN || '',
   username: process.env.SIGNALK_USERNAME || 'admin',
   password: process.env.SIGNALK_PASSWORD || 'admin',
@@ -74,7 +74,7 @@ Options:
   --heartbeat-ms <n>          Status POST interval per device (default: ${DEFAULTS.heartbeatMs})
   --command-poll-ms <n>       Command poll GET interval per device (default: ${DEFAULTS.commandPollMs})
   --config-every <n>          Fetch config every n heartbeats; 0 disables periodic config GET
-  --device-token <token>      ESP manager device/dev token (default: $ESPDISP_MANAGER_TOKEN or yeyboats-dev)
+  --device-token <token>      ESP manager device/dev token (default: $YEYBOATS_MANAGER_TOKEN or yeyboats-dev)
   --token <token>             Alias for --device-token
   --signalk-token <token>     Existing SignalK bearer token (default: $SIGNALK_TOKEN)
   --username <name>           SignalK login username when no --signalk-token (default: $SIGNALK_USERNAME or admin)
@@ -158,7 +158,7 @@ async function requestJson (opts, metrics, name, method, path, body) {
       signal: controller.signal,
       headers: {
         ...(opts.signalkToken ? { Authorization: `Bearer ${opts.signalkToken}` } : {}),
-        'X-EspDisp-Authorization': `Bearer ${opts.deviceToken}`,
+        'X-YeyBoats-Authorization': `Bearer ${opts.deviceToken}`,
         ...(body ? { 'Content-Type': 'application/json' } : {})
       },
       body: body ? JSON.stringify(body) : undefined
