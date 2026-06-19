@@ -119,3 +119,74 @@ test('device-page projection surfaces kind + color back to the preview', () => {
   assert.ok(preview.manifest && Array.isArray(preview.manifest.viewTypes) && preview.manifest.viewTypes.length, 'manifest viewTypes shipped')
   assert.ok(preview.manifest.colorElements && preview.manifest.colorElements.bar, 'color elements shipped')
 })
+
+// --- Fullscreen HUD field overrides --------------------------------------
+// A radial/HUD screen (autopilot/wind/wind_steer/wind_classic) has no per-tile
+// slots — it reads a fixed set of LOGICAL fields each bindable to a SignalK
+// path (+ optional colour). The save handler persists them under the authored
+// screen's `hud.fields[key]={path,color}`; the projection surfaces them back.
+
+test('applyScreenEdits persists HUD field overrides under the authored screen', () => {
+  const cfg = { widgets: { items: {} }, layout: { screens: [] } }
+  applyScreenEdits(cfg, [{
+    hud: true, screenId: 'wind', kind: 'windDial',
+    fields: {
+      awa: { path: 'environment.wind.angleApparent', color: '#ff8800' },
+      aws: { path: 'environment.wind.speedApparent' },
+      tws: { color: '#36d399' }
+    }
+  }])
+  const scr = cfg.layout.screens.find((s) => s.id === 'wind')
+  assert.ok(scr && scr.hud, 'authored wind screen carries an hud block')
+  assert.strictEqual(scr.hud.kind, 'windDial')
+  assert.deepStrictEqual(scr.hud.fields.awa, { path: 'environment.wind.angleApparent', color: '#ff8800' }, 'path + colour round-trip')
+  assert.deepStrictEqual(scr.hud.fields.aws, { path: 'environment.wind.speedApparent' }, 'path-only field')
+  assert.deepStrictEqual(scr.hud.fields.tws, { color: '#36d399' }, 'colour-only field')
+})
+
+test('applyScreenEdits drops invalid hex + pollution keys from HUD overrides', () => {
+  const cfg = { widgets: { items: {} }, layout: { screens: [] } }
+  // Parse from JSON so __proto__ is an OWN enumerable key (the real attack
+  // shape from a posted edits payload), not a literal prototype assignment.
+  const fields = JSON.parse('{"apTarget":{"path":"steering.autopilot.target.headingTrue","color":"red"},"heading":{"path":"  "},"__proto__":{"path":"x"}}')
+  applyScreenEdits(cfg, [{ hud: true, screenId: 'autopilot', kind: 'autopilotHud', fields }])
+  const scr = cfg.layout.screens.find((s) => s.id === 'autopilot')
+  assert.ok(scr && scr.hud, 'hud block created')
+  assert.deepStrictEqual(scr.hud.fields.apTarget, { path: 'steering.autopilot.target.headingTrue' }, 'bad hex dropped, path kept')
+  assert.ok(!Object.prototype.hasOwnProperty.call(scr.hud.fields, 'heading'), 'blank path -> field dropped')
+  assert.ok(!Object.prototype.hasOwnProperty.call(scr.hud.fields, '__proto__'), 'pollution key rejected')
+})
+
+test('applyScreenEdits removes the HUD block when every field reverts to default', () => {
+  const cfg = { widgets: { items: {} }, layout: { screens: [{ id: 'wind', tiles: [], hud: { kind: 'windDial', fields: { awa: { path: 'p' } } } }] } }
+  applyScreenEdits(cfg, [{ hud: true, screenId: 'wind', kind: 'windDial', fields: {} }])
+  const scr = cfg.layout.screens.find((s) => s.id === 'wind')
+  assert.ok(scr && !scr.hud, 'empty override clears the hud block -> reverts to defaults')
+})
+
+test('device-page projection surfaces stored HUD overrides back to the preview', () => {
+  const { manager, auth } = makeManager({ auth: { mode: 'dev-shared-token', devToken: 'test-token' } })
+  const id = 'yey-d-eeeeeeeeeeee'
+  manager.registerDevice({
+    device: { id, name: 'Bench', role: 'display', board: 'sunton_4848s040', display: { width: 480, height: 480, shape: 'square' } }
+  }, auth)
+  manager.upsertProfile({
+    id: 'hud',
+    name: 'Hud',
+    config: {
+      widgets: { version: 1, items: {} },
+      layout: { version: 1, screens: [{ id: 'wind', type: 'grid', tiles: [], hud: { kind: 'windDial', fields: { awa: { path: 'environment.wind.angleApparent', color: '#ff8800' } } } }] }
+    }
+  })
+  manager.assignProfile(id, { profileId: 'hud' })
+  manager.updateStatus(id, { time: new Date().toISOString(), ui: { screen: 'wind', screens: [{ id: 'wind', title: 'Wind' }] } }, auth)
+
+  const html = renderDevicePage(manager, id)
+  const m = html.match(/window\.__yeyboatsPreview=(.*?);window\.__yeyboatsDeviceId/)
+  assert.ok(m, 'preview JSON injected')
+  const preview = JSON.parse(m[1].replace(/\\u003c/g, '<'))
+  const wind = preview.screens.find((s) => s.id === 'wind')
+  assert.ok(wind && wind.hud, 'wind screen projects its hud overrides')
+  assert.strictEqual(wind.hud.kind, 'windDial')
+  assert.deepStrictEqual(wind.hud.fields.awa, { path: 'environment.wind.angleApparent', color: '#ff8800' }, 'stored override surfaced for the editor')
+})

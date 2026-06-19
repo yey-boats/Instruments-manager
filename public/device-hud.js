@@ -49,18 +49,105 @@
   const MPS2KN = 1.94384
   function norm360 (d) { return ((d % 360) + 360) % 360 }
 
-  // accessor(values): live-value getter. `values` is path -> raw SignalK value.
-  function accessor (values) {
+  // --- per-HUD editable LOGICAL FIELD model --------------------------------
+  // Each fullscreen HUD reads a fixed set of LOGICAL fields (no per-tile
+  // slots). This map mirrors what each renderer below actually reads, so the
+  // manager's field editor can list them, bind each to a SignalK path, and
+  // colour the meaningful elements. `quantity` filters the path picker;
+  // `color` names a colour element the renderer honours via the overrides map.
+  // `defaultPath` is taken from PATHS so a HUD with no overrides is unchanged.
+  function field (key, label, quantity, color) {
+    return { key, label, quantity, defaultPath: PATHS[key] || '', color: color || null }
+  }
+  const HUD_FIELDS = {
+    // screen_autopilot.cpp: heading band + target bug, COG/SOG sub, XTE needle,
+    // bottom tiles DEPTH / SPEED(sog) / AWS / AWA, AP state badge.
+    autopilotHud: [
+      field('heading', 'Heading', 'angle'),
+      field('apTarget', 'AP Target', 'angle', 'target'),
+      field('cog', 'COG', 'angle'),
+      field('sog', 'SOG', 'speed'),
+      field('xte', 'XTE', 'length', 'needle'),
+      field('apState', 'AP State', null),
+      field('depth', 'Depth', 'depth'),
+      field('aws', 'AWS', 'speed', 'aws'),
+      field('awa', 'AWA', 'angle')
+    ],
+    // screen_wind.cpp: AWA/TWA wind markers on a heading-up rose, HDG centre,
+    // bottom tiles AWS / AWA / TWS / TWA, current set/drift (not drawn here but
+    // shares the wind data family — kept for parity with windClassic).
+    windDial: [
+      field('awa', 'AWA', 'angle', 'awa'),
+      field('aws', 'AWS', 'speed', 'aws'),
+      field('twa', 'TWA', 'angle', 'twa'),
+      field('tws', 'TWS', 'speed', 'tws'),
+      field('heading', 'Heading', 'angle'),
+      field('sog', 'SOG', 'speed'),
+      field('currentSet', 'Current Set', 'angle'),
+      field('currentDrift', 'Current Drift', 'speed')
+    ],
+    // screen_wind_classic.cpp: full rose, AWS/TWS heroes, HDG hero, SOG/SOW
+    // corner boxes, tide arrow (set/drift).
+    windClassic: [
+      field('awa', 'AWA', 'angle', 'awa'),
+      field('aws', 'AWS', 'speed', 'aws'),
+      field('twa', 'TWA', 'angle', 'twa'),
+      field('tws', 'TWS', 'speed', 'tws'),
+      field('heading', 'Heading', 'angle'),
+      field('sog', 'SOG', 'speed'),
+      field('stw', 'SOW', 'speed'),
+      field('currentSet', 'Current Set', 'angle'),
+      field('currentDrift', 'Current Drift', 'speed')
+    ],
+    // screen_wind_steer.cpp: heading band, TWD bug + no-go/lay sectors from
+    // beat/gybe + TWS, XTE needle, AP state badge, bottom AWS/AWA/TWS/TWA tiles.
+    windSteer: [
+      field('twa', 'TWA', 'angle', 'twa'),
+      field('twd', 'TWD', 'angle', 'target'),
+      field('tws', 'TWS', 'speed', 'tws'),
+      field('awa', 'AWA', 'angle', 'awa'),
+      field('aws', 'AWS', 'speed', 'aws'),
+      field('heading', 'Heading', 'angle'),
+      field('beatAngle', 'Beat Angle', 'angle'),
+      field('gybeAngle', 'Gybe Angle', 'angle'),
+      field('xte', 'XTE', 'length', 'needle'),
+      field('apState', 'AP State', null)
+    ]
+  }
+  // alias by screen-id so the editor can look up by either key.
+  const HUD_FIELDS_BY_SCREEN = {
+    autopilot: HUD_FIELDS.autopilotHud,
+    wind: HUD_FIELDS.windDial,
+    wind_classic: HUD_FIELDS.windClassic,
+    wind_steer: HUD_FIELDS.windSteer
+  }
+  function hudFields (kind) { return HUD_FIELDS[kind] || HUD_FIELDS_BY_SCREEN[kind] || null }
+
+  // accessor(values, overrides): live-value getter. `values` is path -> raw
+  // SignalK value. Optional `overrides.fields[name].path` rebinds a logical
+  // field to a different SignalK path (the manager's HUD field editor), so the
+  // HUD reads the rebound source in the live preview.
+  function accessor (values, overrides) {
+    const ovFields = (overrides && overrides.fields) || null
     const raw = (name) => {
-      const p = PATHS[name]
+      const ov = ovFields && ovFields[name]
+      const p = (ov && typeof ov.path === 'string' && ov.path) ? ov.path : PATHS[name]
       const v = p ? values[p] : values[name]
       return v
     }
     const num = (name) => { const v = raw(name); return (typeof v === 'number' && isFinite(v)) ? v : NaN }
     const deg = (name) => { const v = num(name); return isNaN(v) ? NaN : norm360(v * RAD2DEG) }
     const kn = (name) => { const v = num(name); return isNaN(v) ? NaN : v * MPS2KN }
+    // overridden colour for a HUD element (e.g. 'aws','needle','target'); falls
+    // back to the renderer's built-in colour when the operator hasn't set one.
+    const ovColors = (overrides && overrides.colors) || null
+    const HEX = /^#[0-9a-fA-F]{6}$/
+    const col = (element, fallback) => {
+      const c = ovColors && ovColors[element]
+      return (typeof c === 'string' && HEX.test(c)) ? c : fallback
+    }
     return {
-      raw, num, deg, kn,
+      raw, num, deg, kn, col,
       has (name) { return !isNaN(num(name)) },
       // angle off the bow as magnitude + side (e.g. 42 -> {mag:42, side:'S'})
       side (name) {
@@ -150,7 +237,7 @@
       const rel = ((target - hdg + 540) % 360) - 180
       if (rel >= -90 && rel <= 90) {
         const [bx, by] = polar(rel, R + 6)
-        bug = `<path d="M ${bx - 8},${by - 8} L ${bx + 8},${by - 8} L ${bx},${by + 8} Z" fill="#ffb84d"/>`
+        bug = `<path d="M ${bx - 8},${by - 8} L ${bx + 8},${by - 8} L ${bx},${by + 8} Z" fill="${a.col('target', '#ffb84d')}"/>`
       }
     }
     const cog = a.deg('cog'); const sog = a.kn('sog')
@@ -159,12 +246,12 @@
     let needle = ''
     if (!isNaN(xte)) {
       let nm = xte / 1852; nm = Math.max(-1, Math.min(1, nm))
-      needle = `<rect x="${240 + nm * 200 - 1.5}" y="302" width="3" height="32" rx="1" fill="#ff5252"/>`
+      needle = `<rect x="${240 + nm * 200 - 1.5}" y="302" width="3" height="32" rx="1" fill="${a.col('needle', '#ff5252')}"/>`
     }
     const tiles = gridRow([
       ['DEPTH', 'm', fixed(a.num('depth'), 1), '#eef4fa'],
       ['SPEED', 'kn', fixed(a.kn('sog'), 1), '#eef4fa'],
-      ['AWS', 'kn', fixed(a.kn('aws'), 1), '#ffb84d'],
+      ['AWS', 'kn', fixed(a.kn('aws'), 1), a.col('aws', '#ffb84d')],
       ['AWA', '', sideStr(a.side('awa')), '#eef4fa']
     ])
     return svgWrap(`
@@ -214,9 +301,9 @@
         + `<text x="${lx}" y="${ly + 6}" font-family="Montserrat" font-size="18" font-weight="700" fill="${color}" text-anchor="middle">${letter}</text>`
     }
     const tiles = gridRow([
-      ['AWS', 'kn', fixed(a.kn('aws'), 1), '#ffb84d'],
+      ['AWS', 'kn', fixed(a.kn('aws'), 1), a.col('aws', '#ffb84d')],
       ['AWA', '', sideStr(a.side('awa')), '#eef4fa'],
-      ['TWS', 'kn', fixed(a.kn('tws'), 1), '#eef4fa'],
+      ['TWS', 'kn', fixed(a.kn('tws'), 1), a.col('tws', '#eef4fa')],
       ['TWA', '', sideStr(a.side('twa')), '#eef4fa']
     ], 356, 116)
     return svgWrap(`
@@ -228,7 +315,7 @@
       <path d="M ${polar(-30, RF - 8).join(' ')} A ${RF - 8} ${RF - 8} 0 0 1 ${polar(0, RF - 8).join(' ')}" fill="none" stroke="#ff5252" stroke-width="6" opacity="0.7"/>
       <path d="M ${polar(0, RF - 8).join(' ')} A ${RF - 8} ${RF - 8} 0 0 1 ${polar(30, RF - 8).join(' ')}" fill="none" stroke="#36d399" stroke-width="6" opacity="0.7"/>
       <path d="M ${CX - 17},${CY + 34} L ${CX - 17},${CY - 3} L ${CX},${CY - 48} L ${CX + 17},${CY - 3} L ${CX + 17},${CY + 34}" fill="none" stroke="#eef4fa" stroke-opacity="0.3" stroke-width="3" stroke-linejoin="round"/>
-      ${wm(twa, '#2bd4e8', 'T')}${wm(awa, '#ff8800', 'A')}
+      ${wm(twa, a.col('twa', '#2bd4e8'), 'T')}${wm(awa, a.col('awa', '#ff8800'), 'A')}
       <text x="${CX}" y="${CY - RF + 30}" font-family="Montserrat" font-size="14" fill="#8fa7bd" text-anchor="middle">HDG</text>
       <text x="${CX}" y="${CY - RF + 52}" font-family="Montserrat" font-size="22" font-weight="700" fill="#4fc3f7" text-anchor="middle">${isNaN(hdg) ? '---' : String(Math.round(hdg)).padStart(3, '0')}°</text>
       ${tiles}`)
@@ -329,7 +416,7 @@
         <text x="${CX}" y="${CY - R_MARKER + 40}" font-family="Montserrat" font-size="20" font-weight="700" fill="${color}" text-anchor="middle" transform="rotate(${(-deg).toFixed(1)} ${CX} ${CY - R_MARKER + 34})">${letter}</text>
       </g>`
     }
-    const markers = windMark(twa, '#eef4fa', 'T') + windMark(awa, '#f6a21a', 'A')
+    const markers = windMark(twa, a.col('twa', '#eef4fa'), 'T') + windMark(awa, a.col('awa', '#f6a21a'), 'A')
 
     // --- hero readouts inside the face --------------------------------------
     const awsSide = a.side('awa'); const twsSide = a.side('twa')
@@ -340,8 +427,8 @@
     const hdgTxt = isNaN(hdg) ? '--°' : String(Math.round(hdg)).padStart(3, '0') + '°'
     const heroes =
       hero('HDG', hdgTxt, null, 0, -96, '#4fc3f7') +
-      hero('AWS', fixed(a.kn('aws'), 1), sideStr(awsSide), -96, 0, '#f6a21a') +
-      hero('TWS', fixed(a.kn('tws'), 1), sideStr(twsSide), 96, 0, '#eef4fa')
+      hero('AWS', fixed(a.kn('aws'), 1), sideStr(awsSide), -96, 0, a.col('aws', '#f6a21a')) +
+      hero('TWS', fixed(a.kn('tws'), 1), sideStr(twsSide), 96, 0, a.col('tws', '#eef4fa'))
 
     // --- SOG / SOW glass corner boxes (outside the ring) --------------------
     const cornerBox = (label, val, x, vcol) =>
@@ -464,7 +551,7 @@
       const br = twdRel > 180 ? twdRel - 360 : twdRel
       if (br >= -90 && br <= 90) {
         const [bx, by] = polar(br, R + 6)
-        bug = `<path d="M ${bx - 9},${by - 9} L ${bx + 9},${by - 9} L ${bx},${by + 9} Z" fill="#ffb84d"/>`
+        bug = `<path d="M ${bx - 9},${by - 9} L ${bx + 9},${by - 9} L ${bx},${by + 9} Z" fill="${a.col('target', '#ffb84d')}"/>`
       }
     }
     const twdTxt = isNaN(twd) ? '--' : String(Math.round(twd)).padStart(3, '0') + '°'
@@ -476,11 +563,11 @@
     const chip = engaged ? 'ON' : 'STBY'
     const badge = hasState ? apSt.toUpperCase() : 'OFFLINE'
     const xte = a.num('xte'); let needle = ''
-    if (!isNaN(xte)) { let nm = xte / 1852; nm = Math.max(-1, Math.min(1, nm)); needle = `<rect x="${240 + nm * 200 - 1.5}" y="302" width="3" height="32" rx="1" fill="#ff5252"/>` }
+    if (!isNaN(xte)) { let nm = xte / 1852; nm = Math.max(-1, Math.min(1, nm)); needle = `<rect x="${240 + nm * 200 - 1.5}" y="302" width="3" height="32" rx="1" fill="${a.col('needle', '#ff5252')}"/>` }
     const tiles = gridRow([
-      ['AWS', 'kn', fixed(a.kn('aws'), 1), '#ffb84d'],
+      ['AWS', 'kn', fixed(a.kn('aws'), 1), a.col('aws', '#ffb84d')],
       ['AWA', '', sideStr(a.side('awa')), '#eef4fa'],
-      ['TWS', 'kn', fixed(a.kn('tws'), 1), '#eef4fa'],
+      ['TWS', 'kn', fixed(a.kn('tws'), 1), a.col('tws', '#eef4fa')],
       ['TWA', '', sideStr(twaSide), '#eef4fa']
     ])
     return svgWrap(`
@@ -619,7 +706,20 @@
     PATHS,
     accessor,
     dms,
+    // Per-HUD editable LOGICAL FIELD model (label/key/quantity/defaultPath/
+    // color element). The manager's field editor lists these per HUD kind.
+    HUD_FIELDS,
+    hudFields,
+    // colour-element name for a HUD field key under a kind (or null) — used by
+    // the editor to decide which fields expose a colour control.
+    fieldColorElement (kind, key) {
+      const fs = hudFields(kind)
+      if (!fs) return null
+      const f = fs.find((x) => x.key === key)
+      return (f && f.color) || null
+    },
     // Render a fullscreen screen by its widget kind OR device screen id.
+    // `overrides` (optional) = { fields:{key:{path}}, colors:{element:hex} }.
     fullscreen (key, a) {
       const fn = FULLSCREEN[key] || SCREEN_FULLSCREEN[key]
       return fn ? fn(a) : null

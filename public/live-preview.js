@@ -18,6 +18,10 @@
   const editChk = document.getElementById('lp-edit')
   // stable tile-edit key -> { path, screenId, tileIndex, widgetId, widget, color, ... }
   const editsMap = Object.create(null)
+  // HUD field overrides: screenId -> { kind, fields:{key:{path,color}} }.
+  // Seeded from the server projection (scr.hud) on first render so the editor
+  // shows stored overrides; mutated live as the operator rebinds/recolours.
+  const hudEditsMap = Object.create(null)
   let editMode = false
 
   // --- rich edit-mode manifest (Slice: rich edit fields) -------------------
@@ -321,6 +325,155 @@
     cell.appendChild(panel)
   }
 
+  // --- HUD field overrides (fullscreen radial/compass screens) -------------
+  // A fullscreen HUD has no per-tile slots: it reads a fixed set of LOGICAL
+  // fields (heading/awa/aws/...) each bound to a SignalK path. The editor lets
+  // the operator rebind those paths + recolour the meaningful elements. We hold
+  // the working overrides per screen in hudEditsMap and feed them to the HUD
+  // accessor as { fields:{key:{path}}, colors:{element:hex} }.
+  function hudStateFor (scr, kind) {
+    let st = hudEditsMap[scr.id]
+    if (!st) {
+      // seed from the server projection (scr.hud.fields) so stored overrides
+      // round-trip into the editor on load.
+      const seed = (scr.hud && scr.hud.fields && typeof scr.hud.fields === 'object') ? scr.hud.fields : {}
+      st = { kind: kind, fields: {} }
+      Object.keys(seed).forEach((k) => {
+        const f = seed[k] || {}
+        st.fields[k] = { path: typeof f.path === 'string' ? f.path : '', color: (typeof f.color === 'string') ? f.color : null }
+      })
+      hudEditsMap[scr.id] = st
+    }
+    st.kind = kind
+    return st
+  }
+  // Build the { fields, colors } override object the DeviceHud accessor reads.
+  function hudOverrides (st) {
+    const Hud = window.DeviceHud
+    const out = { fields: {}, colors: {} }
+    Object.keys(st.fields || {}).forEach((k) => {
+      const f = st.fields[k]
+      if (f && f.path) out.fields[k] = { path: f.path }
+      if (f && f.color) {
+        const elm = Hud && Hud.fieldColorElement(st.kind, k)
+        if (elm) out.colors[elm] = f.color
+      }
+    })
+    return out
+  }
+  // Serializable HUD edit for the save handler: { hud:true, screenId, kind,
+  // fields:{key:{path,color}} } — only fields the operator actually set.
+  function hudEditFor (st, scrId) {
+    const fields = {}
+    Object.keys(st.fields || {}).forEach((k) => {
+      const f = st.fields[k]
+      const o = {}
+      if (f && f.path) o.path = f.path
+      if (f && f.color) o.color = f.color
+      if (Object.keys(o).length) fields[k] = o
+    })
+    return { hud: true, screenId: scrId, kind: st.kind, fields: fields }
+  }
+  function buildHudEditor (container, scr, kind) {
+    const Hud = window.DeviceHud
+    const defs = (Hud && Hud.hudFields(kind)) || []
+    const st = hudStateFor(scr, kind)
+    const panel = document.createElement('div')
+    panel.className = 'lp-edit lp-hud-edit'
+
+    // Inline caveat: HUD bindings preview + persist in the manager but the
+    // built-in firmware HUD screens read fixed sources on the current firmware.
+    const note = document.createElement('div')
+    note.className = 'lp-hud-note'
+    note.textContent = 'Preview/stored binding — device applies these on grid screens; built-in HUD screens use fixed sources on the current firmware.'
+    panel.appendChild(note)
+
+    defs.forEach((def) => {
+      const fst = st.fields[def.key] || (st.fields[def.key] = { path: '', color: null })
+      const curPath = fst.path || def.defaultPath || ''
+
+      const row = document.createElement('div'); row.className = 'lp-edit-row lp-edit-col'
+      const lab = document.createElement('div'); lab.className = 'lp-edit-lab'
+      lab.textContent = def.label + (def.quantity ? ' · ' + def.quantity : '')
+      row.appendChild(lab)
+
+      const pathInp = document.createElement('input')
+      pathInp.className = 'lp-edit-path'
+      pathInp.value = fst.path || ''
+      pathInp.setAttribute('list', 'lp-paths')
+      pathInp.placeholder = def.defaultPath || 'signalk path'
+      pathInp.addEventListener('change', () => {
+        fst.path = pathInp.value.trim()
+        commitHud(scr.id)
+        dirty = true
+      })
+      row.appendChild(pathInp)
+
+      const cur = document.createElement('div'); cur.className = 'lp-edit-cur'
+      cur.textContent = curPath ? (curPath + ' = ' + liveValueFor(curPath)) : 'default source'
+      row.appendChild(cur)
+
+      // scrollable candidate list, filtered to the field's quantity
+      const list = document.createElement('div'); list.className = 'lp-edit-paths'
+      candidatePaths().filter((p) => !def.quantity || quantityForPath(p) === def.quantity).forEach((p) => {
+        const prow = document.createElement('button')
+        prow.type = 'button'
+        prow.className = 'lp-edit-prow' + (p === fst.path ? ' active' : '')
+        const name = document.createElement('span'); name.className = 'lp-edit-pname'; name.textContent = p
+        const lv = document.createElement('span'); lv.className = 'lp-edit-plv'; lv.textContent = liveValueFor(p)
+        prow.appendChild(name); prow.appendChild(lv)
+        prow.addEventListener('click', () => {
+          fst.path = p
+          pathInp.value = p
+          commitHud(scr.id)
+          renderScreen()
+        })
+        list.appendChild(prow)
+      })
+      row.appendChild(list)
+
+      // COLOR control for fields that own a HUD colour element.
+      if (def.color) {
+        const crow = document.createElement('div'); crow.className = 'lp-edit-row lp-edit-color'
+        const clab = document.createElement('span'); clab.className = 'lp-edit-clab'; clab.textContent = def.color
+        crow.appendChild(clab)
+        const sw = document.createElement('div'); sw.className = 'lp-edit-sw'
+        function pick (hex) {
+          fst.color = hex
+          commitHud(scr.id)
+          renderScreen()
+        }
+        THEME_SWATCHES.forEach((hex) => {
+          const s = document.createElement('span')
+          s.className = 'lp-sw' + (fst.color === hex ? ' active' : '')
+          s.style.background = hex; s.title = hex
+          s.addEventListener('click', () => pick(hex))
+          sw.appendChild(s)
+        })
+        const custom = document.createElement('input')
+        custom.type = 'color'; custom.className = 'lp-sw-custom'; custom.value = fst.color || '#4fc3f7'; custom.title = 'custom'
+        custom.addEventListener('change', () => pick(custom.value))
+        sw.appendChild(custom)
+        const clr = document.createElement('button')
+        clr.type = 'button'; clr.className = 'lp-sw-theme' + (fst.color ? '' : ' active'); clr.textContent = 'theme'
+        clr.title = 'use built-in default'
+        clr.addEventListener('click', () => pick(null))
+        sw.appendChild(clr)
+        crow.appendChild(sw)
+        row.appendChild(crow)
+      }
+
+      panel.appendChild(row)
+    })
+    container.appendChild(panel)
+  }
+  // Record the HUD screen's overrides into the save payload map.
+  function commitHud (scrId) {
+    const st = hudEditsMap[scrId]
+    if (st) { editsMap['hud:' + scrId] = hudEditFor(st, scrId) }
+    dirty = true
+  }
+
   // --- render one screen's tiles into the grid -----------------------------
   function screenById (id) {
     const scr = (cfg.screens || []).find((s) => s.id === id)
@@ -367,10 +520,15 @@
     }
     const kind = fullscreenKind(scr)
     if (kind && Hud) {
+      // Apply the operator's HUD field overrides (rebound paths + colours) so
+      // the live preview reflects the edit; seed from the server projection.
+      const st = editMode ? hudStateFor(scr, kind) : (hudEditsMap[scr.id] || (scr.hud ? hudStateFor(scr, kind) : null))
+      const ov = st ? hudOverrides(st) : null
       const stage = document.createElement('div')
       stage.className = 'lp-hud'
-      stage.innerHTML = Hud.fullscreen(kind, Hud.accessor(values))
+      stage.innerHTML = Hud.fullscreen(kind, Hud.accessor(values, ov))
       root.appendChild(stage)
+      if (editMode) buildHudEditor(root, scr, kind)
       return
     }
     if (!scr || !Array.isArray(scr.tiles) || !scr.tiles.length) {

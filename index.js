@@ -394,6 +394,37 @@ function applyScreenEdits (cfg, edits) {
   }
   ;(Array.isArray(edits) ? edits : []).forEach((e) => {
     if (!e) return
+    // (0) Fullscreen HUD field overrides: a HUD screen has no per-tile slots —
+    // it reads a fixed set of LOGICAL fields, each bindable to a SignalK path
+    // (+ optional colour). Persist them under the authored screen's config as
+    // `hud.fields[key] = {path,color}` so they round-trip to the assigned
+    // profile and reload into the editor. (Built-in HUD screens ignore these on
+    // the current firmware — preview/stored only; surfaced in the editor note.)
+    if (e.hud === true) {
+      const sid = typeof e.screenId === 'string' ? e.screenId : null
+      if (!sid) return
+      const fields = (e.fields && typeof e.fields === 'object' && !Array.isArray(e.fields)) ? e.fields : {}
+      const clean = {}
+      for (const k of Object.keys(fields)) {
+        if (!SAFE_KEY(k)) continue
+        const f = fields[k]
+        if (!f || typeof f !== 'object') continue
+        const entry = {}
+        if (typeof f.path === 'string' && f.path.trim()) entry.path = f.path.trim()
+        if (typeof f.color === 'string' && HEX.test(f.color)) entry.color = f.color
+        if (Object.keys(entry).length) clean[k] = entry
+      }
+      let scr = screens.find((s) => s && s.id === sid)
+      if (!scr) { scr = { id: sid, tiles: [] }; screens.push(scr) }
+      if (Object.keys(clean).length) {
+        scr.hud = Object.assign({}, scr.hud, { fields: clean })
+        if (typeof e.kind === 'string' && e.kind) scr.hud.kind = e.kind
+      } else if (scr.hud) {
+        // every field reverted to default -> drop the override block entirely.
+        delete scr.hud
+      }
+      return
+    }
     const color = normalizeColor(e.color)
     // (1) Authored tile carrying an existing widget key -> rebind in place.
     // Round-trip path + kind (widget type) + color; clear color when the
@@ -1824,12 +1855,27 @@ function renderDevicePage (manager, id, live = {}, opts = {}) {
       units: (manifest && manifest.units) || fieldSchema.DEFAULT_MANIFEST.units,
       colorElements: fieldSchema.COLOR_ELEMENTS
     }
+    // Stored HUD field overrides for a fullscreen screen, surfaced back to the
+    // preview so the field editor shows current bindings/colours and the live
+    // HUD honours them. Read from the authored layout screen's `hud` block.
+    const hudFor = (screenId) => {
+      const a = authored[screenId]
+      if (a && a.hud && a.hud.fields && typeof a.hud.fields === 'object') {
+        return { kind: a.hud.kind || null, fields: a.hud.fields }
+      }
+      return null
+    }
     return {
       current: currentScreen,
       profileId: assigned,
       telemetry,
       manifest: editorManifest,
-      screens: dvViews.map((v) => ({ id: v.id, title: v.title || v.id, tiles: tilesFor(v.id) }))
+      screens: dvViews.map((v) => {
+        const out = { id: v.id, title: v.title || v.id, tiles: tilesFor(v.id) }
+        const hud = hudFor(v.id)
+        if (hud) out.hud = hud
+        return out
+      })
     }
   })()
   // SK path catalogue for the edit datalist (the layout-editor's curated list).
@@ -1937,6 +1983,13 @@ function renderDevicePage (manager, id, live = {}, opts = {}) {
         .lp-stage{box-sizing:border-box;background:radial-gradient(120% 120% at 50% 0%,#0c151f,#070b11);border:1px solid #16242f;border-radius:10px;aspect-ratio:1/1;width:min(360px,100%);max-width:100%;min-width:0;margin:0;padding:10px;display:flex;align-items:center;justify-content:center;flex:0 0 auto}
         .lp-hud{width:100%;height:100%;display:flex;align-items:center;justify-content:center}
         .lp-hud .hud-svg{width:100%;height:100%;display:block}
+        /* HUD field editor: when editing a fullscreen HUD the stage drops its
+           square aspect, the dial caps to a square at the top, and the field
+           panel stacks below it — scrollable, fits a 390px phone column. */
+        .lp-stage.lp-editing .lp-hud{height:auto;aspect-ratio:1/1;max-height:340px;flex:0 0 auto}
+        .lp-stage.lp-editing .lp-hud .hud-svg{height:auto;aspect-ratio:1/1}
+        .lp-hud-edit{margin-top:10px}
+        .lp-hud-note{font-size:11px;line-height:1.4;color:#d4b483;background:#1c1606;border:1px solid #3a2f12;border-radius:6px;padding:6px 8px;text-transform:none;letter-spacing:0;margin-bottom:4px}
         .lp-compass{width:100%;height:100%;display:flex;align-items:center;justify-content:center}
         /* SVG dial: square via aspect-ratio, sized by the smaller dimension so
            it stays a circle in any tile shape (height:auto, never stretched). */
@@ -1961,7 +2014,7 @@ function renderDevicePage (manager, id, live = {}, opts = {}) {
         /* Edit mode: the rich per-tile editor makes tiles tall, so the stage
            drops its square aspect and lets the grid grow + scroll. Tiles keep
            their own min-height but stop clipping the editor (overflow visible). */
-        .lp-stage.lp-editing{aspect-ratio:auto;height:auto;max-width:100%;width:min(420px,100%);align-items:stretch;overflow:visible}
+        .lp-stage.lp-editing{aspect-ratio:auto;height:auto;max-width:100%;width:min(420px,100%);align-items:stretch;overflow:visible;flex-direction:column}
         .lp-grid-edit{grid-auto-rows:auto;height:auto}
         .lp-grid-edit .lp-tile{overflow:visible;min-height:0}
         /* min-width:0 lets the grid tracks actually share the width equally —
