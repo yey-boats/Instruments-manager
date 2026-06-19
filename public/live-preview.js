@@ -16,9 +16,84 @@
   // operator's pick instead of snapping back.
   let currentScreenId = cfg.initialScreen || cfg.current || (cfg.screens && cfg.screens[0] && cfg.screens[0].id)
   const editChk = document.getElementById('lp-edit')
-  // stable tile-edit key -> { path, screenId, tileIndex, widgetId, widget, ... }
+  // stable tile-edit key -> { path, screenId, tileIndex, widgetId, widget, color, ... }
   const editsMap = Object.create(null)
   let editMode = false
+
+  // --- rich edit-mode manifest (Slice: rich edit fields) -------------------
+  // Injected by the server from lib/field-schema.js: the KINDs the device
+  // manifest supports, the unit families (for path-compatibility filtering),
+  // and the per-kind color elements. Falls back to a sane built-in set so the
+  // editor still works if the payload predates this slice.
+  const MANIFEST = cfg.manifest || {}
+  const MANIFEST_KINDS = Array.isArray(MANIFEST.viewTypes) && MANIFEST.viewTypes.length
+    ? MANIFEST.viewTypes
+    : ['numeric', 'compass', 'windCircle', 'gauge', 'bar', 'trend', 'text']
+  const COLOR_ELEMENTS = MANIFEST.colorElements || {
+    numeric: ['value', 'label'], text: ['value', 'label'], trend: ['value', 'label', 'line'],
+    gauge: ['value', 'label', 'needle', 'arc'], bar: ['value', 'label', 'fill'],
+    compass: ['value', 'label', 'needle'], windCircle: ['value', 'label', 'needle', 'dir'],
+    control: ['value', 'label']
+  }
+  // KIND -> renderable preview widget name. The manifest speaks field-schema's
+  // vocabulary (windCircle/gauge/control); the preview renderer speaks the
+  // firmware grid vocabulary (windRose/numeric). Map so a chosen KIND both
+  // round-trips its manifest name to the device AND renders live here.
+  const KIND_TO_WIDGET = { windCircle: 'windRose', gauge: 'numeric', control: 'text' }
+  function kindToWidget (kind) { return KIND_TO_WIDGET[kind] || kind || 'numeric' }
+  // KINDs we can actually render a live preview for (intersect with manifest).
+  const RENDERABLE = ['numeric', 'compass', 'windCircle', 'gauge', 'bar', 'trend', 'text']
+  function editableKinds () {
+    const ks = MANIFEST_KINDS.filter((k) => RENDERABLE.indexOf(k) >= 0)
+    return ks.length ? ks : RENDERABLE.slice()
+  }
+
+  // Physical-quantity inference (mirrors quantityForPath in lib/field-schema.js)
+  // so the path picker can filter candidates to those compatible with the KIND.
+  function quantityForPath (p) {
+    p = String(p || '')
+    if (!p) return null
+    const leaf = p.split('.').pop() || ''
+    if (/crossTrackError|distance/i.test(leaf)) return 'length'
+    if (/speed|drift|velocity|sog|stw|tws|aws/i.test(p)) return 'speed'
+    if (/angle|heading|course|bearing|direction|setTrue|cog|track/i.test(p)) return 'angle'
+    if (/depth/i.test(p)) return 'depth'
+    if (/temperature|temp/i.test(p)) return 'temp'
+    if (/stateOfCharge|currentLevel|relativeHumidity|ratio/i.test(p)) return 'ratio'
+    if (/voltage/i.test(p)) return 'voltage'
+    return null
+  }
+  // Is a path COMPATIBLE with a KIND? compass/windCircle want angle paths;
+  // gauge/bar/numeric/trend/text accept any scalar path.
+  function pathFitsKind (path, kind) {
+    if (kind === 'compass' || kind === 'windCircle') return quantityForPath(path) === 'angle'
+    return true
+  }
+  // Candidate path catalogue: the curated datalist (cfg.previewPaths) unioned
+  // with every path the live SignalK stream has actually delivered, so the
+  // operator can bind anything the boat is publishing right now.
+  function candidatePaths () {
+    const set = new Set()
+    ;(cfg.previewPaths || []).forEach((p) => { if (p) set.add(p) })
+    Object.keys(values).forEach((p) => set.add(p))
+    return Array.from(set).sort()
+  }
+  // Live value preview string for an arbitrary path (uses the same conversion
+  // as a tile so the operator sees what they'd be binding).
+  function liveValueFor (path) {
+    if (!path) return ''
+    const v = values[path]
+    if (v === undefined || v === null) return '—'
+    if (typeof v === 'object') {
+      if (typeof v.latitude === 'number' && typeof v.longitude === 'number') {
+        return v.latitude.toFixed(3) + ',' + v.longitude.toFixed(3)
+      }
+      return '—'
+    }
+    const u = unitFor({ path: path })
+    return valueFor({ path: path }) + (u ? ' ' + u : '')
+  }
+  const THEME_SWATCHES = ['#4fc3f7', '#36d399', '#ffb84d', '#ff5252', '#288cff', '#8fa7bd', '#eef4fa']
 
   // --- unit + value formatting (mirror the device's conventions) -----------
   // Preset tiles often carry no unit, so infer one from the SignalK path:
@@ -107,6 +182,145 @@
     return deg
   }
 
+  // --- rich per-tile editor (KIND + scrollable VALUE picker + COLORS) ------
+  // Stable edit key: authored tiles rebind their own widget in place; preset/
+  // managed tiles get a synthetic screenId+index key the server materializes.
+  function editKeyFor (scr, tile, tileIndex) {
+    return (tile.widgetId && tile.editable) ? ('w:' + tile.widgetId) : ('t:' + scr.id + ':' + tileIndex)
+  }
+  // Capture the tile's full current state into editsMap so KIND/path/color all
+  // round-trip together (a later edit of one attr must not drop the others).
+  function commitEdit (scr, tile, tileIndex) {
+    editsMap[editKeyFor(scr, tile, tileIndex)] = {
+      widgetId: (tile.widgetId && tile.editable) ? tile.widgetId : null,
+      screenId: scr.id,
+      tileIndex: tileIndex,
+      widget: tile.kind || tile.widget || 'numeric', // KIND (manifest vocabulary)
+      title: tile.title || '',
+      unit: tile.unit || '',
+      precision: tile.precision != null ? tile.precision : null,
+      path: tile.path || '',
+      color: (tile.color && Object.keys(tile.color).length) ? tile.color : null
+    }
+    dirty = true
+  }
+  function buildTileEditor (cell, scr, tile, tileIndex) {
+    // tile.kind is the manifest KIND (windCircle/gauge/...); tile.widget is the
+    // renderable preview widget. Initialise kind from the existing widget.
+    if (!tile.kind) {
+      const inv = { windRose: 'windCircle' }
+      tile.kind = inv[tile.widget] || tile.widget || 'numeric'
+    }
+    const panel = document.createElement('div')
+    panel.className = 'lp-edit'
+
+    // KIND selector ---------------------------------------------------------
+    const kindRow = document.createElement('label'); kindRow.className = 'lp-edit-row'
+    kindRow.appendChild(document.createTextNode('kind'))
+    const kindSel = document.createElement('select'); kindSel.className = 'lp-edit-sel'
+    editableKinds().forEach((k) => {
+      const o = document.createElement('option'); o.value = k; o.textContent = k
+      if (k === tile.kind) o.selected = true
+      kindSel.appendChild(o)
+    })
+    kindSel.addEventListener('change', () => {
+      tile.kind = kindSel.value
+      tile.widget = kindToWidget(tile.kind)
+      // Re-render the tile in the new kind; prune color elements not in the new
+      // kind so we don't persist stale swatches.
+      if (tile.color) {
+        const allow = new Set(COLOR_ELEMENTS[tile.kind] || ['value', 'label'])
+        Object.keys(tile.color).forEach((e) => { if (!allow.has(e)) delete tile.color[e] })
+      }
+      commitEdit(scr, tile, tileIndex)
+      renderScreen()
+    })
+    kindRow.appendChild(kindSel)
+    panel.appendChild(kindRow)
+
+    // VALUE (path) picker: scrollable, filtered to kind-compatible paths, each
+    // option shows the live current value. A free-text box (datalist) lets the
+    // operator type any path; the list below previews + binds on click. -------
+    const pathRow = document.createElement('div'); pathRow.className = 'lp-edit-row lp-edit-col'
+    const pathLab = document.createElement('div'); pathLab.className = 'lp-edit-lab'
+    pathLab.textContent = 'value (path)'
+    pathRow.appendChild(pathLab)
+    const pathInp = document.createElement('input')
+    pathInp.className = 'lp-edit-path'
+    pathInp.value = tile.path || ''
+    pathInp.setAttribute('list', 'lp-paths')
+    pathInp.placeholder = 'signalk path'
+    pathInp.addEventListener('change', () => {
+      tile.path = pathInp.value.trim()
+      commitEdit(scr, tile, tileIndex)
+      dirty = true
+    })
+    pathRow.appendChild(pathInp)
+    // current bound value readout
+    const cur = document.createElement('div'); cur.className = 'lp-edit-cur'
+    cur.textContent = tile.path ? (tile.path + ' = ' + liveValueFor(tile.path)) : 'no path bound'
+    pathRow.appendChild(cur)
+    // scrollable candidate list, filtered by kind compatibility
+    const list = document.createElement('div'); list.className = 'lp-edit-paths'
+    candidatePaths().filter((p) => pathFitsKind(p, tile.kind)).forEach((p) => {
+      const row = document.createElement('button')
+      row.type = 'button'
+      row.className = 'lp-edit-prow' + (p === tile.path ? ' active' : '')
+      const name = document.createElement('span'); name.className = 'lp-edit-pname'; name.textContent = p
+      const lv = document.createElement('span'); lv.className = 'lp-edit-plv'; lv.textContent = liveValueFor(p)
+      row.appendChild(name); row.appendChild(lv)
+      row.addEventListener('click', () => {
+        tile.path = p
+        pathInp.value = p
+        commitEdit(scr, tile, tileIndex)
+        renderScreen()
+      })
+      list.appendChild(row)
+    })
+    pathRow.appendChild(list)
+    panel.appendChild(pathRow)
+
+    // COLORS: one swatch row per color element of the KIND. Default = theme
+    // (unset). Only persists the elements the operator actually changes. ------
+    const elems = COLOR_ELEMENTS[tile.kind] || ['value', 'label']
+    elems.forEach((elm) => {
+      const row = document.createElement('div'); row.className = 'lp-edit-row lp-edit-color'
+      const lab = document.createElement('span'); lab.className = 'lp-edit-clab'; lab.textContent = elm
+      row.appendChild(lab)
+      const sw = document.createElement('div'); sw.className = 'lp-edit-sw'
+      const cur = (tile.color && tile.color[elm]) || null
+      function pick (hex) {
+        tile.color = tile.color || {}
+        if (hex == null) delete tile.color[elm]
+        else tile.color[elm] = hex
+        if (!Object.keys(tile.color).length) tile.color = null
+        commitEdit(scr, tile, tileIndex)
+        renderScreen()
+      }
+      THEME_SWATCHES.forEach((hex) => {
+        const s = document.createElement('span')
+        s.className = 'lp-sw' + (cur === hex ? ' active' : '')
+        s.style.background = hex
+        s.title = hex
+        s.addEventListener('click', () => pick(hex))
+        sw.appendChild(s)
+      })
+      const custom = document.createElement('input')
+      custom.type = 'color'; custom.className = 'lp-sw-custom'; custom.value = cur || '#4fc3f7'; custom.title = 'custom'
+      custom.addEventListener('change', () => pick(custom.value))
+      sw.appendChild(custom)
+      const clr = document.createElement('button')
+      clr.type = 'button'; clr.className = 'lp-sw-theme' + (cur ? '' : ' active'); clr.textContent = 'theme'
+      clr.title = 'use theme default (unset)'
+      clr.addEventListener('click', () => pick(null))
+      sw.appendChild(clr)
+      row.appendChild(sw)
+      panel.appendChild(row)
+    })
+
+    cell.appendChild(panel)
+  }
+
   // --- render one screen's tiles into the grid -----------------------------
   function screenById (id) {
     const scr = (cfg.screens || []).find((s) => s.id === id)
@@ -127,6 +341,7 @@
   }
   function renderScreen () {
     root.replaceChildren()
+    root.classList.toggle('lp-editing', editMode)
     const scr = screenById(currentScreenId)
     const Hud = window.DeviceHud
     // The built-in System/status panel: the device renders a diagnostics list,
@@ -155,13 +370,17 @@
       return
     }
     const grid = document.createElement('div')
-    grid.className = 'lp-grid'
+    grid.className = 'lp-grid' + (editMode ? ' lp-grid-edit' : '')
     scr.tiles.forEach((tile, tileIndex) => {
       const cell = document.createElement('div')
       cell.className = 'lp-tile lp-w-' + (tile.widget || 'numeric')
+      // Per-element color overrides round-tripped from the editor (element ->
+      // #rrggbb). Unset elements fall back to the stylesheet's theme defaults.
+      const col = (tile.color && typeof tile.color === 'object') ? tile.color : null
       const cap = document.createElement('div')
       cap.className = 'lp-cap'
       cap.textContent = (tile.title || (tile.path || '').split('.').pop() || '').toUpperCase()
+      if (col && col.label) cap.style.color = col.label
       cell.appendChild(cap)
       const Hud = window.DeviceHud
       const isPos = /position/i.test(tile.path || '')
@@ -177,6 +396,7 @@
         const ctr = document.createElement('div')
         ctr.className = 'lp-val lp-val-sm'
         ctr.textContent = valueFor(tile)
+        if (col && col.value) ctr.style.color = col.value
         ring.appendChild(ctr)
         if (!isRose) {
           for (const [lab, cls] of [['N', 'lp-card-n'], ['E', 'lp-card-e'], ['S', 'lp-card-s'], ['W', 'lp-card-w']]) {
@@ -213,61 +433,34 @@
         const bar = document.createElement('div'); bar.className = 'lp-bar'
         const fill = document.createElement('div'); fill.className = 'lp-bar-fill'
         fill.style.height = percent(tile) + '%'
+        if (col && col.fill) fill.style.background = col.fill
         bar.appendChild(fill); cell.appendChild(bar)
         const val = document.createElement('div'); val.className = 'lp-val lp-val-sm'
         const u = unitFor(tile)
         val.textContent = valueFor(tile) + (u ? ' ' + u : '')
+        if (col && col.value) val.style.color = col.value
         cell.appendChild(val)
       } else if (tile.widget === 'text' || isPos) {
         // Position / text tile: format lat-lon as DMS (two lines), like device.
         const pos = Hud && Hud.accessor(values).position()
         const val = document.createElement('div'); val.className = 'lp-val lp-val-pos'
-        if (pos) {
+        if (pos && isPos) {
           const [la, lo] = Hud.dms(pos)
           val.textContent = la + '\n' + lo
         } else {
           val.textContent = valueFor(tile)
         }
+        if (col && col.value) val.style.color = col.value
         cell.appendChild(val)
       } else {
         const val = document.createElement('div'); val.className = 'lp-val'
         val.textContent = valueFor(tile)
+        if (col && col.value) val.style.color = col.value
         const unit = document.createElement('span'); unit.className = 'lp-unit'
         unit.textContent = unitFor(tile)
         val.appendChild(unit); cell.appendChild(val)
       }
-      if (editMode) {
-        // EVERY tile gets a path-binding field in edit mode — authored tiles
-        // (with a real widgetId) rebind in place; preset/managed tiles with no
-        // widgetId get a synthetic, stable key (screenId + tile index) so the
-        // server can materialize the binding into the authored layout.
-        const editKey = (tile.widgetId && tile.editable)
-          ? ('w:' + tile.widgetId)
-          : ('t:' + scr.id + ':' + tileIndex)
-        const inp = document.createElement('input')
-        inp.className = 'lp-edit-path'
-        inp.value = tile.path || ''
-        inp.setAttribute('list', 'lp-paths')
-        inp.placeholder = 'signalk path'
-        // 'change' (blur/enter) so the throttled re-render never steals focus
-        // mid-keystroke; rebinding updates the tile's path so format() reads
-        // the new path's live value immediately.
-        inp.addEventListener('change', () => {
-          tile.path = inp.value.trim()
-          editsMap[editKey] = {
-            widgetId: (tile.widgetId && tile.editable) ? tile.widgetId : null,
-            screenId: scr.id,
-            tileIndex: tileIndex,
-            widget: tile.widget || 'numeric',
-            title: tile.title || '',
-            unit: tile.unit || '',
-            precision: tile.precision != null ? tile.precision : null,
-            path: tile.path
-          }
-          dirty = true
-        })
-        cell.appendChild(inp)
-      }
+      if (editMode) buildTileEditor(cell, scr, tile, tileIndex)
       grid.appendChild(cell)
     })
     root.appendChild(grid)
@@ -276,9 +469,13 @@
   // throttle re-render to ~5 Hz (matches the device refresh cadence)
   let dirty = false
   setInterval(() => {
-    // don't re-render (which rebuilds the DOM) while a path input is focused
+    // Don't rebuild the DOM while the operator is interacting with the rich
+    // editor (path box, kind select, color picker) — a re-render would steal
+    // focus / collapse an open dropdown mid-edit.
     const ae = document.activeElement
-    if (dirty && !(ae && ae.classList && ae.classList.contains('lp-edit-path'))) {
+    const editing = ae && ((ae.classList && ae.classList.contains('lp-edit-path')) ||
+      (ae.closest && ae.closest('.lp-edit')))
+    if (dirty && !editing) {
       dirty = false
       renderScreen()
     }

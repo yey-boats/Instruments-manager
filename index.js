@@ -2,6 +2,7 @@ const fs = require('fs')
 const path = require('path')
 const { YeyBoatsDisplayManager } = require('./lib/manager')
 const presets = require('./lib/screen-presets')
+const fieldSchema = require('./lib/field-schema')
 const pluginPackage = require('./package.json')
 
 module.exports = function yeyBoatsDisplayManagerPlugin (app) {
@@ -355,6 +356,89 @@ function registerAutopilotBridge (app) {
     emit('set_heading', Number(value) || 0)
     return done(cb)
   })
+}
+
+// Apply a list of live-preview field edits onto a profile config, in place.
+// Each edit is { widgetId?, screenId, tileIndex, widget, title, unit, precision,
+// path, color }. Two shapes:
+//   (1) widgetId references an existing widgets.items entry -> rebind in place,
+//       round-tripping path + KIND (widget type) + per-element color.
+//   (2) no/unknown widgetId -> materialize a stable synthetic widget
+//       (w_<screen>_<tileIndex>) and author the screen tile to reference it, so
+//       a PRESET grid tile (steering/route/trip/dashboard) edit reaches the
+//       device on the next config reload exactly like a Nav tile does.
+// Pure over `cfg` (mutates the object it is handed); extracted from the
+// save-screen route so the KIND+color round-trip is node-testable.
+function applyScreenEdits (cfg, edits) {
+  cfg.widgets = cfg.widgets || {}
+  cfg.widgets.items = cfg.widgets.items || {}
+  const items = cfg.widgets.items
+  cfg.layout = cfg.layout || {}
+  cfg.layout.screens = Array.isArray(cfg.layout.screens) ? cfg.layout.screens : []
+  const screens = cfg.layout.screens
+  // Reject keys that are not safe own-property names (blocks
+  // __proto__/constructor/prototype prototype-pollution).
+  const SAFE_KEY = (k) => typeof k === 'string' && k && !['__proto__', 'constructor', 'prototype'].includes(k)
+  // `color` is a map of element->#rrggbb (theme-default when unset).
+  // normalizeColor keeps only valid #rrggbb element entries so a cleared swatch
+  // persists as "unset" (key dropped) rather than freezing a tile to one theme.
+  const HEX = /^#[0-9a-fA-F]{6}$/
+  const normalizeColor = (c) => {
+    if (!c || typeof c !== 'object' || Array.isArray(c)) return null
+    const out = {}
+    for (const k of Object.keys(c)) {
+      if (!SAFE_KEY(k)) continue
+      if (typeof c[k] === 'string' && HEX.test(c[k])) out[k] = c[k]
+    }
+    return Object.keys(out).length ? out : null
+  }
+  ;(Array.isArray(edits) ? edits : []).forEach((e) => {
+    if (!e) return
+    const color = normalizeColor(e.color)
+    // (1) Authored tile carrying an existing widget key -> rebind in place.
+    // Round-trip path + kind (widget type) + color; clear color when the
+    // operator unset every element so the tile reverts to theme defaults.
+    if (typeof e.widgetId === 'string' && e.widgetId &&
+        Object.prototype.hasOwnProperty.call(items, e.widgetId)) {
+      const it = items[e.widgetId]
+      it.path = String(e.path || '')
+      if (typeof e.widget === 'string' && e.widget) it.type = e.widget
+      if (color) it.color = color; else delete it.color
+      return
+    }
+    // (2) Preset/managed tile with no own widget key (synthetic id from the
+    // preview): materialize a stable widget + author its screen so the rebind
+    // actually reaches the device on the next config reload.
+    const screenId = typeof e.screenId === 'string' ? e.screenId : null
+    const ti = Number.isInteger(e.tileIndex) ? e.tileIndex : null
+    if (!screenId || ti == null) return
+    const wid = 'w_' + screenId.replace(/[^a-z0-9]+/gi, '_') + '_' + ti
+    if (!SAFE_KEY(wid)) return
+    // Create/update the widget definition (preserve any prior fields).
+    const prev = Object.prototype.hasOwnProperty.call(items, wid) ? items[wid] : {}
+    const widget = Object.assign({}, prev, {
+      type: e.widget || prev.type || 'numeric',
+      title: e.title != null ? e.title : (prev.title || ''),
+      path: String(e.path || ''),
+      unit: e.unit != null ? e.unit : (prev.unit || ''),
+      precision: e.precision != null ? e.precision : (prev.precision != null ? prev.precision : null)
+    })
+    if (color) widget.color = color; else delete widget.color
+    items[wid] = widget
+    // Ensure the screen exists in the authored layout and references the widget
+    // at its tile slot.
+    let scr = screens.find((s) => s && s.id === screenId)
+    if (!scr) { scr = { id: screenId, tiles: [] }; screens.push(scr) }
+    scr.tiles = Array.isArray(scr.tiles) ? scr.tiles : []
+    while (scr.tiles.length <= ti) scr.tiles.push({})
+    // Bind the tile to the synthetic widget and drop any stale inline path
+    // (primary/path) so the device reads the rebind unambiguously.
+    const merged = Object.assign({}, scr.tiles[ti], { widget: wid })
+    delete merged.primary
+    delete merged.path
+    scr.tiles[ti] = merged
+  })
+  return cfg
 }
 
 function registerRoutes (router, getManager) {
@@ -816,54 +900,7 @@ function registerRoutes (router, getManager) {
       const base = manager.store.profiles.profiles[baseId]
       if (base) {
         const cfg = JSON.parse(JSON.stringify(base.config || {}))
-        cfg.widgets = cfg.widgets || {}
-        cfg.widgets.items = cfg.widgets.items || {}
-        const items = cfg.widgets.items
-        cfg.layout = cfg.layout || {}
-        cfg.layout.screens = Array.isArray(cfg.layout.screens) ? cfg.layout.screens : []
-        const screens = cfg.layout.screens
-        // Reject keys that are not safe own-property names (blocks
-        // __proto__/constructor/prototype prototype-pollution).
-        const SAFE_KEY = (k) => typeof k === 'string' && k && !['__proto__', 'constructor', 'prototype'].includes(k)
-        edits.forEach((e) => {
-          if (!e) return
-          // (1) Authored tile carrying an existing widget key -> rebind in place.
-          if (typeof e.widgetId === 'string' && e.widgetId &&
-              Object.prototype.hasOwnProperty.call(items, e.widgetId)) {
-            items[e.widgetId].path = String(e.path || '')
-            return
-          }
-          // (2) Preset/managed tile with no own widget key (synthetic id from
-          // the preview): materialize a stable widget + author its screen so
-          // the rebind actually reaches the device on the next config reload.
-          const screenId = typeof e.screenId === 'string' ? e.screenId : null
-          const ti = Number.isInteger(e.tileIndex) ? e.tileIndex : null
-          if (!screenId || ti == null) return
-          const wid = 'w_' + screenId.replace(/[^a-z0-9]+/gi, '_') + '_' + ti
-          if (!SAFE_KEY(wid)) return
-          // Create/update the widget definition (preserve any prior fields).
-          const prev = Object.prototype.hasOwnProperty.call(items, wid) ? items[wid] : {}
-          items[wid] = Object.assign({}, prev, {
-            type: e.widget || prev.type || 'numeric',
-            title: e.title != null ? e.title : (prev.title || ''),
-            path: String(e.path || ''),
-            unit: e.unit != null ? e.unit : (prev.unit || ''),
-            precision: e.precision != null ? e.precision : (prev.precision != null ? prev.precision : null)
-          })
-          // Ensure the screen exists in the authored layout and references the
-          // widget at its tile slot.
-          let scr = screens.find((s) => s && s.id === screenId)
-          if (!scr) { scr = { id: screenId, tiles: [] }; screens.push(scr) }
-          scr.tiles = Array.isArray(scr.tiles) ? scr.tiles : []
-          while (scr.tiles.length <= ti) scr.tiles.push({})
-          // Bind the tile to the synthetic widget and drop any stale inline
-          // path (primary/path) so the device reads the rebind unambiguously
-          // (widget-ref wins, but a leftover primary would be misleading).
-          const merged = Object.assign({}, scr.tiles[ti], { widget: wid })
-          delete merged.primary
-          delete merged.path
-          scr.tiles[ti] = merged
-        })
+        applyScreenEdits(cfg, edits)
         if (mode === 'create') {
           const name = String(body.profileName || 'New View').trim()
           const newId = (name.toLowerCase().replace(/[^a-z0-9]+/g, '-').replace(/(^-|-$)/g, '')) ||
@@ -1712,6 +1749,7 @@ function renderDevicePage (manager, id, live = {}, opts = {}) {
         widgetId: null, editable: false,
         widget: t.widget || 'numeric', title: t.title || (t.primary ? String(t.primary).split('.').pop() : ''),
         path: t.primary || t.path || '', unit: t.unit || '', precision: t.precision != null ? t.precision : null,
+        color: null,
         markers: Array.isArray(t.markers) ? t.markers : null
       }))
     }
@@ -1745,6 +1783,9 @@ function renderDevicePage (manager, id, live = {}, opts = {}) {
             path: w.path || inlinePath || p.path || '',
             unit: w.unit || (t && t.unit) || p.unit || '',
             precision: w.precision != null ? w.precision : (t && t.precision != null ? t.precision : (p.precision != null ? p.precision : null)),
+            // Per-element color overrides (element -> #rrggbb). Only the managed
+            // widget item carries them; preset/inline tiles default to theme.
+            color: (w.color && typeof w.color === 'object') ? w.color : null,
             markers: Array.isArray(w.markers) ? w.markers
               : (Array.isArray(t && t.markers) ? t.markers : (Array.isArray(p.markers) ? p.markers : null))
           }
@@ -1769,10 +1810,25 @@ function renderDevicePage (manager, id, live = {}, opts = {}) {
       uptimeMs: st.ui && st.ui.uptime_ms,
       build: (st.firmware && (st.firmware.build_time || st.firmware.version)) || null
     }
+    // Manifest gating for the rich edit-fields editor (Slice: rich edit mode).
+    // The device's reported ui.capabilities (or the built-in default) drives
+    // which KINDs the kind-picker offers; COLOR_ELEMENTS tells the editor which
+    // color swatches each kind exposes; quantityForPath lets the client filter
+    // the path picker to paths COMPATIBLE with the chosen kind. We ship the
+    // pure manifest data + the element map so live-preview.js (standalone, no
+    // bundler) can gate the UI exactly like lib/field-schema.js does server-side.
+    let manifest = fieldSchema.DEFAULT_MANIFEST
+    try { manifest = manager.effectiveManifest(id) || fieldSchema.DEFAULT_MANIFEST } catch (e) { manifest = fieldSchema.DEFAULT_MANIFEST }
+    const editorManifest = {
+      viewTypes: Object.keys((manifest && manifest.viewTypes) || {}),
+      units: (manifest && manifest.units) || fieldSchema.DEFAULT_MANIFEST.units,
+      colorElements: fieldSchema.COLOR_ELEMENTS
+    }
     return {
       current: currentScreen,
       profileId: assigned,
       telemetry,
+      manifest: editorManifest,
       screens: dvViews.map((v) => ({ id: v.id, title: v.title || v.id, tiles: tilesFor(v.id) }))
     }
   })()
@@ -1790,6 +1846,10 @@ function renderDevicePage (manager, id, live = {}, opts = {}) {
       `${escapeHtml(s.title)}</option>`)
     .join('')
   if (selectScreen) previewData.initialScreen = selectScreen
+  // Curated SK path catalogue for the rich edit-fields path picker (same list
+  // that backs the <datalist>), so the picker can offer candidates even before
+  // the live stream has delivered a value for every path.
+  previewData.previewPaths = previewPaths
   const previewJson = JSON.stringify(previewData).replace(/</g, '\\u003c')
   const otaSection = renderDeviceFirmwareSection(manager, device)
   return `
@@ -1892,12 +1952,22 @@ function renderDevicePage (manager, id, live = {}, opts = {}) {
         .lp-card-s{bottom:6px;left:50%;transform:translateX(-50%)}
         .lp-card-w{left:8px;top:50%;transform:translateY(-50%)}
         .lp-ring .lp-rmark{position:absolute;font-size:13px;line-height:1;font-weight:700}
-        .lp-val-pos{font-size:18px;line-height:1.25;white-space:pre-line;font-weight:600}
+        /* DMS position: two lines that shrink-to-fit the tile. clamp() scales
+           the font with the tile width (cqw via the tile container query, with
+           a vw fallback) so "36°23.868'N" / "16°4.434'E" never spill out or
+           clip at 390px or desktop. No ellipsis — both full lines must show. */
+        .lp-val.lp-val-pos{font-size:clamp(11px,9cqw,17px);line-height:1.15;white-space:pre-line;font-weight:600;width:100%;max-width:100%;overflow-wrap:anywhere;word-break:break-word}
         .lp-grid{display:grid;grid-template-columns:minmax(0,1fr) minmax(0,1fr);grid-auto-rows:1fr;gap:10px;width:100%;height:100%}
+        /* Edit mode: the rich per-tile editor makes tiles tall, so the stage
+           drops its square aspect and lets the grid grow + scroll. Tiles keep
+           their own min-height but stop clipping the editor (overflow visible). */
+        .lp-stage.lp-editing{aspect-ratio:auto;height:auto;max-width:100%;width:min(420px,100%);align-items:stretch;overflow:visible}
+        .lp-grid-edit{grid-auto-rows:auto;height:auto}
+        .lp-grid-edit .lp-tile{overflow:visible;min-height:0}
         /* min-width:0 lets the grid tracks actually share the width equally —
            without it a tile's big value text sets an auto min-width that pushes
            the column (and the whole grid) past the square stage. */
-        .lp-tile{min-width:0;overflow:hidden;background:#11202f;border:1px solid #1c2f42;border-radius:9px;padding:10px;display:flex;flex-direction:column;justify-content:center;align-items:flex-start;min-height:80px}
+        .lp-tile{min-width:0;overflow:hidden;background:#11202f;border:1px solid #1c2f42;border-radius:9px;padding:10px;display:flex;flex-direction:column;justify-content:center;align-items:flex-start;min-height:80px;container-type:inline-size}
         .lp-cap{font-size:11px;letter-spacing:.1em;color:#6f97ba;text-transform:uppercase}
         .lp-val{font-size:34px;font-weight:650;color:#eaf2fb;line-height:1.05;align-self:flex-start;max-width:100%;overflow:hidden;text-overflow:ellipsis}
         .lp-val-sm{font-size:18px}
@@ -1905,8 +1975,35 @@ function renderDevicePage (manager, id, live = {}, opts = {}) {
         .lp-bar{width:20px;flex:1;background:#0a1420;border-radius:5px;display:flex;align-items:flex-end;margin:8px 0;min-height:40px;align-self:center}
         .lp-bar-fill{width:100%;background:linear-gradient(180deg,#52e0a8,#2bb47e);border-radius:5px;transition:height .25s ease}
         .lp-empty{color:#6f97ba;font-size:13px;text-align:center;line-height:1.5}
-        .lp-edit-path{width:100%;margin-top:8px;font-size:11px;background:#0a1420;color:#cfe0f0;border:1px solid #2a4156;border-radius:5px;padding:4px 5px}
+        .lp-edit-path{width:100%;margin-top:0;font-size:11px;background:#0a1420;color:#cfe0f0;border:1px solid #2a4156;border-radius:5px;padding:4px 5px;box-sizing:border-box}
         .lp-edit-path:focus{outline:none;border-color:#36d399}
+        /* Rich edit-fields panel: a stacked, scrollable control group per tile.
+           Stacks vertically so it fits a 390px phone column without overflow. */
+        .lp-edit{width:100%;margin-top:8px;display:flex;flex-direction:column;gap:7px;border-top:1px solid #1c2f42;padding-top:8px;box-sizing:border-box}
+        .lp-edit-row{display:flex;align-items:center;gap:6px;font-size:10px;letter-spacing:.05em;text-transform:uppercase;color:#7fa6c6}
+        .lp-edit-col{flex-direction:column;align-items:stretch;gap:4px}
+        .lp-edit-lab{font-size:10px;letter-spacing:.05em;text-transform:uppercase;color:#7fa6c6}
+        .lp-edit-sel{flex:1;min-width:0;background:#0a1420;color:#eaf2fb;border:1px solid #2a4156;border-radius:5px;padding:4px 5px;font-size:12px;text-transform:none}
+        .lp-edit-cur{font-size:11px;color:#9bb6d0;text-transform:none;letter-spacing:0;overflow-wrap:anywhere;word-break:break-word}
+        /* Scrollable candidate path list with live values. Capped height so the
+           tile stays compact; each row is a full-width clickable button. */
+        .lp-edit-paths{max-height:118px;overflow-y:auto;overflow-x:hidden;display:flex;flex-direction:column;gap:2px;border:1px solid #1c2f42;border-radius:6px;background:#091320;padding:3px}
+        .lp-edit-prow{display:flex;justify-content:space-between;gap:8px;align-items:center;width:100%;max-width:100%;text-align:left;background:transparent;border:0;border-radius:4px;padding:3px 6px;cursor:pointer;color:#cfe0f0;font-size:11px;text-transform:none;letter-spacing:0;box-sizing:border-box}
+        .lp-edit-prow:hover{background:#13283a}
+        .lp-edit-prow.active{background:#173a2c;color:#8ff0c0}
+        .lp-edit-pname{overflow:hidden;text-overflow:ellipsis;white-space:nowrap;flex:1 1 auto;min-width:0}
+        /* Live-value readout: cap its share + ellipsis so a long string value
+           (e.g. a /resources/routes/... id) can't blow the row width past the
+           tile on a phone. */
+        .lp-edit-plv{color:#9bb6d0;flex:0 1 auto;min-width:0;max-width:45%;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;font-variant-numeric:tabular-nums}
+        .lp-edit-color{flex-wrap:wrap}
+        .lp-edit-clab{flex:0 0 46px;font-size:10px;color:#7fa6c6}
+        .lp-edit-sw{display:flex;align-items:center;gap:4px;flex-wrap:wrap;flex:1;min-width:0}
+        .lp-sw{width:16px;height:16px;border-radius:4px;cursor:pointer;border:1px solid rgba(255,255,255,.18);box-sizing:border-box}
+        .lp-sw.active{outline:2px solid #eef4fa;outline-offset:1px}
+        .lp-sw-custom{width:22px;height:18px;padding:0;border:1px solid #2a4156;border-radius:4px;background:#0a1420;cursor:pointer}
+        .lp-sw-theme{font-size:10px;text-transform:none;letter-spacing:0;background:#13283a;color:#9bb6d0;border:1px solid #2a4156;border-radius:5px;padding:2px 7px;cursor:pointer}
+        .lp-sw-theme.active{border-color:#36d399;color:#8ff0c0}
         /* Compact control group: tight, wrapping row of small buttons. */
         .lp-actions{display:flex;gap:6px;align-items:center;flex-wrap:wrap}
         .lp-actions button{border-radius:6px;padding:4px 9px;border:1px solid #2a4156;background:#13283a;color:#dbe9f6;cursor:pointer;font-size:12px;min-height:28px;line-height:1}
@@ -3499,6 +3596,7 @@ module.exports._test = {
   importDashboardPreset,
   applyPresetForm,
   configOverridesFromForm,
+  applyScreenEdits,
   registerRoutes
 }
 
