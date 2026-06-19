@@ -597,21 +597,13 @@ function registerRoutes (router, getManager) {
     res.end(renderUi(manager, 'devices', req))
   }))
 
-  router.get('/ui/devices/:id', wrap(getManager, async (manager, req, res) => {
+  router.get('/ui/devices/:id', wrap(getManager, (manager, req, res) => {
     res.setHeader('content-type', 'text/html; charset=utf-8')
     const dashboard = manager.dashboard()
-    const live = {}
-    try {
-      live.status = await manager.getLiveStatus(req.params.id)
-    } catch (err) {
-      live.statusError = err
-    }
-    try {
-      live.logs = await manager.getLiveLogs(req.params.id)
-    } catch (err) {
-      live.logsError = err
-    }
-    res.end(renderUiShell('Device detail', renderDevicePage(manager, req.params.id, live), dashboard, 'device'))
+    // Render immediately with placeholder live sections; the browser lazy-loads
+    // live status + logs from the *-fragment endpoints after DOMContentLoaded so
+    // a slow/offline device never blocks (or hangs) the page render.
+    res.end(renderUiShell('Device detail', renderDevicePage(manager, req.params.id), dashboard, 'device'))
   }))
 
   // The config page was merged into the device detail page as a collapsed
@@ -641,6 +633,31 @@ function registerRoutes (router, getManager) {
       res.end(renderLiveLogsPage(manager, req.params.id, logs))
     } catch (err) {
       res.end(renderLiveErrorPage(manager, req.params.id, 'Live logs', err))
+    }
+  }))
+
+  // Fragment endpoints: return ONLY the live widget HTML (reusing the same
+  // renderLiveStatusWidget / renderLiveLogsWidget builders the page used to
+  // embed) so the device page can lazy-load them client-side into placeholders
+  // without duplicating widget markup. These do the (slow) device round-trip
+  // that the device page no longer blocks on.
+  router.get('/ui/devices/:id/live/status-fragment', wrap(getManager, async (manager, req, res) => {
+    res.setHeader('content-type', 'text/html; charset=utf-8')
+    try {
+      const status = await manager.getLiveStatus(req.params.id)
+      res.end(renderLiveStatusWidget(status))
+    } catch (err) {
+      res.end(renderLiveStatusWidget(undefined, err))
+    }
+  }))
+
+  router.get('/ui/devices/:id/live/logs-fragment', wrap(getManager, async (manager, req, res) => {
+    res.setHeader('content-type', 'text/html; charset=utf-8')
+    try {
+      const logs = await manager.getLiveLogs(req.params.id, req.query.since)
+      res.end(renderLiveLogsWidget(logs))
+    } catch (err) {
+      res.end(renderLiveLogsWidget(undefined, err))
     }
   }))
 
@@ -1728,6 +1745,13 @@ function renderDevicePage (manager, id, live = {}, opts = {}) {
       </form>
       <style>
         .lp-panel{background:linear-gradient(180deg,#0e1a26,#0b1019);border:1px solid #1e3142;border-radius:12px;padding:16px;margin-bottom:18px;box-shadow:0 1px 0 #1a2c3c inset,0 6px 22px rgba(0,0,0,.28)}
+        /* Lazy-loaded live sections: keep the placeholder's header/Refresh,
+           flatten the injected widget's own <section>/<h2> chrome so it doesn't
+           double up the title or nest a card inside a card. */
+        .live-section .live-head{display:flex;align-items:center;justify-content:space-between;gap:10px;margin-bottom:8px}
+        .live-section .live-head h2{margin:0}
+        .live-section .live-slot section.config-section{background:none;border:0;border-radius:0;padding:0;margin:0}
+        .live-section .live-slot section.config-section>h2{display:none}
         .lp-head{display:flex;align-items:center;justify-content:space-between;gap:12px;margin-bottom:12px;color:#cfe0f0;flex-wrap:wrap}
         .lp-head-title{display:flex;align-items:baseline;gap:12px}
         .lp-head-title strong{font-size:15px;letter-spacing:.02em}
@@ -1790,9 +1814,10 @@ function renderDevicePage (manager, id, live = {}, opts = {}) {
       <script src="/yey-boats-display-manager/device-hud.js"></script>
       <script src="/yey-boats-display-manager/live-preview.js"></script>
       <div class="config-grid">
-        ${renderLiveStatusWidget(live.status, live.statusError)}
-        ${renderLiveLogsWidget(live.logs, live.logsError)}
+        ${renderLiveSectionPlaceholder('status', 'Live status', 'Loading status…')}
+        ${renderLiveSectionPlaceholder('logs', 'Live logs', 'Loading logs…')}
       </div>
+      ${renderLiveLazyLoadScript(id)}
       <table>
         <tbody>
           <tr><th>Profile</th><td>${escapeHtml(device.assignedProfile || 'default')}</td></tr>
@@ -2073,6 +2098,76 @@ function renderDeviceFirmwareSection (manager, device) {
           sync()
         })()
       </script>`
+}
+
+// Lightweight placeholder rendered in place of the live widget. The client
+// fetches the matching *-fragment endpoint after load and replaces the inner
+// content (.live-slot) with the real widget HTML. data-kind picks the endpoint.
+function renderLiveSectionPlaceholder (kind, title, loadingText) {
+  return `
+    <section class="config-section live-section" data-live-kind="${escapeHtml(kind)}">
+      <div class="live-head">
+        <h2>${escapeHtml(title)}</h2>
+        <button type="button" class="btn-sm live-refresh" data-live-kind="${escapeHtml(kind)}">Refresh</button>
+      </div>
+      <div class="live-slot" data-live-kind="${escapeHtml(kind)}">
+        <p class="lp-note" style="color:#6f97ba;">${escapeHtml(loadingText)}</p>
+      </div>
+    </section>`
+}
+
+// Inline (SSR, no build step) client script: lazy-loads each live section's
+// fragment after the page is interactive, with an AbortController timeout so a
+// dead device can't hang the widget. On 401 / SignalK login redirect it sends
+// the *top* frame (the manager UI runs inside the SignalK admin iframe) to the
+// login page rather than showing a dismissable modal.
+function renderLiveLazyLoadScript (id) {
+  const base = `/plugins/yey-boats-display-manager/ui/devices/${encodeURIComponent(id)}/live`
+  return `
+    <script>
+    (function () {
+      var BASE = ${JSON.stringify(base)};
+      var ENDPOINT = { status: BASE + '/status-fragment', logs: BASE + '/logs-fragment' };
+      function looksLikeLogin (resp) {
+        return resp.status === 401 || /\\/admin\\/?#?\\/?login|Please Login/i.test(resp.url || '')
+      }
+      function toLogin () { try { window.top.location.assign('/admin/#/login') } catch (e) { window.location.assign('/admin/#/login') } }
+      function errorWidget (title, msg) {
+        return '<p class="lp-note" style="color:#d96f6f;"><strong>' + title + ' unavailable.</strong> ' + msg + '</p>'
+      }
+      async function load (kind) {
+        var slot = document.querySelector('.live-slot[data-live-kind="' + kind + '"]')
+        if (!slot) return
+        var url = ENDPOINT[kind]
+        if (!url) return
+        slot.innerHTML = '<p class="lp-note" style="color:#6f97ba;">Loading…</p>'
+        var ctrl = new AbortController()
+        var timer = setTimeout(function () { ctrl.abort() }, 8000)
+        try {
+          var resp = await fetch(url, { credentials: 'include', redirect: 'follow', signal: ctrl.signal })
+          clearTimeout(timer)
+          if (looksLikeLogin(resp)) { toLogin(); return }
+          var html = await resp.text()
+          if (/\\/admin\\/?#?\\/?login|Please Login/i.test(html)) { toLogin(); return }
+          slot.innerHTML = html
+        } catch (err) {
+          clearTimeout(timer)
+          var why = (err && err.name === 'AbortError') ? 'Device did not respond (timed out).' : 'Could not reach the device.'
+          slot.innerHTML = errorWidget(kind === 'status' ? 'Live status' : 'Live logs', why)
+        }
+      }
+      function init () {
+        var btns = document.querySelectorAll('.live-refresh')
+        for (var i = 0; i < btns.length; i++) {
+          (function (b) { b.addEventListener('click', function () { load(b.getAttribute('data-live-kind')) }) })(btns[i])
+        }
+        load('status')
+        load('logs')
+      }
+      if (document.readyState === 'loading') document.addEventListener('DOMContentLoaded', init)
+      else init()
+    })();
+    </script>`
 }
 
 function renderLiveStatusWidget (status, err) {
