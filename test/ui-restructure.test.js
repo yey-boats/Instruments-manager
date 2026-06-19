@@ -18,8 +18,12 @@ const html = idx.__renderHomePage(dashboard, dashboard.devices, { query: {} }, m
 
 assert.ok(/class="grid"/.test(html), 'merged page has the overview stat grid')
 assert.ok(/Clear all/.test(html), 'merged page has the Clear all action')
-assert.ok(/Registered \(/.test(html), 'merged page has the registered devices table')
+assert.ok(/class="dev-list"/.test(html), 'merged page renders the unified device list')
+assert.ok(/class="dev-row"/.test(html), 'unified list uses expandable device rows')
 assert.ok(/yey-d-merge-1/.test(html), 'merged page lists the registered device')
+// Refresh / Flash are real buttons now, not anchors.
+assert.ok(/onclick="location.reload\(\)"/.test(html), 'Refresh is a real button')
+assert.ok(/flash\.html/.test(html), 'Flash new device control is present')
 console.log('ui-restructure.test: home merge OK')
 
 const navHtml = idx.__nav('devices')

@@ -1261,15 +1261,51 @@ function renderUiShell (title, body, dashboard, page = '') {
     input[type="checkbox"] { width: auto; min-height: auto; margin-right: 6px; }
     fieldset { border: 1px solid #d9e0e3; border-radius: 6px; margin: 0 0 14px; padding: 12px; }
     legend { color: #40515a; font-size: 13px; font-weight: 700; padding: 0 4px; }
-    .actions { display: flex; flex-wrap: wrap; gap: 8px; }
-    button { min-height: 36px; border: 1px solid #0e5c72; border-radius: 4px; padding: 7px 12px; background: #116078; color: white; font-weight: 600; cursor: pointer; }
+    .actions { display: flex; flex-wrap: wrap; gap: 6px; align-items: center; }
+    button { min-height: 30px; border: 1px solid #0e5c72; border-radius: 4px; padding: 4px 10px; background: #116078; color: white; font-weight: 600; font-size: 13px; cursor: pointer; }
+    button.btn-sm { min-height: 28px; padding: 2px 8px; font-size: 12px; }
+    button.btn-secondary { background: white; color: #116078; }
+    button.btn-danger { background: #c0392b; border-color: #a82716; }
     button[disabled] { background: #d9e0e3; border-color: #c6d0d5; color: #60717a; cursor: not-allowed; }
     button[value="save"], button[value="save-preset"] { background: white; color: #116078; }
     .pill { display: inline-block; padding: 2px 7px; border-radius: 999px; background: #eef3f5; color: #40515a; font-size: 12px; }
     .status { display: inline-block; min-width: 64px; padding: 2px 7px; border-radius: 999px; background: #eef3f5; text-align: center; }
     .ok { background: #d9f2e3; color: #145d32; }
     .bad { background: #ffe0df; color: #8a1f18; }
-    @media (max-width: 850px) { .grid, .config-grid, .form-grid { grid-template-columns: 1fr; } table { font-size: 12px; } }
+    /* Unified device list: dense single-line rows that expand on click.
+       Built from <details>/<summary> so it works with no JS. */
+    .dev-list { background: white; border: 1px solid #d9e0e3; border-radius: 6px; margin-bottom: 20px; }
+    .dev-row { border-bottom: 1px solid #e5eaed; }
+    .dev-row:last-child { border-bottom: 0; }
+    .dev-row > summary { display: flex; align-items: center; gap: 10px; flex-wrap: wrap;
+      padding: 8px 12px; cursor: pointer; list-style: none; font-size: 14px; }
+    .dev-row > summary::-webkit-details-marker { display: none; }
+    .dev-row > summary::before { content: "\\25B8"; color: #8aa0aa; font-size: 11px; width: 10px; flex: 0 0 auto; }
+    .dev-row[open] > summary::before { content: "\\25BE"; }
+    .dev-row[open] > summary { background: #f5f8f9; }
+    .dev-name { font-weight: 600; flex: 1 1 160px; min-width: 0; overflow: hidden; text-overflow: ellipsis; }
+    .dev-name a { text-decoration: none; }
+    .dev-name .sub { display: block; color: #60717a; font-size: 12px; font-weight: 400; }
+    .dev-sum { color: #40515a; font-size: 12px; flex: 0 1 auto; }
+    .dev-sum b { color: #172026; font-weight: 600; }
+    .dot { width: 9px; height: 9px; border-radius: 50%; display: inline-block; flex: 0 0 auto; background: #c6d0d5; }
+    .dot.on { background: #2e8b57; } .dot.off { background: #c43d34; }
+    .dev-act { display: flex; gap: 6px; flex: 0 0 auto; margin-left: auto; align-items: center; }
+    .dev-act form { display: inline; margin: 0; }
+    .dev-detail { padding: 4px 12px 14px 32px; background: #fbfdfd; }
+    .dev-detail dl { display: grid; grid-template-columns: max-content 1fr; gap: 2px 14px; margin: 0; font-size: 13px; }
+    .dev-detail dt { color: #60717a; }
+    .dev-detail dd { margin: 0; word-break: break-word; }
+    .dev-detail .claim-row { margin-top: 10px; display: flex; gap: 6px; flex-wrap: wrap; align-items: center; }
+    .dev-tag { display: inline-block; padding: 1px 6px; border-radius: 999px; font-size: 11px; background: #eef3f5; color: #40515a; }
+    .dev-tag.pending { background: #fff3d6; color: #7a5b00; }
+    @media (max-width: 850px) {
+      .grid, .config-grid, .form-grid { grid-template-columns: 1fr; }
+      table { font-size: 12px; }
+      .dev-sum { flex-basis: 100%; }
+      .dev-detail dl { grid-template-columns: 1fr; }
+      .dev-detail dt { margin-top: 6px; }
+    }
   </style>
 </head>
 <body>
@@ -1361,10 +1397,11 @@ function renderDevicesSection (devices, req, manager) {
   const clearedBanner = q.cleared
     ? `<p class="muted" style="color:#2e8b57;">Removed ${escapeHtml(String(q.removed || 0))} ${q.cleared === 'all' ? 'device(s) — list cleared' : 'offline device(s)'}.</p>`
     : ''
+  const profiles = manager ? manager.listProfiles().profiles : []
   const act = (path, label, confirmMsg, danger) =>
     `<form method="post" action="/plugins/yey-boats-display-manager/ui/devices/${path}" style="display:inline"
            onsubmit="return confirm('${escapeHtml(confirmMsg)}');">
-      <button type="submit"${danger ? ' style="background:#c0392b;border-color:#a82716;"' : ''}>${escapeHtml(label)}</button>
+      <button type="submit" class="btn-sm${danger ? ' btn-danger' : ''}">${escapeHtml(label)}</button>
     </form>`
   return `
     <section class="panel">
@@ -1372,14 +1409,13 @@ function renderDevicesSection (devices, req, manager) {
       <p class="muted">${devices.length} registered · ${pendingDevices.length} pending</p>
       ${clearedBanner}
       <div class="actions">
-        <a href="/plugins/yey-boats-display-manager/ui/devices">Refresh</a>
-        <a href="/yey-boats-display-manager/flash.html" target="_blank" rel="noopener">Flash new device (USB)</a>
+        <button type="button" class="btn-sm" onclick="location.reload()">Refresh</button>
+        <button type="button" class="btn-sm btn-secondary"
+                onclick="window.open('/yey-boats-display-manager/flash.html','_blank','noopener')">Flash new device (USB)</button>
         ${devices.length ? act('clear-offline', `Clear offline (${offlineCount})`, `Remove all ${offlineCount} offline device(s) from the list?`, false) : ''}
         ${devices.length ? act('clear-all', `Clear all (${devices.length})`, `Remove ALL ${devices.length} registered device(s)? This cannot be undone.`, true) : ''}
       </div>
-      ${pendingDevices.length ? renderPendingDiscoverySection(manager, pendingDevices) : ''}
-      <h3 style="margin-top:24px;">Registered (${devices.length})</h3>
-      ${deviceTable(devices)}
+      ${deviceList(devices, pendingDevices, profiles)}
       <details style="margin-top:20px;"><summary>Register through SignalK / scan network</summary>
         ${renderSignalKRegisterForm(managerUrl)}
         ${renderDiscoveryScanForm()}
@@ -1387,24 +1423,94 @@ function renderDevicesSection (devices, req, manager) {
     </section>`
 }
 
-function renderPendingDiscoverySection (manager, pendingDevices) {
-  const profiles = manager.listProfiles().profiles
-  const rows = pendingDevices.map((device) => `
-        <tr>
-          <td><strong>${escapeHtml(device.name || device.deviceId)}</strong><br><span>${escapeHtml(device.deviceId)}</span></td>
-          <td>${escapeHtml(device.address || '')}:${escapeHtml(device.port || '')}</td>
-          <td>${escapeHtml(device.source || '')}</td>
-          <td>${escapeHtml(firmwareLabel(device.firmware))}</td>
-          <td>${device.stale ? '<span class="status bad">stale</span>' : '<span class="status ok">fresh</span>'}</td>
-          <td>${renderDiscoveryClaimControl(device, profiles)}</td>
-        </tr>`).join('')
+// Unified device list: registered devices and discovered-but-unregistered
+// ("pending") devices share one list. Each entry is a dense single-line
+// <summary> that expands (pure-CSS <details>) to reveal full detail. This
+// keeps the list usable on narrow displays — wide content wraps into the
+// expanded panel instead of overflowing a table horizontally.
+function deviceList (devices, pendingDevices, profiles) {
+  const rows = [
+    ...devices.map((device) => registeredDeviceRow(device)),
+    ...pendingDevices.map((device) => pendingDeviceRow(device, profiles))
+  ].join('')
+  if (!rows) {
+    return '<p class="muted" style="padding:14px 0;">No devices registered or discovered.</p>'
+  }
+  return `<div class="dev-list">${rows}</div>`
+}
+
+function registeredDeviceRow (device) {
+  const url = `/plugins/yey-boats-display-manager/ui/devices/${encodeURIComponent(device.id)}`
+  const dims = `${device.display.width}x${device.display.height}`
+  const detail = detailList([
+    ['ID', `<code>${escapeHtml(device.id)}</code>`],
+    ['Role', escapeHtml(device.role || '')],
+    ['Location', escapeHtml(device.location || '')],
+    ['Profile', escapeHtml(device.profile)],
+    ['Display', escapeHtml(displayLabel(device.display))],
+    ['Layout variant', escapeHtml(device.desiredConfig.layoutVariant || '')],
+    ['Widget variant', escapeHtml(device.desiredConfig.widgetVariant || '')],
+    ['Config drift', device.configDrift ? '<span class="status bad">yes</span>' : '<span class="status ok">no</span>'],
+    ['Pending commands', escapeHtml(device.pendingCommands)],
+    ['Firmware', escapeHtml(firmwareLabel(device.firmware))],
+    ['Last seen', escapeHtml(relativeTime(device.lastSeen))]
+  ])
   return `
-      <h3>Pending (${pendingDevices.length})</h3>
-      <p class="muted">Devices found on the network but not yet registered. Click "claim" to register.</p>
-      <table>
-        <thead><tr><th>Device</th><th>Address</th><th>Source</th><th>Firmware</th><th>Freshness</th><th>Action</th></tr></thead>
-        <tbody>${rows}</tbody>
-      </table>`
+    <details class="dev-row">
+      <summary>
+        <span class="dot ${device.online ? 'on' : 'off'}" title="${escapeHtml(device.health)}"></span>
+        <span class="dev-name"><a href="${url}">${escapeHtml(device.name || device.id)}</a><span class="sub">${escapeHtml(device.id)}</span></span>
+        <span class="dev-sum"><b>${escapeHtml(device.profile)}</b> · ${escapeHtml(dims)}${device.configDrift ? ' · <span class="status bad">drift</span>' : ''}${device.pendingCommands ? ` · ${escapeHtml(device.pendingCommands)} pending` : ''}</span>
+        <span class="dev-act">
+          <a class="dev-tag" href="${url}/config" onclick="event.stopPropagation()">config</a>
+          <form method="post" action="${url}/delete"
+                onsubmit="return confirm('Remove this device? Pending commands are dropped.')">
+            <button type="submit" class="btn-sm btn-danger">Remove</button>
+          </form>
+        </span>
+      </summary>
+      <div class="dev-detail">
+        ${detail}
+        <p style="margin:8px 0 0;"><a href="${url}">Open device</a> · <a href="${url}/config">Edit config</a></p>
+      </div>
+    </details>`
+}
+
+function pendingDeviceRow (device, profiles) {
+  const addr = `${device.address || '?'}${device.port ? ':' + device.port : ''}`
+  const detail = detailList([
+    ['ID', `<code>${escapeHtml(device.deviceId)}</code>`],
+    ['Address', escapeHtml(addr)],
+    ['Source', escapeHtml(device.source || '')],
+    ['Role', escapeHtml(device.role || '')],
+    ['Location', escapeHtml(device.location || '')],
+    ['Display', escapeHtml(displayLabel(device.display))],
+    ['Firmware', escapeHtml(firmwareLabel(device.firmware))],
+    ['Seen count', escapeHtml(device.seenCount != null ? device.seenCount : '')],
+    ['Last seen', escapeHtml(relativeTime(device.lastSeen))],
+    device.conflict ? ['Conflict', `<span class="status bad">address</span> ${escapeHtml(device.conflict.deviceIds.join(', '))}`] : null
+  ])
+  return `
+    <details class="dev-row">
+      <summary>
+        <span class="dot" title="discovered, not registered"></span>
+        <span class="dev-name">${escapeHtml(device.name || device.deviceId)}<span class="sub">${escapeHtml(device.deviceId)}</span></span>
+        <span class="dev-sum">${escapeHtml(addr)}${device.source ? ' · ' + escapeHtml(device.source) : ''} · seen ${escapeHtml(relativeTime(device.lastSeen))}</span>
+        <span class="dev-act"><span class="dev-tag pending">pending</span></span>
+      </summary>
+      <div class="dev-detail">
+        ${detail}
+        <div class="claim-row">${renderDiscoveryClaimControl(device, profiles)}</div>
+      </div>
+    </details>`
+}
+
+function detailList (pairs) {
+  const items = pairs
+    .filter(Boolean)
+    .map(([label, value]) => `<dt>${escapeHtml(label)}</dt><dd>${value}</dd>`)
+    .join('')
+  return `<dl>${items}</dl>`
 }
 
 function renderSignalKRegisterForm (managerUrl) {
@@ -2604,36 +2710,6 @@ function fontSummary (settings) {
     .join(', ') || 'defaults'
 }
 
-function renderDiscoveryPage (manager, devices) {
-  const profiles = manager.listProfiles().profiles
-  const rows = devices.map((device) => `
-        <tr>
-          <td><strong>${escapeHtml(device.name || device.deviceId)}</strong><br><span>${escapeHtml(device.deviceId)}</span></td>
-          <td>${escapeHtml(device.address || '')}:${escapeHtml(device.port || '')}</td>
-          <td>${escapeHtml(device.source || '')}</td>
-          <td>${escapeHtml(displayLabel(device.display))}</td>
-          <td>${escapeHtml(firmwareLabel(device.firmware))}</td>
-          <td>${device.registered ? '<span class="status ok">yes</span>' : '<span class="status">no</span>'}</td>
-          <td>${device.stale ? '<span class="status bad">stale</span>' : '<span class="status ok">fresh</span>'}</td>
-          <td>${device.conflict ? `<span class="status bad">address conflict</span><br><span>${escapeHtml(device.conflict.deviceIds.join(', '))}</span>` : '<span class="status ok">none</span>'}</td>
-          <td>${escapeHtml(device.lastSeen || '')}</td>
-          <td>${renderDiscoveryClaimControl(device, profiles)}</td>
-        </tr>`).join('')
-  return `
-    <section class="panel">
-      <h2>Discovered devices</h2>
-      <p class="muted">Devices appear here from Bonjour/mDNS, UDP announcements, IP scans, or authenticated provisioning posts.</p>
-      <div class="actions">
-        <a href="/plugins/yey-boats-display-manager/ui/discovery">Refresh</a>
-      </div>
-      ${renderDiscoveryScanForm()}
-      <table>
-        <thead><tr><th>Device</th><th>Address</th><th>Source</th><th>Display</th><th>Firmware</th><th>Registered</th><th>Freshness</th><th>Conflict</th><th>Last seen</th><th>Action</th></tr></thead>
-        <tbody>${rows || '<tr><td colspan="10">No discovered devices.</td></tr>'}</tbody>
-      </table>
-    </section>`
-}
-
 function renderDiscoveryScanForm () {
   return `
       <form class="config-form" method="post" action="/plugins/yey-boats-display-manager/discovery/scan">
@@ -2656,16 +2732,19 @@ function renderDiscoveryClaimControl (device, profiles) {
   if (device.registered) {
     return `<a href="/plugins/yey-boats-display-manager/ui/devices/${encodeURIComponent(device.deviceId)}">Open</a>`
   }
+  // Staleness no longer blocks claiming — a discovered device is shown and
+  // claimable regardless of age (pending is stateless). Only a genuinely
+  // unusable target (missing address, or an unresolved address conflict)
+  // disables the claim button.
   const blocked = []
-  if (device.stale) blocked.push('stale')
   if (device.conflict) blocked.push('address conflict')
   if (!device.address) blocked.push('missing address')
   if (blocked.length) {
     return `
     <form method="post" action="/plugins/yey-boats-display-manager/discovery/devices/${encodeURIComponent(device.deviceId)}/claim">
       ${profileSelect(profiles, 'default')}
-      <button type="submit" disabled>Claim</button>
-      <p class="muted">Resolve ${escapeHtml(blocked.join(', '))} before claiming.</p>
+      <button type="submit" class="btn-sm" disabled>Claim</button>
+      <span class="muted">Resolve ${escapeHtml(blocked.join(', '))} before claiming.</span>
     </form>`
   }
   return `
@@ -2674,7 +2753,7 @@ function renderDiscoveryClaimControl (device, profiles) {
       <input type="hidden" name="location" value="${escapeHtml(device.location || '')}">
       <input type="hidden" name="sendReload" value="1">
       ${profileSelect(profiles, 'default')}
-      <button type="submit">Claim</button>
+      <button type="submit" class="btn-sm">Claim</button>
     </form>`
 }
 
@@ -2841,51 +2920,6 @@ function renderFirmwarePage (catalog, jobs, upgrades) {
     </section>`
 }
 
-function deviceTable (devices) {
-  const rows = devices.map((device) => `
-        <tr>
-          <td><strong><a href="/plugins/yey-boats-display-manager/ui/devices/${encodeURIComponent(device.id)}">${escapeHtml(device.name || device.id)}</a></strong><br><span>${escapeHtml(device.id)}</span></td>
-          <td><span class="status ${device.online ? 'ok' : 'bad'}">${escapeHtml(device.health)}</span></td>
-          <td>${escapeHtml(device.profile)}</td>
-          <td>${escapeHtml(`${device.display.width}x${device.display.height}`)}</td>
-          <td>${escapeHtml(device.desiredConfig.layoutVariant || '')}</td>
-          <td>${escapeHtml(device.desiredConfig.widgetVariant || '')}</td>
-          <td>${device.configDrift ? 'yes' : 'no'}</td>
-          <td>${device.pendingCommands}<br><span><a href="/plugins/yey-boats-display-manager/ui/devices/${encodeURIComponent(device.id)}/config">config</a></span></td>
-          <td>
-            <!-- Static confirm prompt - device.name is attacker-controlled
-                 in principle (registers via authenticated POST but still
-                 untrusted free-form text), and escapeHtml does NOT escape
-                 the single-quote-context inside an inline JS attribute.
-                 A name like \`'); alert(1); //\` would execute. The device
-                 row above already labels which device this Remove button
-                 acts on, so a generic prompt is no UX loss. -->
-            <form method="post" action="/plugins/yey-boats-display-manager/ui/devices/${encodeURIComponent(device.id)}/delete"
-                  onsubmit="return confirm('Remove this device? Pending commands are dropped.')"
-                  style="margin:0;display:inline;">
-              <button type="submit" style="background:#c0392b;border-color:#a82716;">Remove</button>
-            </form>
-          </td>
-        </tr>`).join('')
-  return `
-    <table>
-      <thead>
-        <tr>
-          <th>Device</th>
-          <th>Health</th>
-          <th>Profile</th>
-          <th>Display</th>
-          <th>Layout</th>
-          <th>Widgets</th>
-          <th>Drift</th>
-          <th>Pending</th>
-          <th></th>
-        </tr>
-      </thead>
-      <tbody>${rows || '<tr><td colspan="9">No devices registered.</td></tr>'}</tbody>
-    </table>`
-}
-
 function commandTable (commands) {
   const rows = commands.map((command) => `
         <tr>
@@ -2978,6 +3012,23 @@ function displayLabel (display) {
 function firmwareLabel (firmware) {
   if (!firmware) return ''
   return firmware.version || firmware.name || firmware.id || 'custom firmware'
+}
+
+// Human "x ago" string for a last-seen timestamp. Purely informational —
+// the device list never hides or disables a row based on age.
+function relativeTime (iso) {
+  if (!iso) return 'never'
+  const ms = Date.parse(iso)
+  if (!ms) return 'never'
+  const diff = Date.now() - ms
+  if (diff < 0) return 'just now'
+  const s = Math.round(diff / 1000)
+  if (s < 60) return `${s}s ago`
+  const m = Math.round(s / 60)
+  if (m < 60) return `${m}m ago`
+  const h = Math.round(m / 60)
+  if (h < 48) return `${h}h ago`
+  return `${Math.round(h / 24)}d ago`
 }
 
 function firmwareSourceLabel (artifact) {
