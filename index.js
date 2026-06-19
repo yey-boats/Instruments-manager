@@ -614,9 +614,14 @@ function registerRoutes (router, getManager) {
     res.end(renderUiShell('Device detail', renderDevicePage(manager, req.params.id, live), dashboard, 'device'))
   }))
 
+  // The config page was merged into the device detail page as a collapsed
+  // <details id="config"> section. This route is kept as a backstop so old
+  // links/bookmarks keep working: redirect to the unified page anchored at the
+  // config section (which opens itself when navigated to via #config).
   router.get('/ui/devices/:id/config', wrap(getManager, (manager, req, res) => {
-    res.setHeader('content-type', 'text/html; charset=utf-8')
-    res.end(renderUi(manager, 'deviceConfig', req))
+    res.statusCode = 302
+    res.setHeader('location', `/plugins/yey-boats-display-manager/ui/devices/${encodeURIComponent(req.params.id)}#config`)
+    res.end()
   }))
 
   router.get('/ui/devices/:id/live/status', wrap(getManager, async (manager, req, res) => {
@@ -642,7 +647,7 @@ function registerRoutes (router, getManager) {
   router.post('/ui/devices/:id/config', wrap(getManager, (manager, req, res) => {
     const result = saveDeviceConfigForm(manager, req.params.id, req.body || {})
     res.statusCode = 303
-    res.setHeader('location', `/plugins/yey-boats-display-manager/ui/devices/${encodeURIComponent(req.params.id)}/config?status=${encodeURIComponent(result.status)}`)
+    res.setHeader('location', `/plugins/yey-boats-display-manager/ui/devices/${encodeURIComponent(req.params.id)}?status=${encodeURIComponent(result.status)}#config`)
     res.end()
   }))
 
@@ -1365,7 +1370,10 @@ function renderPage (manager, dashboard, page, req) {
   // default/overview case and /ui/devices render the same merged view.
   if (page === 'devices') return renderHomePage(dashboard, dashboard.devices, req, manager)
   if (page === 'device') return renderDevicePage(manager, req.params.id)
-  if (page === 'deviceConfig') return renderDeviceConfigPage(manager, req.params.id)
+  // The standalone config page is merged into the device page's collapsed
+  // <details id="config"> section. The legacy 'deviceConfig' key now renders
+  // the same unified page (config section open) so old callers stay valid.
+  if (page === 'deviceConfig') return renderDevicePage(manager, req.params.id, {}, { openConfig: true })
   // Legacy /ui/discovery URL stays valid; it just renders the same
   // page as /ui/devices now. Old bookmarks keep working.
   if (page === 'discovery') return renderHomePage(dashboard, dashboard.devices, req, manager)
@@ -1474,7 +1482,7 @@ function registeredDeviceRow (device) {
         <span class="dev-name"><a href="${url}">${escapeHtml(device.name || device.id)}</a><span class="sub">${escapeHtml(device.id)}</span></span>
         <span class="dev-sum"><b>${escapeHtml(device.profile)}</b> · ${escapeHtml(dims)}${device.configDrift ? ' · <span class="status bad">drift</span>' : ''}${device.pendingCommands ? ` · ${escapeHtml(device.pendingCommands)} pending` : ''}</span>
         <span class="dev-act">
-          <a class="dev-tag" href="${url}/config" onclick="event.stopPropagation()">config</a>
+          <a class="dev-tag" href="${url}#config" onclick="event.stopPropagation()">config</a>
           <form method="post" action="${url}/delete"
                 onsubmit="return confirm('Remove this device? Pending commands are dropped.')">
             <button type="submit" class="btn-sm btn-danger">Remove</button>
@@ -1483,7 +1491,7 @@ function registeredDeviceRow (device) {
       </summary>
       <div class="dev-detail">
         ${detail}
-        <p style="margin:8px 0 0;"><a href="${url}">Open device</a> · <a href="${url}/config">Edit config</a></p>
+        <p style="margin:8px 0 0;"><a href="${url}">Open device</a> · <a href="${url}#config">Edit config</a></p>
       </div>
     </details>`
 }
@@ -1548,9 +1556,14 @@ function renderSignalKRegisterForm (managerUrl) {
       </form>`
 }
 
-function renderDevicePage (manager, id, live = {}) {
+function renderDevicePage (manager, id, live = {}, opts = {}) {
   const device = manager.getDevice(id)
   const config = manager.generateConfig(id)
+  const profilesList = manager.listProfiles().profiles
+  // Device's real switchable screens (heartbeat ui.screens) drive the config
+  // editors so the screen pickers only offer screens that actually exist.
+  let configViews = { views: [], current: null }
+  try { configViews = manager.deviceViews(id) || configViews } catch (e) { /* offline */ }
   const commands = manager.store.commands.commands
     .filter((command) => command.deviceId === id)
     .slice(-10)
@@ -1665,7 +1678,7 @@ function renderDevicePage (manager, id, live = {}) {
       <h2>${escapeHtml(device.name || device.id)}</h2>
       <p class="muted">${escapeHtml(device.id)} · ${escapeHtml(device.role)} · ${escapeHtml(device.location || 'unassigned')}</p>
       <p>
-        <a href="/plugins/yey-boats-display-manager/ui/devices/${encodeURIComponent(id)}/config">Open generated config</a>
+        <a href="#config">Configuration</a>
         · <a href="/plugins/yey-boats-display-manager/ui/devices/${encodeURIComponent(id)}/live/status">Live status</a>
         · <a href="/plugins/yey-boats-display-manager/ui/devices/${encodeURIComponent(id)}/live/logs">Live logs</a>
       </p>
@@ -1690,11 +1703,11 @@ function renderDevicePage (manager, id, live = {}) {
               <input type="hidden" name="edits" id="lp-f-edits">
               <input type="hidden" name="mode" id="lp-f-mode" value="update">
               <div class="lp-actions">
-                <button type="button" class="primary" data-mode="switch" title="Show the selected screen on the device now">Show on device</button>
-                <button type="button" data-mode="update" title="Save edits to the assigned view + reload the device">Save to view</button>
+                <button type="button" class="primary btn-sm" data-mode="switch" title="Show the selected screen on the device now">Show on device</button>
+                <button type="button" class="btn-sm" data-mode="update" title="Save edits to the assigned view + reload the device">Save to view</button>
                 <span class="lp-create">
                   <input type="text" name="profileName" id="lp-f-name" placeholder="new view name">
-                  <button type="button" data-mode="create" title="Save the edited layout as a new view">Save as new</button>
+                  <button type="button" class="btn-sm" data-mode="create" title="Save the edited layout as a new view">Save as new</button>
                 </span>
               </div>
             </form>
@@ -1707,10 +1720,10 @@ function renderDevicePage (manager, id, live = {}) {
       </div>
       <form class="config-form lp-assign" method="post"
             action="/plugins/yey-boats-display-manager/ui/devices/${encodeURIComponent(id)}/switch-view">
-        <label for="switch-view-profile">Assigned profile</label>
-        <div class="actions">
+        <div class="lp-assign-row">
+          <label for="switch-view-profile">Assigned profile</label>
           <select id="switch-view-profile" name="profileId">${profileOptions}</select>
-          <button type="submit">Assign + reload</button>
+          <button type="submit" class="btn-sm">Assign + reload</button>
         </div>
       </form>
       <style>
@@ -1757,16 +1770,21 @@ function renderDevicePage (manager, id, live = {}) {
         .lp-empty{color:#6f97ba;font-size:13px;text-align:center;line-height:1.5}
         .lp-edit-path{width:100%;margin-top:8px;font-size:11px;background:#0a1420;color:#cfe0f0;border:1px solid #2a4156;border-radius:5px;padding:4px 5px}
         .lp-edit-path:focus{outline:none;border-color:#36d399}
-        .lp-actions{display:flex;gap:8px;align-items:stretch;flex-direction:column}
-        .lp-actions button{border-radius:7px;padding:9px 13px;border:1px solid #2a4156;background:#13283a;color:#dbe9f6;cursor:pointer;font-size:13px}
+        /* Compact control group: tight, wrapping row of small buttons. */
+        .lp-actions{display:flex;gap:6px;align-items:center;flex-wrap:wrap}
+        .lp-actions button{border-radius:6px;padding:4px 9px;border:1px solid #2a4156;background:#13283a;color:#dbe9f6;cursor:pointer;font-size:12px;min-height:28px;line-height:1}
         .lp-actions button:hover{border-color:#3a607e;background:#173248}
         .lp-actions button.primary{background:#1f8f5f;border-color:#27a86e;color:#eafff5;font-weight:600}
         .lp-actions button.primary:hover{background:#27a86e}
-        .lp-create{display:flex;gap:6px;align-items:center}
-        .lp-create input{flex:1;background:#0a1420;color:#eaf2fb;border:1px solid #2a4156;border-radius:6px;padding:8px;font-size:12px;min-width:0}
+        .lp-create{display:inline-flex;gap:5px;align-items:center}
+        .lp-create input{flex:0 1 130px;background:#0a1420;color:#eaf2fb;border:1px solid #2a4156;border-radius:6px;padding:5px 7px;font-size:12px;min-width:0;min-height:28px}
         .lp-note{font-size:12px;line-height:1.5;margin:2px 0 0}
         .lp-assign{margin-bottom:18px}
-        .lp-assign label{font-size:12px;color:#8fb8da}
+        /* Compact one-line assign control. */
+        .lp-assign .lp-assign-row{display:flex;align-items:center;gap:8px;flex-wrap:wrap}
+        .lp-assign label{font-size:12px;color:#8fb8da;margin:0;white-space:nowrap}
+        .lp-assign select{width:auto;min-width:160px;margin:0}
+        .lp-assign button{margin:0}
       </style>
       <script>window.__yeyboatsPreview=${previewJson};window.__yeyboatsDeviceId=${JSON.stringify(id)};</script>
       <script src="/yey-boats-display-manager/device-hud.js"></script>
@@ -1790,7 +1808,57 @@ function renderDevicePage (manager, id, live = {}) {
       ${otaSection}
       <h2>Firmware jobs</h2>
       ${firmwareJobTable(jobs)}
+      ${renderDeviceConfigDetails(device, config, profilesList, configViews, opts.openConfig)}
     </section>`
+}
+
+// The former standalone config page, now a COLLAPSED section embedded on the
+// device detail page. <details id="config"> is closed by default; it opens
+// when the page is navigated to with #config (anchor) — old /config links and
+// the device-list "config" tag both point at #config — or when rendered with
+// opts.openConfig (the legacy deviceConfig route). renderDeviceConfigForm (flat
+// settings + the consolidated widget/path editor + screen/tile editor, all in
+// one form) and the read-only renderDeviceConfigWidget preview live here so the
+// PATHS and FIELDS are editable on the same screen as everything else.
+function renderDeviceConfigDetails (device, config, profiles, views, open) {
+  const id = device.id
+  return `
+      <details class="dev-config" id="config"${open ? ' open' : ''}>
+        <summary><span class="dev-config-title">Configuration</span><span class="muted dev-config-hint"> — paths, fields, screens &amp; device settings</span></summary>
+        <div class="dev-config-body">
+          <p class="muted">
+            Operator config for ${escapeHtml(id)}. The device pull endpoint still
+            requires <code>X-YeyBoats-Authorization</code>.
+          </p>
+          ${renderDeviceConfigForm(device, config, profiles, views)}
+          ${renderDeviceConfigWidget(config, views)}
+        </div>
+      </details>
+      <style>
+        .dev-config{background:white;border:1px solid #d9e0e3;border-radius:6px;margin-top:8px}
+        .dev-config>summary{cursor:pointer;padding:12px 14px;font-size:16px;list-style:none;display:flex;align-items:baseline;gap:6px}
+        .dev-config>summary::-webkit-details-marker{display:none}
+        .dev-config>summary::before{content:"\\25B8";color:#8aa0aa;font-size:12px}
+        .dev-config[open]>summary::before{content:"\\25BE"}
+        .dev-config[open]>summary{border-bottom:1px solid #e5eaed}
+        .dev-config-title{font-weight:700;color:#172026}
+        .dev-config-body{padding:14px}
+        .dev-config-body .config-form{margin-bottom:14px}
+      </style>
+      <script>
+        // Open the config section when the page is anchored at #config so old
+        // /config bookmarks (now redirected to .../#config) land with it open.
+        (function () {
+          function openIfHash () {
+            if (location.hash === '#config') {
+              var d = document.getElementById('config')
+              if (d) { d.open = true; d.scrollIntoView() }
+            }
+          }
+          openIfHash()
+          window.addEventListener('hashchange', openIfHash)
+        })()
+      </script>`
 }
 
 // Per-device "Update Firmware" control. Reuses the EXISTING OTA mechanism: the
@@ -1798,10 +1866,20 @@ function renderDevicePage (manager, id, live = {}) {
 // the device pulls + self-flashes the artifact. A connection pre-flight
 // (manager.validateOtaTarget — same online predicate as the device table)
 // renders a checklist and disables the OTA submit when an OTA can't succeed.
-// The serial path just links to the in-browser Flash tool (flash.html).
+// The serial/USB path is embedded inline (esp-web-tools vendored same-origin),
+// no longer a link out to flash.html. It pre-selects the firmware artifact that
+// matches THIS device's board + resolution using GET /firmware/targets +
+// /firmware/catalog, then drives the vendored <esp-web-install-button> against
+// /firmware/manifest/:id (which streams the same-origin /binary). Flashing stays
+// browser-local Web Serial.
 function renderDeviceFirmwareSection (manager, device) {
   const id = device.id
   const v = manager.validateOtaTarget(id)
+  // This device's board + display, used to pre-select the matching artifact in
+  // the inline USB flasher. resolution string matches firmwareTargets() format.
+  const disp = (typeof manager.resolveDisplay === 'function' ? manager.resolveDisplay(device) : device.display) || {}
+  const deviceBoard = device.board || (device.firmware && device.firmware.board) || ''
+  const deviceResolution = (disp.width && disp.height) ? `${disp.width}×${disp.height}` : ''
   const artifacts = (manager.store.firmware.artifacts || [])
     .slice()
     .sort((a, b) => String((b.firmware && b.firmware.version) || b.version || '')
@@ -1849,12 +1927,39 @@ function renderDeviceFirmwareSection (manager, device) {
           ${ready ? '' : '<p class="muted">Device offline or no artifact — resolve the checklist above before OTA.</p>'}
         </div>
         <div id="${serialId}" style="display:none;">
-          <p><a href="/yey-boats-display-manager/flash.html" target="_blank" rel="noopener">Flash via USB →</a></p>
-          <p class="muted">Plug the device into this computer; flashing runs in your browser.</p>
+          <p class="muted" style="margin-top:0;">
+            Plug this device into your computer over USB; flashing runs entirely
+            in your browser over Web Serial (nothing flows through the SignalK host).
+          </p>
+          <div id="fw-usb-insecure" class="muted" style="display:none;color:#8a5a18;">
+            USB flashing needs a secure context — open this page via
+            <code>http://localhost</code> (SSH tunnel) or HTTPS on the computer
+            the device is plugged into. Or use
+            <a href="/yey-boats-display-manager/flash.html" target="_blank" rel="noopener">the full Flash tool</a>.
+          </div>
+          <label class="fw-ctl" style="display:block;margin-bottom:8px;">USB firmware build
+            <select id="fw-usb-artifact" style="margin-left:6px;min-width:260px;">
+              <option value="">Loading catalog…</option>
+            </select>
+          </label>
+          <p id="fw-usb-status" class="muted" style="margin:4px 0 10px;"></p>
+          <div class="actions">
+            <esp-web-install-button id="fw-usb-btn">
+              <button slot="activate" type="button">Connect &amp; flash via USB</button>
+              <span slot="unsupported">Web Serial unsupported — use Chrome/Edge over HTTPS or localhost.</span>
+              <span slot="not-allowed">Serial access was not granted.</span>
+            </esp-web-install-button>
+          </div>
+          <p class="muted" style="margin-top:8px;">
+            Need provisioning or device-detection too?
+            <a href="/yey-boats-display-manager/flash.html" target="_blank" rel="noopener">Open the full Flash tool →</a>
+          </p>
         </div>
       </div>
+      <script type="module" src="/yey-boats-display-manager/vendor/install-button.js"></script>
       <script>
         (function () {
+          var BASE = '/plugins/yey-boats-display-manager'
           var sel = document.getElementById('${methodSel}')
           var ota = document.getElementById('${formId}')
           var serial = document.getElementById('${serialId}')
@@ -1863,8 +1968,108 @@ function renderDeviceFirmwareSection (manager, device) {
             var serialMode = sel.value === 'serial'
             ota.style.display = serialMode ? 'none' : ''
             serial.style.display = serialMode ? '' : 'none'
+            if (serialMode) initUsb()
           }
           sel.addEventListener('change', sync)
+
+          // ---- inline USB flasher (esp-web-tools, vendored same-origin) ----
+          var DEVICE_BOARD = ${JSON.stringify(deviceBoard)}
+          var DEVICE_RES = ${JSON.stringify(deviceResolution)}
+          var usbSel = document.getElementById('fw-usb-artifact')
+          var usbBtn = document.getElementById('fw-usb-btn')
+          var usbStatus = document.getElementById('fw-usb-status')
+          var usbInsecure = document.getElementById('fw-usb-insecure')
+          var usbInited = false
+          var targets = []
+          var artifacts = []
+
+          function artifactKind (a) { return (a && a.source && a.source.kind) || 'release' }
+          function artifactTarget (a) { return (a && a.compatibility && a.compatibility.releaseTarget) || null }
+          function metaFor (t) { return targets.find(function (x) { return x.target === t }) }
+          function artifactLabel (a) {
+            var ver = (a.firmware && a.firmware.version) || a.version || '?'
+            var t = artifactTarget(a)
+            var meta = metaFor(t)
+            var resTxt = meta && meta.resolution ? ' · ' + meta.resolution : ''
+            var tgtTxt = t ? ' · ' + t : ''
+            var prefix = 'v' + ver
+            if (artifactKind(a) === 'tip') prefix = 'TIP (v' + ver + ')'
+            else if (artifactKind(a) === 'prerelease') prefix = 'v' + ver + ' (prerelease)'
+            return prefix + tgtTxt + resTxt
+          }
+          // Does artifact a match THIS device's board / resolution?
+          function matchesDevice (a) {
+            var t = artifactTarget(a)
+            var meta = metaFor(t)
+            if (!meta) return false
+            if (DEVICE_BOARD && meta.board && meta.board === DEVICE_BOARD) return true
+            if (DEVICE_RES && meta.resolution && meta.resolution === DEVICE_RES) return true
+            return false
+          }
+          function applyManifest () {
+            if (!usbBtn) return
+            var id = usbSel.value
+            if (!id) { usbBtn.removeAttribute('manifest'); return }
+            usbBtn.manifest = BASE + '/firmware/manifest/' + encodeURIComponent(id)
+          }
+          function renderArtifacts () {
+            // RELEASES-style view: release + tip builds. Matching device builds
+            // float to the top so the right one is pre-selected.
+            var visible = artifacts.filter(function (a) {
+              var k = artifactKind(a)
+              return k === 'release' || k === 'tip'
+            })
+            visible.sort(function (a, b) {
+              var am = matchesDevice(a) ? 0 : 1
+              var bm = matchesDevice(b) ? 0 : 1
+              if (am !== bm) return am - bm
+              var at = artifactKind(a) === 'tip' ? 0 : 1
+              var bt = artifactKind(b) === 'tip' ? 0 : 1
+              return at - bt
+            })
+            usbSel.innerHTML = ''
+            if (!visible.length) {
+              usbSel.innerHTML = '<option value="">No firmware builds in catalog</option>'
+              usbStatus.textContent = 'Catalog is empty — upload or refresh firmware first.'
+              applyManifest()
+              return
+            }
+            var firstMatch = null
+            visible.forEach(function (a) {
+              var opt = document.createElement('option')
+              opt.value = a.artifactId
+              opt.textContent = artifactLabel(a) + (matchesDevice(a) ? '  ✓ this device' : '')
+              usbSel.appendChild(opt)
+              if (firstMatch == null && matchesDevice(a)) firstMatch = a.artifactId
+            })
+            if (firstMatch) usbSel.value = firstMatch
+            applyManifest()
+            usbStatus.textContent = firstMatch
+              ? 'Pre-selected the build matching this device (' + (DEVICE_BOARD || DEVICE_RES) + ').'
+              : 'No exact match for this device — pick a build manually.'
+          }
+          function gate () {
+            var ok = ('serial' in navigator) && window.isSecureContext
+            if (!ok) {
+              if (usbInsecure) usbInsecure.style.display = ''
+              if (usbBtn) usbBtn.style.display = 'none'
+            }
+            return ok
+          }
+          function initUsb () {
+            if (usbInited) return
+            usbInited = true
+            gate()
+            usbSel.addEventListener('change', applyManifest)
+            Promise.all([
+              fetch(BASE + '/firmware/targets', { credentials: 'include' }).then(function (r) { return r.ok ? r.json() : { targets: [] } }).catch(function () { return { targets: [] } }),
+              fetch(BASE + '/firmware/catalog', { credentials: 'include' }).then(function (r) { return r.ok ? r.json() : { artifacts: [] } }).catch(function () { return { artifacts: [] } })
+            ]).then(function (res) {
+              targets = (res[0] && res[0].targets) || []
+              artifacts = (res[1] && res[1].artifacts) || []
+              renderArtifacts()
+            })
+          }
           sync()
         })()
       </script>`
@@ -1872,6 +2077,7 @@ function renderDeviceFirmwareSection (manager, device) {
 
 function renderLiveStatusWidget (status, err) {
   if (err) return liveErrorWidget('Live status', err)
+  if (!status) return liveErrorWidget('Live status', { message: 'no live status fetched' })
   return `
     <section class="config-section">
       <h2>Live status</h2>
@@ -1888,6 +2094,7 @@ function renderLiveStatusWidget (status, err) {
 
 function renderLiveLogsWidget (logs, err) {
   if (err) return liveErrorWidget('Live logs', err)
+  if (!logs) return liveErrorWidget('Live logs', { message: 'no live logs fetched' })
   const entries = Array.isArray(logs.entries)
     ? logs.entries
     : Array.isArray(logs.logs)
@@ -2009,30 +2216,6 @@ function renderLiveErrorPage (manager, id, title, err) {
         </tbody>
       </table>
     </section>`)
-}
-
-function renderDeviceConfigPage (manager, id) {
-  const device = manager.getDevice(id)
-  const config = manager.generateConfig(id)
-  const profiles = manager.listProfiles().profiles
-  // The device self-reports its real switchable screens (heartbeat ui.screens);
-  // drive the default-screen picker and the Screens list from that instead of
-  // the manager's generated preset catalogue.
-  let views = { views: [], current: null }
-  try { views = manager.deviceViews(id) || views } catch (e) { /* offline: leave empty */ }
-  return `
-    <section class="panel">
-      <h2>${escapeHtml(device.name || device.id)} config</h2>
-      <p class="muted">
-        Operator preview for ${escapeHtml(device.id)}. The device pull endpoint
-        still requires <code>X-YeyBoats-Authorization</code>.
-      </p>
-      <p>
-        <a href="/plugins/yey-boats-display-manager/ui/devices/${encodeURIComponent(id)}">Back to device</a>
-      </p>
-      ${renderDeviceConfigForm(device, config, profiles, views)}
-      ${renderDeviceConfigWidget(config, views)}
-    </section>`
 }
 
 // Built-in screen ids the firmware renders as fullscreen HUDs (not tile grids).
@@ -2189,8 +2372,18 @@ function renderDeviceConfigForm (device, config, profiles, views) {
         ${field('Log level', select('logLevel', debug.logLevel || 'info', [['debug', 'Debug'], ['info', 'Info'], ['warn', 'Warn'], ['error', 'Error']]))}
         ${field('Touch mode', select('touchMode', debug.touchMode || 'irq', [['irq', 'IRQ'], ['poll', 'Poll'], ['disabled', 'Disabled']]))}
       </div>
-      ${renderWidgetEditor(widgetItems)}
-      ${renderLayoutEditor(layout)}
+      <fieldset class="paths-fields">
+        <legend>Paths &amp; fields</legend>
+        <p class="muted" style="margin:0 0 10px;">
+          Define each tile's widget type and <strong>SignalK path</strong> in
+          <em>Widgets</em>, then place those widgets into <strong>screens</strong>
+          and tiles below. Both are saved together when you save this form. For
+          the manifest-gated drag/drop editor, use the
+          <a href="/plugins/yey-boats-display-manager/ui/layout" target="_blank" rel="noopener">layout editor</a>.
+        </p>
+        ${renderWidgetEditor(widgetItems)}
+        ${renderLayoutEditor(layout)}
+      </fieldset>
       <fieldset>
         <legend>Save as preset</legend>
         <div class="form-grid">
@@ -3097,9 +3290,11 @@ module.exports._test = {
   renderUi,
   importDashboardPreset,
   applyPresetForm,
-  configOverridesFromForm
+  configOverridesFromForm,
+  registerRoutes
 }
 
 module.exports.__renderHomePage = renderHomePage
 module.exports.__nav = nav
 module.exports.__renderSettingsPage = renderSettingsPage
+module.exports.__renderDevicePage = renderDevicePage
