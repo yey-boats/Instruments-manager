@@ -1073,7 +1073,8 @@ function registerRoutes (router, getManager) {
       res.end()
       return
     }
-    res.json(imported)
+    const midlValidation = require('./lib/midl').validateV2AsMidl(imported.config)
+    res.json(Object.assign({}, imported, { midlValidation }))
   }))
 
   router.post('/profiles', wrap(getManager, (manager, req, res) => {
