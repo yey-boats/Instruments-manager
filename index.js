@@ -2650,6 +2650,69 @@ function applyPresetForm (manager, profileId, body) {
   return { status: checkboxValue(body.sendReload) ? 'applied-and-sent' : 'applied', count: deviceIds.length }
 }
 
+// Per-unit-class number formatting, mirroring the firmware's `ui.format` shape
+// (one `{ decimals, si_prefix }` object per physical-quantity class). `decimals`
+// is clamped to 0..4; `si_prefix` scales magnitudes >= 1000 to k/M/G. The
+// defaults here MUST match the firmware defaults so an unconfigured device and
+// the editor agree. Order is the editor's row order.
+const FORMAT_UNIT_CLASSES = [
+  { key: 'distance', label: 'Distance', decimals: 2, si_prefix: true },
+  { key: 'depth', label: 'Depth', decimals: 1, si_prefix: true },
+  { key: 'speed', label: 'Speed', decimals: 1, si_prefix: false },
+  { key: 'angle', label: 'Angle', decimals: 0, si_prefix: false },
+  { key: 'temperature', label: 'Temperature', decimals: 1, si_prefix: false },
+  { key: 'voltage', label: 'Voltage', decimals: 2, si_prefix: false },
+  { key: 'percent', label: 'Percent', decimals: 0, si_prefix: false }
+]
+
+const FORMAT_DECIMALS_MIN = 0
+const FORMAT_DECIMALS_MAX = 4
+
+function clampDecimals (value, fallback) {
+  const n = integerValue(value, fallback)
+  if (n == null) return fallback
+  if (n < FORMAT_DECIMALS_MIN) return FORMAT_DECIMALS_MIN
+  if (n > FORMAT_DECIMALS_MAX) return FORMAT_DECIMALS_MAX
+  return n
+}
+
+// Build the `format` object from the config form. Each unit class reads
+// `format_<class>_decimals` (clamped 0..4, defaulting to the firmware default)
+// and `format_<class>_si` (checkbox). Pure; safe to call with a partial body.
+function formatFromForm (body) {
+  const out = {}
+  for (const cls of FORMAT_UNIT_CLASSES) {
+    out[cls.key] = {
+      decimals: clampDecimals(body[`format_${cls.key}_decimals`], cls.decimals),
+      si_prefix: hasOwn(body, `format_${cls.key}_si`)
+        ? checkboxValue(body[`format_${cls.key}_si`])
+        : cls.si_prefix
+    }
+  }
+  return out
+}
+
+// Normalize a `format` object loaded from a stored/device config into the
+// canonical 7-class shape with clamped decimals + boolean si_prefix, filling
+// any missing class from the firmware default. Used to validate-on-load so the
+// editor always renders a legal form and round-trips cleanly. Pure.
+function normalizeFormat (format) {
+  const src = format && typeof format === 'object' ? format : {}
+  const out = {}
+  for (const cls of FORMAT_UNIT_CLASSES) {
+    const entry = src[cls.key] && typeof src[cls.key] === 'object' ? src[cls.key] : {}
+    out[cls.key] = {
+      decimals: clampDecimals(entry.decimals, cls.decimals),
+      si_prefix: typeof entry.si_prefix === 'boolean' ? entry.si_prefix : cls.si_prefix
+    }
+  }
+  return out
+}
+
+function hasOwn (obj, key) {
+  return obj != null && Object.prototype.hasOwnProperty.call(obj, key)
+}
+
 function configOverridesFromForm (body) {
   const widgets = widgetsFromForm(body)
   const layout = layoutFromForm(body)
@@ -2658,7 +2721,8 @@ function configOverridesFromForm (body) {
       defaultScreen: cleanString(body.defaultScreen) || 'dashboard',
       theme: cleanString(body.theme) || 'day',
       brightness: numberValue(body.brightness, 0.8),
-      demoMode: checkboxValue(body.demoMode)
+      demoMode: checkboxValue(body.demoMode),
+      format: formatFromForm(body)
     },
     nmea0183Wifi: {
       enabled: checkboxValue(body.nmeaEnabled),
@@ -2731,6 +2795,7 @@ function renderDeviceConfigForm (device, config, profiles, views) {
         ${field('Log level', select('logLevel', debug.logLevel || 'info', [['debug', 'Debug'], ['info', 'Info'], ['warn', 'Warn'], ['error', 'Error']]))}
         ${field('Touch mode', select('touchMode', debug.touchMode || 'irq', [['irq', 'IRQ'], ['poll', 'Poll'], ['disabled', 'Disabled']]))}
       </div>
+      ${renderFormatEditor(settings.format)}
       <fieldset class="paths-fields">
         <legend>Paths &amp; fields</legend>
         <p class="muted" style="margin:0 0 10px;">
@@ -2757,6 +2822,37 @@ function renderDeviceConfigForm (device, config, profiles, views) {
         <button type="submit" name="action" value="save-send-preset">Save preset and send</button>
       </div>
     </form>`
+}
+
+// Compact "Number formatting" section: one row per unit class with a decimals
+// number input (0..4) and a k/M scaling checkbox. Mirrors the firmware's
+// `ui.format`. Loaded values are normalized first so a partial/legacy stored
+// config still renders the full 7-class grid with sane defaults.
+function renderFormatEditor (format) {
+  const fmt = normalizeFormat(format)
+  const rows = FORMAT_UNIT_CLASSES.map((cls) => {
+    const entry = fmt[cls.key]
+    return `
+    <tr>
+      <td>${escapeHtml(cls.label)}</td>
+      <td>${input(`format_${cls.key}_decimals`, entry.decimals, 'number', String(FORMAT_DECIMALS_MIN), String(FORMAT_DECIMALS_MAX), '1')}</td>
+      <td><input type="checkbox" name="format_${cls.key}_si" value="1"${entry.si_prefix ? ' checked' : ''}></td>
+    </tr>`
+  }).join('')
+  return `
+      <fieldset class="format-fields">
+        <legend>Number formatting</legend>
+        <p class="muted" style="margin:0 0 10px;">
+          Per-unit-class display formatting pushed to the device.
+          <strong>Decimals</strong> is the fixed number of fractional digits
+          (0–4); <strong>k/M scaling</strong> abbreviates magnitudes ≥ 1000
+          (e.g. 1234.5 → 1.23k).
+        </p>
+        <table>
+          <thead><tr><th>Unit class</th><th>Decimals</th><th>k/M scaling</th></tr></thead>
+          <tbody>${rows}</tbody>
+        </table>
+      </fieldset>`
 }
 
 function widgetsFromForm (body) {
@@ -3650,6 +3746,9 @@ module.exports._test = {
   importDashboardPreset,
   applyPresetForm,
   configOverridesFromForm,
+  formatFromForm,
+  normalizeFormat,
+  FORMAT_UNIT_CLASSES,
   applyScreenEdits,
   registerRoutes
 }
