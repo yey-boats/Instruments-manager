@@ -19,6 +19,7 @@
     "check": "node -c index.js && node -c lib/manager.js && npm test",
     "load-test": "node tools/load-test.js",
     "midl:build": "npm --prefix midl/ts install --no-audit --no-fund && npm --prefix midl/ts run build",
+    "build:midl-bundle": "node tools/build-midl-bundle.js",
     "test": "node test/run.js",
     "test:playwright": "playwright test"
   },

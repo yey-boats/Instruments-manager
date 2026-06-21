@@ -856,6 +856,16 @@ function registerRoutes (router, getManager) {
     res.end(renderUiShell('Layout editor', body, dashboard, 'layout'))
   }))
 
+  // MIDL instruments demo: a self-contained page (public/instruments.html +
+  // instruments.js) that renders a library MIDL dashboard live against the
+  // SignalK feed via the shared @yey-boats/midl-web device bundle. It is served
+  // statically as part of the webapp; this is a convenience redirect to it.
+  router.get('/instruments', (req, res) => {
+    res.statusCode = 302
+    res.setHeader('location', '/yey-boats-display-manager/instruments.html')
+    res.end()
+  })
+
   router.get('/ui/profiles/:id', wrap(getManager, (manager, req, res) => {
     res.setHeader('content-type', 'text/html; charset=utf-8')
     res.end(renderUi(manager, 'preset', req))

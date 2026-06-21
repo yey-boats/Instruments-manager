@@ -1,0 +1,62 @@
+<!doctype html>
+<!-- SPDX-License-Identifier: PolyForm-Noncommercial-1.0.0 -->
+<!-- MIDL dashboard live demo. Served by the YEY Boats Display Manager SignalK
+     plugin at /yey-boats-display-manager/instruments.html. Renders a library
+     dashboard against the live SignalK delta stream via the shared, backend-free
+     @yey-boats/midl-web device bundle, falling back to bundled sample data. -->
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>MIDL Instruments — YEY Boats</title>
+    <style>
+      :root { color-scheme: dark; }
+      html, body { margin: 0; height: 100%; background: #06090d; color: #cdd7e0;
+        font: 14px/1.4 system-ui, -apple-system, Segoe UI, Roboto, sans-serif; }
+      .wrap { min-height: 100%; display: flex; flex-direction: column; align-items: center;
+        justify-content: center; gap: 18px; padding: 24px; box-sizing: border-box; }
+      h1 { margin: 0; font-size: 18px; font-weight: 600; letter-spacing: .02em; color: #e7eef5; }
+      .sub { margin: 0; color: #7f8c99; font-size: 13px; }
+      canvas { display: block; border-radius: 12px; box-shadow: 0 8px 40px rgba(0,0,0,.5);
+        background: #0a0e13; }
+      .bar { display: flex; align-items: center; gap: 10px; }
+      .pill { display: inline-flex; align-items: center; gap: 7px; padding: 5px 12px;
+        border-radius: 999px; font-size: 12px; font-weight: 600; letter-spacing: .03em;
+        background: #141b22; color: #93a1ad; border: 1px solid #1f2a33; }
+      .dot { width: 8px; height: 8px; border-radius: 50%; background: #93a1ad; }
+      .pill.live { color: #6ee7a8; border-color: #1d4d36; background: #0e1a14; }
+      .pill.live .dot { background: #34d399; box-shadow: 0 0 8px #34d399; }
+      .pill.sample { color: #f0c674; border-color: #4d3f1d; background: #1a160e; }
+      .pill.sample .dot { background: #facc15; }
+      select { background: #141b22; color: #cdd7e0; border: 1px solid #1f2a33;
+        border-radius: 8px; padding: 5px 10px; font: inherit; }
+      a { color: #6ea8ff; }
+      .foot { color: #5a6670; font-size: 12px; }
+    </style>
+  </head>
+  <body>
+    <div class="wrap">
+      <div style="text-align:center">
+        <h1>MIDL Instruments</h1>
+        <p class="sub">Live SignalK dashboard rendered by the shared <code>@yey-boats/midl-web</code> device bundle.</p>
+      </div>
+
+      <div class="bar">
+        <label>Dashboard
+          <select id="dash">
+            <option value="wind-steering" selected>Wind &amp; Steering</option>
+            <option value="navigation">Navigation</option>
+          </select>
+        </label>
+        <span id="status" class="pill"><span class="dot"></span><span id="statusText">connecting…</span></span>
+      </div>
+
+      <canvas id="cv" width="480" height="480"></canvas>
+
+      <p class="foot"><a href="./index.html">← Display Manager</a></p>
+    </div>
+
+    <script src="./midl-device.global.js"></script>
+    <script src="./instruments.js"></script>
+  </body>
+</html>
