@@ -1192,10 +1192,30 @@ function registerRoutes (router, getManager) {
     res.json(manager.firmwareTargets())
   }))
 
-  router.get('/firmware/download/:jobId', wrap(getManager, (manager, req, res) => {
+  router.get('/firmware/download/:jobId', wrap(getManager, async (manager, req, res) => {
     const info = manager.firmwareDownloadInfo(req.params.jobId)
+    // The device pulls this over plain LAN HTTP; authorize with the same
+    // device token it uses for /commands (scoped to this job's device).
+    manager.requireDeviceAuth(info.job.deviceId, authFrom(req))
     const file = info.artifact && info.artifact.file ? info.artifact.file : {}
     if (!file.path) {
+      // No local copy (GitHub-release artifact): the manager (host) fetches
+      // the asset over HTTPS, following redirects, and streams it to the
+      // device over HTTP — so the heap-constrained device never does TLS.
+      if (file.url) {
+        const upstream = await fetch(file.url, { redirect: 'follow' })
+        if (!upstream.ok) {
+          res.status(502).json({ error: { code: 'upstream_fetch_failed', message: `upstream GET ${upstream.status}` } })
+          return
+        }
+        const body = Buffer.from(await upstream.arrayBuffer())
+        res.setHeader('content-type', file.contentType || 'application/octet-stream')
+        res.setHeader('content-length', String(body.length))
+        res.setHeader('x-yeyboats-artifact-id', info.artifact.artifactId)
+        res.setHeader('x-yeyboats-sha256', file.sha256 || '')
+        res.end(body)
+        return
+      }
       res.json(info)
       return
     }
