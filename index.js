@@ -3,6 +3,7 @@ const path = require('path')
 const { YeyBoatsDisplayManager } = require('./lib/manager')
 const presets = require('./lib/screen-presets')
 const fieldSchema = require('./lib/field-schema')
+const midlAdapter = require('./lib/midl-adapter')
 const pluginPackage = require('./package.json')
 
 module.exports = function yeyBoatsDisplayManagerPlugin (app) {
@@ -567,6 +568,58 @@ function registerRoutes (router, getManager) {
       res.json({ ...layout, metaWriteBack })
     }))
 
+  // ---- MIDL editor JSON API (Slice 6: MidlEditor React component) ----------
+  // GET  /devices/:id/editor/midl  → v2 → MIDL doc for the MidlEditor store
+  // POST /devices/:id/editor/midl  → MIDL doc → v2 → mutateEditorLayout + reload
+
+  router.get('/devices/:id/editor/midl', wrap(getManager, (manager, req, res) => {
+    const layout = manager.editorLayout(req.params.id)
+    const v2 = {
+      widgets: { items: layout.items },
+      layout: { screens: layout.screens }
+    }
+    const midlDoc = midlAdapter.v2ToMidl(v2)
+    const device = manager.getDevice(req.params.id)
+    const revision = String(manager.configVersion(device))
+    res.json({ doc: JSON.stringify(midlDoc), revision })
+  }))
+
+  router.post('/devices/:id/editor/midl', wrap(getManager, (manager, req, res) => {
+    const body = req.body || {}
+    const doc = body.doc
+    if (!doc || typeof doc !== 'object') {
+      res.status(400).json({ error: { code: 'invalid_request', message: 'body.doc must be a MIDL document object' } })
+      return
+    }
+    // Optimistic concurrency: when the client sends expectedRevision (the
+    // revision it loaded via GET), reject if the device config has changed
+    // since — otherwise two concurrent editors silently clobber each other
+    // (last-write-wins). An absent expectedRevision is an explicit overwrite.
+    if (body.expectedRevision != null && body.expectedRevision !== '') {
+      const device = manager.getDevice(req.params.id)
+      const currentRevision = String(manager.configVersion(device))
+      if (String(body.expectedRevision) !== currentRevision) {
+        res.status(409).json({
+          error: {
+            code: 'revision_conflict',
+            message: 'device config changed since you loaded it; reload and retry',
+            currentRevision,
+          },
+        })
+        return
+      }
+    }
+    const v2 = midlAdapter.midlToV2(doc)
+    // mutateEditorLayout persists and calls queueConfigReload internally.
+    manager.mutateEditorLayout(req.params.id, (cfg) => {
+      cfg.widgets = v2.widgets
+      cfg.layout = cfg.layout || {}
+      cfg.layout.screens = v2.layout.screens
+    })
+    const device = manager.getDevice(req.params.id)
+    res.json({ ok: true, revision: String(manager.configVersion(device)) })
+  }))
+
   router.get('/discovery/devices', wrap(getManager, (manager, req, res) => {
     res.json(manager.listDiscoveredDevices())
   }))
@@ -855,6 +908,13 @@ function registerRoutes (router, getManager) {
       </section>`
     res.end(renderUiShell('Layout editor', body, dashboard, 'layout'))
   }))
+
+  // MIDL editor: canonical entry is the webapp static path so the page's
+  // relative bundle/script URLs (./midl-editor.global.js, ./midl-editor.js)
+  // resolve. Served under /ui/* the relative paths would 404, so redirect.
+  router.get('/ui/midl-editor', (req, res) => {
+    res.redirect(302, '/yey-boats-display-manager/midl-editor.html')
+  })
 
   router.get('/ui/profiles/:id', wrap(getManager, (manager, req, res) => {
     res.setHeader('content-type', 'text/html; charset=utf-8')
