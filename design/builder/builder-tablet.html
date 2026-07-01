@@ -1,0 +1,775 @@
+<!-- @dsCard group="Yey Boats Instruments — Manager" name="Builder — Large Tablet" subtitle="1024×768 single-viewport, tighter rails, no page scroll" viewport="1024x768" -->
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=1024">
+<title>Builder — Large Tablet · YEY Instruments Manager</title>
+<style>
+@import url('https://fonts.googleapis.com/css2?family=Montserrat:wght@400;500;600;700&family=JetBrains+Mono:wght@400;500&display=swap');
+:root {
+  --bg: #0a121c;
+  --surface: #0e1825;
+  --surface2: #0c1521;
+  --elev: #12202f;
+  --line: #1d2b3a;
+  --line2: #24364a;
+  --ink: #cbd6e2;
+  --ink-dim: #8aa0b4;
+  --ink-faint: #5b7286;
+  --ink-bright: #eef4fb;
+  --accent: #57c7d8;
+  --online: oklch(0.72 0.15 155);
+  --drift: oklch(0.80 0.13 75);
+}
+
+*, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+
+html, body {
+  width: 1024px;
+  height: 768px;
+  overflow: hidden;
+  background: var(--bg);
+  font-family: 'Montserrat', sans-serif;
+  color: var(--ink);
+  font-size: 12px;
+  line-height: 1.4;
+  -webkit-font-smoothing: antialiased;
+}
+
+/* ── SHELL: same structure as desktop, narrower rails ────── */
+.shell {
+  display: flex;
+  flex-direction: column;
+  width: 1024px;
+  height: 768px;
+  overflow: hidden;
+}
+
+/* ── TOP BAR ─────────────────────────────────────────────── */
+.topbar {
+  display: flex;
+  align-items: center;
+  height: 38px;
+  background: var(--surface2);
+  border-bottom: 1px solid var(--line);
+  padding: 0 10px;
+  gap: 0;
+  flex-shrink: 0;
+  position: relative;
+  z-index: 10;
+}
+.topbar-logo {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  margin-right: 12px;
+  flex-shrink: 0;
+}
+.logo-mark {
+  font-family: 'Montserrat', sans-serif;
+  font-weight: 700;
+  font-size: 12px;
+  color: var(--accent);
+  letter-spacing: 0.12em;
+  background: rgba(87,199,216,0.10);
+  border: 1px solid rgba(87,199,216,0.22);
+  border-radius: 4px;
+  padding: 2px 5px;
+}
+.logo-text {
+  font-size: 11px;
+  font-weight: 500;
+  color: var(--ink-dim);
+  white-space: nowrap;
+}
+.topbar-divider {
+  width: 1px; height: 18px;
+  background: var(--line2);
+  margin: 0 10px;
+  flex-shrink: 0;
+}
+.device-chip {
+  display: flex;
+  align-items: center;
+  gap: 5px;
+  background: var(--elev);
+  border: 1px solid var(--line2);
+  border-radius: 4px;
+  padding: 3px 7px;
+  flex-shrink: 0;
+}
+.device-chip-label {
+  font-family: 'JetBrains Mono', monospace;
+  font-size: 10px;
+  font-weight: 500;
+  color: var(--ink);
+  white-space: nowrap;
+}
+.mode-tabs {
+  display: flex;
+  align-items: center;
+  margin: 0 auto;
+  background: var(--elev);
+  border: 1px solid var(--line2);
+  border-radius: 5px;
+  padding: 2px;
+}
+.mode-tab {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  padding: 3px 12px;
+  font-size: 11px;
+  font-weight: 500;
+  color: var(--ink-faint);
+  border-radius: 3px;
+  white-space: nowrap;
+}
+.mode-tab.active { color: var(--ink-bright); background: var(--surface); }
+.topbar-actions {
+  display: flex;
+  align-items: center;
+  gap: 3px;
+  margin-left: 12px;
+  flex-shrink: 0;
+}
+.btn-ghost {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  padding: 4px 8px;
+  font-family: 'Montserrat', sans-serif;
+  font-size: 10.5px;
+  font-weight: 500;
+  color: var(--ink-dim);
+  background: transparent;
+  border: 1px solid var(--line2);
+  border-radius: 4px;
+  cursor: pointer;
+  white-space: nowrap;
+}
+.btn-primary {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  padding: 4px 10px;
+  font-family: 'Montserrat', sans-serif;
+  font-size: 10.5px;
+  font-weight: 600;
+  color: #0a121c;
+  background: var(--accent);
+  border: 1px solid var(--accent);
+  border-radius: 4px;
+  cursor: pointer;
+  white-space: nowrap;
+  margin-left: 3px;
+}
+
+/* ── BODY ────────────────────────────────────────────────── */
+/* Tighter rails than desktop: 180px / 200px */
+.body {
+  display: grid;
+  grid-template-columns: 180px 1fr 200px;
+  flex: 1;
+  overflow: hidden;
+}
+
+/* ── LEFT RAIL ───────────────────────────────────────────── */
+.left-rail {
+  background: var(--surface);
+  border-right: 1px solid var(--line);
+  display: flex;
+  flex-direction: column;
+  overflow: hidden;
+}
+.rail-tabs {
+  display: flex;
+  border-bottom: 1px solid var(--line);
+  flex-shrink: 0;
+}
+.rail-tab {
+  flex: 1;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  height: 32px;
+  font-size: 10.5px;
+  font-weight: 500;
+  color: var(--ink-faint);
+  border-bottom: 2px solid transparent;
+  letter-spacing: 0.02em;
+}
+.rail-tab.active { color: var(--ink); border-bottom-color: var(--accent); }
+.rail-section-label {
+  padding: 10px 10px 5px;
+  font-size: 8.5px;
+  font-weight: 600;
+  color: var(--ink-faint);
+  letter-spacing: 0.10em;
+  text-transform: uppercase;
+  flex-shrink: 0;
+}
+.palette-list {
+  flex: 1;
+  overflow-y: auto;
+  padding: 0 6px;
+  display: flex;
+  flex-direction: column;
+  gap: 3px;
+}
+.palette-list::-webkit-scrollbar { width: 2px; }
+.palette-list::-webkit-scrollbar-thumb { background: var(--line2); border-radius: 2px; }
+.palette-item {
+  display: flex;
+  align-items: center;
+  gap: 7px;
+  padding: 0 8px;
+  height: 32px;
+  background: var(--elev);
+  border: 1px solid var(--line);
+  border-left: 3px solid transparent;
+  border-radius: 5px;
+  flex-shrink: 0;
+}
+.palette-item.selected {
+  border-left-color: var(--accent);
+  background: rgba(87,199,216,0.08);
+  border-color: rgba(87,199,216,0.18);
+}
+.palette-icon {
+  width: 16px; height: 16px;
+  display: flex; align-items: center; justify-content: center;
+  flex-shrink: 0;
+  color: var(--ink-faint);
+}
+.palette-item.selected .palette-icon { color: var(--accent); }
+.palette-item-label {
+  font-size: 11px;
+  font-weight: 500;
+  color: var(--ink-dim);
+}
+.palette-item.selected .palette-item-label { color: var(--ink); }
+.rail-hint {
+  padding: 8px 10px 10px;
+  font-size: 9.5px;
+  color: var(--ink-faint);
+  text-align: center;
+  letter-spacing: 0.02em;
+  line-height: 1.5;
+  flex-shrink: 0;
+}
+
+/* ── CENTER CANVAS ───────────────────────────────────────── */
+.center-canvas {
+  background: var(--bg);
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  position: relative;
+  overflow: hidden;
+}
+.center-canvas::before {
+  content: '';
+  position: absolute;
+  inset: 0;
+  background-image: radial-gradient(circle, rgba(93,120,146,0.18) 1px, transparent 1px);
+  background-size: 20px 20px;
+  pointer-events: none;
+}
+.center-canvas::after {
+  content: '';
+  position: absolute;
+  inset: 0;
+  background: radial-gradient(ellipse 55% 55% at 50% 50%, transparent 30%, rgba(10,18,28,0.55) 100%);
+  pointer-events: none;
+}
+.canvas-label {
+  position: relative;
+  z-index: 2;
+  font-size: 10px;
+  font-weight: 500;
+  color: var(--ink-faint);
+  letter-spacing: 0.04em;
+  margin-bottom: 8px;
+}
+.device-frame {
+  position: relative;
+  z-index: 2;
+  width: 280px;
+  height: 280px;
+  background: var(--elev);
+  border: 1.5px solid var(--line2);
+  border-radius: 7px;
+  box-shadow:
+    0 0 0 1px rgba(0,0,0,0.5),
+    0 8px 28px rgba(0,0,0,0.55),
+    inset 0 1px 0 rgba(255,255,255,0.04);
+  overflow: hidden;
+}
+.device-grid {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  grid-template-rows: 1fr 1fr;
+  width: 100%;
+  height: 100%;
+}
+.device-cell {
+  position: relative;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  overflow: hidden;
+}
+.device-cell:nth-child(1),.device-cell:nth-child(2) { border-bottom: 1px solid var(--line); }
+.device-cell:nth-child(1),.device-cell:nth-child(3) { border-right: 1px solid var(--line); }
+.cell-sog { background: rgba(87,199,216,0.04); outline: 1.5px solid var(--accent); outline-offset: -1.5px; }
+.resize-handle {
+  position: absolute;
+  width: 6px; height: 6px;
+  background: var(--accent);
+  border: 1px solid rgba(10,18,28,0.6);
+  border-radius: 1px;
+  z-index: 5;
+}
+.resize-handle.tl{top:-1px;left:-1px} .resize-handle.tr{top:-1px;right:-1px}
+.resize-handle.bl{bottom:-1px;left:-1px} .resize-handle.br{bottom:-1px;right:-1px}
+.sog-label{font-size:8px;font-weight:600;color:var(--ink-faint);letter-spacing:0.12em;text-transform:uppercase;margin-bottom:1px}
+.sog-value{font-size:34px;font-weight:700;color:var(--ink-bright);line-height:1;letter-spacing:-0.02em}
+.sog-unit{font-size:10px;font-weight:500;color:var(--accent);letter-spacing:0.06em;margin-top:2px}
+.cell-drop{background:transparent}
+.drop-zone-inner{
+  border:1.5px dashed var(--line2);border-radius:5px;
+  width:calc(100% - 14px);height:calc(100% - 14px);
+  display:flex;align-items:center;justify-content:center;flex-direction:column;gap:4px
+}
+.drop-text{font-size:9px;font-weight:500;color:var(--ink-faint);letter-spacing:0.04em}
+.cell-compass{background:rgba(18,32,47,0.5)}
+.compass-label{font-size:8px;font-weight:600;color:var(--ink-faint);letter-spacing:0.12em;text-transform:uppercase;margin-top:4px}
+.cell-awa{background:rgba(18,32,47,0.3)}
+.awa-label{font-size:8px;font-weight:600;color:var(--ink-faint);letter-spacing:0.12em;text-transform:uppercase;margin-bottom:1px}
+.awa-value{font-size:28px;font-weight:700;color:var(--ink);line-height:1;letter-spacing:-0.02em}
+.awa-unit{font-size:9px;font-weight:500;color:var(--drift);letter-spacing:0.04em;margin-top:2px}
+
+/* Zoom strip */
+.zoom-strip {
+  position: relative;
+  z-index: 3;
+  display: flex;
+  align-items: center;
+  gap: 2px;
+  margin-top: 10px;
+  background: var(--surface2);
+  border: 1px solid var(--line2);
+  border-radius: 5px;
+  padding: 2px 3px;
+}
+.zoom-btn {
+  width: 22px; height: 22px;
+  display: flex; align-items: center; justify-content: center;
+  font-size: 12px;
+  color: var(--ink-dim);
+  background: transparent;
+  border: none;
+  border-radius: 3px;
+  cursor: pointer;
+  font-family: 'Montserrat', sans-serif;
+}
+.zoom-pct {
+  font-family: 'JetBrains Mono', monospace;
+  font-size: 10.5px;
+  font-weight: 500;
+  color: var(--ink);
+  min-width: 34px;
+  text-align: center;
+}
+.zoom-sep { width:1px;height:12px;background:var(--line2);margin:0 2px; }
+.zoom-fit {
+  padding: 2px 7px;
+  font-size: 10px;
+  font-weight: 500;
+  color: var(--ink-dim);
+  font-family: 'Montserrat', sans-serif;
+  background: transparent;
+  border: none;
+  border-radius: 3px;
+  cursor: pointer;
+}
+
+/* ── RIGHT INSPECTOR ─────────────────────────────────────── */
+.right-inspector {
+  background: var(--surface);
+  border-left: 1px solid var(--line);
+  display: flex;
+  flex-direction: column;
+  overflow: hidden;
+}
+.inspector-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 8px 10px;
+  border-bottom: 1px solid var(--line);
+  flex-shrink: 0;
+}
+.inspector-title { font-size:11px;font-weight:600;color:var(--ink-bright);letter-spacing:0.02em; }
+.inspector-badge {
+  font-size:9px;font-weight:600;color:var(--accent);
+  background:rgba(87,199,216,0.10);border:1px solid rgba(87,199,216,0.18);
+  border-radius:3px;padding:1px 6px;
+}
+.inspector-body { flex:1;overflow-y:auto; }
+.inspector-body::-webkit-scrollbar { width:2px; }
+.inspector-body::-webkit-scrollbar-thumb { background:var(--line2);border-radius:2px; }
+.insp-section { border-bottom:1px solid var(--line); }
+.insp-section-header {
+  display:flex;align-items:center;justify-content:space-between;
+  padding:7px 10px 5px;
+}
+.insp-section-title {
+  font-size:8.5px;font-weight:600;color:var(--ink-faint);
+  letter-spacing:0.09em;text-transform:uppercase;
+}
+.insp-section-body { padding:3px 10px 8px;display:flex;flex-direction:column;gap:6px; }
+.insp-row { display:flex;flex-direction:column;gap:2px; }
+.insp-row-label { font-size:9.5px;font-weight:500;color:var(--ink-faint); }
+.insp-row-value { font-family:'JetBrains Mono',monospace;font-size:10px;color:var(--accent);word-break:break-all; }
+.insp-live { display:flex;align-items:center;gap:5px;margin-top:2px; }
+.live-dot {
+  width:5px;height:5px;border-radius:50%;background:var(--online);
+  box-shadow:0 0 4px var(--online);animation:pulse 2s ease-in-out infinite;
+}
+@keyframes pulse{0%,100%{opacity:1}50%{opacity:0.5}}
+.live-value { font-family:'JetBrains Mono',monospace;font-size:10px;font-weight:500;color:var(--online); }
+.insp-inline-row { display:flex;align-items:center;gap:5px; }
+.insp-inline-label { font-size:9.5px;color:var(--ink-faint);min-width:48px; }
+.insp-input {
+  background:var(--elev);border:1px solid var(--line2);border-radius:3px;
+  padding:3px 6px;font-family:'Montserrat',sans-serif;font-size:10px;
+  font-weight:500;color:var(--ink);width:100%;
+}
+.toggle-row { display:flex;align-items:center;justify-content:space-between; }
+.toggle-label { font-size:10px;color:var(--ink-dim); }
+.toggle {
+  width:28px;height:15px;background:var(--elev);border:1px solid var(--line2);
+  border-radius:8px;position:relative;flex-shrink:0;
+}
+.toggle.on { background:var(--accent);border-color:var(--accent); }
+.toggle::after {
+  content:'';position:absolute;top:2px;left:2px;width:9px;height:9px;
+  background:#fff;border-radius:50%;transition:transform 0.2s;
+}
+.toggle.on::after { transform:translateX(13px); }
+.color-row { display:flex;align-items:center;gap:7px; }
+.color-chip {
+  width:17px;height:17px;border-radius:50%;background:var(--accent);
+  border:2px solid rgba(87,199,216,0.35);flex-shrink:0;
+}
+.color-chip-label { font-size:10px;color:var(--ink-dim); }
+.mini-grid { display:grid;grid-template-columns:1fr 1fr;grid-template-rows:1fr 1fr;gap:2px;width:24px;height:24px; }
+.mini-cell { background:var(--elev);border-radius:2px;border:1px solid var(--line2); }
+.mini-cell.active { background:var(--accent);border-color:var(--accent); }
+.span-control { display:flex;align-items:center;gap:8px; }
+.span-label-val { font-size:10px;font-weight:500;color:var(--ink); }
+
+/* ── BOTTOM STATUS BAR ───────────────────────────────────── */
+.statusbar {
+  display:flex;align-items:center;height:28px;
+  background:var(--surface2);border-top:1px solid var(--line);
+  padding:0 10px;gap:7px;flex-shrink:0;
+}
+.status-valid { display:flex;align-items:center;gap:4px; }
+.status-check { width:12px;height:12px;color:var(--online);flex-shrink:0; }
+.status-valid-text { font-size:10px;font-weight:500;color:var(--ink-dim);white-space:nowrap; }
+.status-sep { width:1px;height:14px;background:var(--line2);flex-shrink:0; }
+.status-pills { display:flex;align-items:center;gap:4px; }
+.status-pill {
+  display:flex;align-items:center;gap:3px;font-size:9.5px;font-weight:500;
+  color:var(--online);background:rgba(87,199,216,0.06);border:1px solid rgba(87,199,216,0.13);
+  border-radius:3px;padding:1px 6px;white-space:nowrap;
+}
+.status-spacer { flex:1; }
+.status-autosave { font-size:10px;color:var(--ink-faint);white-space:nowrap; }
+
+/* ── ANNOTATION CALLOUTS ─────────────────────────────────── */
+.ann-callout {
+  position: absolute;
+  background: rgba(10,18,28,0.92);
+  border: 1px solid rgba(87,199,216,0.5);
+  color: var(--accent);
+  font-size: 8.5px;
+  font-weight: 600;
+  letter-spacing: 0.07em;
+  text-transform: uppercase;
+  padding: 2px 8px;
+  border-radius: 3px;
+  white-space: nowrap;
+  pointer-events: none;
+  z-index: 50;
+}
+.ann-dim {
+  position: absolute;
+  background: rgba(10,18,28,0.88);
+  border: 1px solid rgba(87,199,216,0.20);
+  color: var(--ink-dim);
+  font-size: 8.5px;
+  font-weight: 500;
+  padding: 3px 8px;
+  border-radius: 3px;
+  pointer-events: none;
+  z-index: 50;
+  line-height: 1.5;
+}
+</style>
+</head>
+<body>
+<div class="shell">
+
+<!-- TOP BAR -->
+<div class="topbar" style="position:relative;">
+  <div class="topbar-logo">
+    <span class="logo-mark">YEY</span>
+    <span class="logo-text">Instruments Manager</span>
+  </div>
+  <div class="topbar-divider"></div>
+  <div class="device-chip">
+    <svg width="13" height="13" viewBox="0 0 14 14" fill="none"><rect x="1.5" y="1.5" width="11" height="11" rx="2" stroke="var(--ink-faint)" stroke-width="1.2"/><rect x="4" y="4" width="6" height="6" rx="1" fill="var(--ink-faint)" opacity="0.4"/></svg>
+    <span class="device-chip-label">esp32-4848s040 · square-480</span>
+    <svg width="9" height="9" viewBox="0 0 10 10" fill="none"><path d="M2.5 3.5L5 6.5L7.5 3.5" stroke="var(--ink-faint)" stroke-width="1.3" stroke-linecap="round" stroke-linejoin="round"/></svg>
+  </div>
+  <div class="mode-tabs">
+    <div class="mode-tab active">
+      <svg width="11" height="11" viewBox="0 0 12 12" fill="none"><rect x="1" y="1" width="4.5" height="4.5" rx="1" fill="currentColor" opacity="0.9"/><rect x="6.5" y="1" width="4.5" height="4.5" rx="1" fill="currentColor" opacity="0.4"/><rect x="1" y="6.5" width="4.5" height="4.5" rx="1" fill="currentColor" opacity="0.4"/><rect x="6.5" y="6.5" width="4.5" height="4.5" rx="1" fill="currentColor" opacity="0.4"/></svg>
+      Visual
+    </div>
+    <div class="mode-tab">
+      <svg width="11" height="11" viewBox="0 0 12 12" fill="none"><path d="M1.5 3.5L4.5 6L1.5 8.5" stroke="currentColor" stroke-width="1.3" stroke-linecap="round" stroke-linejoin="round"/><path d="M5.5 8.5H10.5" stroke="currentColor" stroke-width="1.3" stroke-linecap="round"/></svg>
+      Source
+    </div>
+  </div>
+  <div class="topbar-actions">
+    <button class="btn-ghost">
+      <svg width="10" height="10" viewBox="0 0 11 11" fill="none"><path d="M5.5 1V8M5.5 8L2.5 5M5.5 8L8.5 5" stroke="currentColor" stroke-width="1.3" stroke-linecap="round" stroke-linejoin="round"/><path d="M1 9.5H10" stroke="currentColor" stroke-width="1.3" stroke-linecap="round"/></svg>
+      Import
+    </button>
+    <button class="btn-ghost">
+      <svg width="10" height="10" viewBox="0 0 11 11" fill="none"><path d="M2 2H7.5L9.5 4V9H2V2Z" stroke="currentColor" stroke-width="1.3" stroke-linejoin="round"/></svg>
+      Save
+    </button>
+    <button class="btn-primary">
+      <svg width="10" height="10" viewBox="0 0 11 11" fill="none"><path d="M1.5 5.5H8.5M8.5 5.5L5.5 2.5M8.5 5.5L5.5 8.5" stroke="currentColor" stroke-width="1.4" stroke-linecap="round" stroke-linejoin="round"/></svg>
+      Push to device
+    </button>
+  </div>
+</div>
+
+<!-- BODY: 3-col grid, tighter rails -->
+<div class="body" style="position:relative;">
+
+  <!-- LEFT RAIL (180px vs 216px on desktop) -->
+  <div class="left-rail" style="position:relative;">
+    <div class="rail-tabs">
+      <div class="rail-tab active">Elements</div>
+      <div class="rail-tab">Data</div>
+    </div>
+    <div class="rail-section-label">Tile Types</div>
+    <div class="palette-list">
+      <div class="palette-item selected">
+        <div class="palette-icon"><svg width="14" height="14" viewBox="0 0 16 16" fill="none"><rect x="1.5" y="4.5" width="13" height="7" rx="1.5" stroke="currentColor" stroke-width="1.2"/><circle cx="8" cy="8" r="1.5" fill="currentColor"/></svg></div>
+        <span class="palette-item-label">Single Value</span>
+      </div>
+      <div class="palette-item">
+        <div class="palette-icon"><svg width="14" height="14" viewBox="0 0 16 16" fill="none"><circle cx="8" cy="8" r="6" stroke="currentColor" stroke-width="1.2"/><path d="M8 3V5M8 11V13M3 8H5M11 8H13" stroke="currentColor" stroke-width="1" stroke-linecap="round" opacity="0.6"/><path d="M8 3L9.5 6.5L8 8L6.5 6.5Z" fill="currentColor" opacity="0.8"/></svg></div>
+        <span class="palette-item-label">Compass</span>
+      </div>
+      <div class="palette-item">
+        <div class="palette-icon"><svg width="14" height="14" viewBox="0 0 16 16" fill="none"><circle cx="8" cy="8" r="5.5" stroke="currentColor" stroke-width="1.2"/><path d="M8 2.5L9.2 7.5L8 8.8L6.8 7.5Z" fill="currentColor"/><path d="M8 13.5L9.2 8.5L8 7.2L6.8 8.5Z" fill="currentColor" opacity="0.35"/></svg></div>
+        <span class="palette-item-label">Windrose</span>
+      </div>
+      <div class="palette-item">
+        <div class="palette-icon"><svg width="14" height="14" viewBox="0 0 16 16" fill="none"><path d="M2.5 12C2.5 7.86 5.36 4.5 8 4.5C10.64 4.5 13.5 7.86 13.5 12" stroke="currentColor" stroke-width="1.2" stroke-linecap="round"/><path d="M8 12L11 7" stroke="currentColor" stroke-width="1.5" stroke-linecap="round"/><circle cx="8" cy="12" r="1.2" fill="currentColor"/></svg></div>
+        <span class="palette-item-label">Gauge / Bar</span>
+      </div>
+      <div class="palette-item">
+        <div class="palette-icon"><svg width="14" height="14" viewBox="0 0 16 16" fill="none"><path d="M1.5 11L5 7.5L7.5 9.5L11 5L14.5 6" stroke="currentColor" stroke-width="1.3" stroke-linecap="round" stroke-linejoin="round"/></svg></div>
+        <span class="palette-item-label">Trend</span>
+      </div>
+      <div class="palette-item">
+        <div class="palette-icon"><svg width="14" height="14" viewBox="0 0 16 16" fill="none"><circle cx="8" cy="8" r="5.5" stroke="currentColor" stroke-width="1.2"/><circle cx="8" cy="8" r="2" stroke="currentColor" stroke-width="1.2"/></svg></div>
+        <span class="palette-item-label">Autopilot</span>
+      </div>
+      <div class="palette-item">
+        <div class="palette-icon"><svg width="14" height="14" viewBox="0 0 16 16" fill="none"><rect x="1.5" y="1.5" width="13" height="9" rx="1.5" stroke="currentColor" stroke-width="1.2"/><path d="M5 6h6M6.5 4h3" stroke="currentColor" stroke-width="1.5" stroke-linecap="round"/></svg></div>
+        <span class="palette-item-label">Hero</span>
+      </div>
+      <div class="palette-item">
+        <div class="palette-icon"><svg width="14" height="14" viewBox="0 0 16 16" fill="none"><rect x="2.5" y="5" width="11" height="6" rx="3" stroke="currentColor" stroke-width="1.2"/><path d="M6.5 8h3" stroke="currentColor" stroke-width="1.5" stroke-linecap="round"/></svg></div>
+        <span class="palette-item-label">Button</span>
+      </div>
+    </div>
+    <div class="rail-hint">drag to canvas to place</div>
+
+    <!-- Left rail size annotation -->
+    <div class="ann-callout" style="bottom:70px;left:calc(100% + 8px);white-space:nowrap;">
+      180px rail<br><span style="color:var(--ink-faint);text-transform:none;letter-spacing:0.02em;font-size:7.5px;font-weight:500;">36px narrower than desktop</span>
+    </div>
+  </div>
+
+  <!-- CENTER CANVAS -->
+  <div class="center-canvas" style="position:relative;">
+    <div class="canvas-label">480×480 · 3/4 tiles</div>
+    <div class="device-frame">
+      <div class="device-grid">
+        <div class="device-cell cell-sog">
+          <div class="resize-handle tl"></div><div class="resize-handle tr"></div>
+          <div class="resize-handle bl"></div><div class="resize-handle br"></div>
+          <div class="sog-label">SOG</div>
+          <div class="sog-value">4.5</div>
+          <div class="sog-unit">kn</div>
+        </div>
+        <div class="device-cell cell-drop">
+          <div class="drop-zone-inner">
+            <svg width="18" height="18" viewBox="0 0 22 22" fill="none"><circle cx="11" cy="11" r="9" stroke="var(--ink-faint)" stroke-width="1.2"/><path d="M11 7v8M7 11h8" stroke="var(--ink-faint)" stroke-width="1.4" stroke-linecap="round"/></svg>
+            <div class="drop-text">Drop tile here</div>
+          </div>
+        </div>
+        <div class="device-cell cell-compass">
+          <svg viewBox="0 0 80 80" width="72" height="72">
+            <circle cx="40" cy="40" r="34" stroke="var(--line2)" stroke-width="1.2" fill="none"/>
+            <circle cx="40" cy="40" r="28" stroke="var(--line)" stroke-width="0.8" fill="none"/>
+            <text x="40" y="12" fill="var(--ink-faint)" font-size="7" font-family="Montserrat,sans-serif" font-weight="600" text-anchor="middle" dominant-baseline="middle">N</text>
+            <text x="40" y="70" fill="var(--ink-faint)" font-size="6" font-family="Montserrat,sans-serif" text-anchor="middle" dominant-baseline="middle">S</text>
+            <text x="12" y="40" fill="var(--ink-faint)" font-size="6" font-family="Montserrat,sans-serif" text-anchor="middle" dominant-baseline="middle">W</text>
+            <text x="68" y="40" fill="var(--ink-faint)" font-size="6" font-family="Montserrat,sans-serif" text-anchor="middle" dominant-baseline="middle">E</text>
+            <polygon points="40,14 43,40 40,46 37,40" fill="var(--accent)" opacity="0.9"/>
+            <polygon points="40,66 43,40 40,34 37,40" fill="var(--ink-faint)" opacity="0.5"/>
+            <circle cx="40" cy="40" r="3" fill="var(--elev)" stroke="var(--line2)" stroke-width="1"/>
+          </svg>
+          <div class="compass-label">HDG</div>
+        </div>
+        <div class="device-cell cell-awa">
+          <div class="awa-label">AWA</div>
+          <div class="awa-value">45°</div>
+          <div class="awa-unit">PORT</div>
+        </div>
+      </div>
+    </div>
+
+    <div class="zoom-strip">
+      <button class="zoom-fit">Fit</button>
+      <div class="zoom-sep"></div>
+      <button class="zoom-btn">−</button>
+      <span class="zoom-pct">100%</span>
+      <button class="zoom-btn">+</button>
+    </div>
+
+    <!-- No-scroll confirmation note -->
+    <div class="ann-dim" style="position:absolute;bottom:14px;right:14px;z-index:10;max-width:200px;text-align:left;">
+      Single viewport confirmed at 1024×768.<br>
+      <span style="color:var(--accent);font-weight:600;">No page scroll.</span> Rails scroll internally. Canvas scales to fill.
+    </div>
+
+    <!-- Viewport annotation -->
+    <div class="ann-callout" style="position:absolute;top:10px;left:12px;">
+      1024×768 · large tablet breakpoint
+    </div>
+  </div>
+
+  <!-- RIGHT INSPECTOR (200px vs 228px on desktop) -->
+  <div class="right-inspector" style="position:relative;">
+    <div class="inspector-header">
+      <span class="inspector-title">Inspector</span>
+      <span class="inspector-badge">Single Value</span>
+    </div>
+    <div class="inspector-body">
+      <div class="insp-section">
+        <div class="insp-section-header"><span class="insp-section-title">Binding</span></div>
+        <div class="insp-section-body">
+          <div class="insp-row">
+            <div class="insp-row-label">SignalK path</div>
+            <div class="insp-row-value">vessels.self.navigation.speedOverGround</div>
+          </div>
+          <div class="insp-live">
+            <div class="live-dot"></div>
+            <span class="live-value">4.52 m/s</span>
+          </div>
+        </div>
+      </div>
+      <div class="insp-section">
+        <div class="insp-section-header"><span class="insp-section-title">Display</span></div>
+        <div class="insp-section-body">
+          <div class="insp-inline-row">
+            <span class="insp-inline-label">Label</span>
+            <div class="insp-input">SOG</div>
+          </div>
+          <div class="insp-inline-row">
+            <span class="insp-inline-label">Unit</span>
+            <div class="insp-input">kn</div>
+          </div>
+          <div class="insp-inline-row">
+            <span class="insp-inline-label">Decimals</span>
+            <div class="insp-input">1</div>
+          </div>
+        </div>
+      </div>
+      <div class="insp-section">
+        <div class="insp-section-header"><span class="insp-section-title">Layout</span></div>
+        <div class="insp-section-body">
+          <div class="insp-row">
+            <div class="insp-row-label">Span</div>
+            <div class="span-control">
+              <div class="mini-grid">
+                <div class="mini-cell active"></div><div class="mini-cell"></div>
+                <div class="mini-cell"></div><div class="mini-cell"></div>
+              </div>
+              <span class="span-label-val">1 × 1</span>
+            </div>
+          </div>
+        </div>
+      </div>
+      <div class="insp-section">
+        <div class="insp-section-header"><span class="insp-section-title">Appearance</span></div>
+        <div class="insp-section-body">
+          <div class="toggle-row">
+            <span class="toggle-label">Show label</span>
+            <div class="toggle on"></div>
+          </div>
+          <div class="color-row">
+            <div class="color-chip"></div>
+            <span class="color-chip-label">Accent colour</span>
+          </div>
+        </div>
+      </div>
+    </div>
+
+    <!-- Right rail annotation -->
+    <div class="ann-callout" style="bottom:64px;right:calc(100% + 8px);white-space:nowrap;text-align:right;">
+      200px rail<br><span style="color:var(--ink-faint);text-transform:none;letter-spacing:0.02em;font-size:7.5px;font-weight:500;">28px narrower than desktop</span>
+    </div>
+  </div>
+
+</div><!-- /body -->
+
+<!-- STATUS BAR -->
+<div class="statusbar">
+  <div class="status-valid">
+    <svg class="status-check" viewBox="0 0 14 14" fill="none"><circle cx="7" cy="7" r="6" stroke="currentColor" stroke-width="1.2"/><path d="M4.5 7l2 2L9.5 5" stroke="currentColor" stroke-width="1.3" stroke-linecap="round" stroke-linejoin="round"/></svg>
+    <span class="status-valid-text">✓ Valid · 3 tiles · 1 unbound</span>
+  </div>
+  <div class="status-sep"></div>
+  <div class="status-pills">
+    <div class="status-pill">
+      <div class="live-dot" style="width:5px;height:5px;animation:pulse 2s ease-in-out infinite;"></div>
+      SignalK live
+    </div>
+    <div class="status-pill" style="color:var(--drift);background:rgba(200,160,60,0.06);border-color:rgba(200,160,60,0.13);">1 unbound</div>
+  </div>
+  <div class="status-spacer"></div>
+  <span class="status-autosave">Autosaved 2 min ago</span>
+</div>
+
+</div><!-- /shell -->
+</body>
+</html>
