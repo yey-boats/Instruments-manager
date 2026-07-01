@@ -1,0 +1,1357 @@
+<!-- @dsCard group="Yey Boats Instruments — Manager" name="Dashboard Builder — Data Tab" subtitle="Live SignalK path tree binding view" viewport="1240x900" -->
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=1240">
+<title>Dashboard Builder — Data Tab · YEY Boats</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Montserrat:wght@400;500;600;700&family=JetBrains+Mono:wght@400;500&display=swap">
+<style>
+@import url('https://fonts.googleapis.com/css2?family=Montserrat:wght@400;500;600;700&family=JetBrains+Mono:wght@400;500&display=swap');
+:root {
+  --bg: #0a121c;
+  --surface: #0e1825;
+  --surface2: #0c1521;
+  --elev: #12202f;
+  --line: #1d2b3a;
+  --line2: #24364a;
+  --ink: #cbd6e2;
+  --ink-dim: #8aa0b4;
+  --ink-faint: #5b7286;
+  --ink-bright: #eef4fb;
+  --accent: #57c7d8;
+  --online: oklch(0.72 0.15 155);
+  --drift: oklch(0.80 0.13 75);
+  --danger: oklch(0.64 0.19 25);
+  --new: oklch(0.74 0.13 300);
+}
+
+*, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+
+html, body {
+  width: 1240px;
+  height: 900px;
+  overflow: hidden;
+  font-family: 'Montserrat', sans-serif;
+  font-size: 13px;
+  background: var(--bg);
+  color: var(--ink);
+  line-height: 1.4;
+}
+
+/* ── KEYFRAMES ──────────────────────────────────────── */
+@keyframes livePulse {
+  0%, 100% { opacity: 1; }
+  50%       { opacity: 0.35; }
+}
+@keyframes accentGlow {
+  0%, 100% { box-shadow: 0 0 0 0 rgba(87,199,216,0.0), 0 0 8px 2px rgba(87,199,216,0.18); }
+  50%       { box-shadow: 0 0 0 3px rgba(87,199,216,0.15), 0 0 16px 4px rgba(87,199,216,0.28); }
+}
+@keyframes driftPulse {
+  0%, 100% { opacity: 1; }
+  50%       { opacity: 0.4; }
+}
+@keyframes bindingPulse {
+  0%, 100% { box-shadow: 0 0 0 0 rgba(87,199,216,0), inset 0 0 0 1.5px var(--accent); }
+  50%       { box-shadow: 0 0 0 4px rgba(87,199,216,0.18), inset 0 0 0 1.5px var(--accent); }
+}
+
+/* ── CHROME SHELL ───────────────────────────────────── */
+.app {
+  display: flex;
+  flex-direction: column;
+  width: 1240px;
+  height: 900px;
+}
+
+/* ── TOP BAR ────────────────────────────────────────── */
+.topbar {
+  flex: 0 0 48px;
+  display: flex;
+  align-items: center;
+  gap: 0;
+  background: var(--surface2);
+  border-bottom: 1px solid var(--line);
+  padding: 0 14px;
+}
+
+.logo {
+  display: flex;
+  align-items: center;
+  gap: 7px;
+  margin-right: 16px;
+  text-decoration: none;
+}
+.logo-mark {
+  width: 26px;
+  height: 26px;
+  border-radius: 5px;
+  background: var(--accent);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+}
+.logo-mark svg { display: block; }
+.logo-text {
+  font-size: 13px;
+  font-weight: 700;
+  letter-spacing: 0.08em;
+  color: var(--ink-bright);
+  text-transform: uppercase;
+}
+
+.topbar-sep {
+  width: 1px;
+  height: 24px;
+  background: var(--line);
+  margin: 0 12px;
+}
+
+.device-dropdown {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  background: var(--elev);
+  border: 1px solid var(--line2);
+  border-radius: 5px;
+  padding: 5px 10px 5px 9px;
+  cursor: pointer;
+  user-select: none;
+  color: var(--ink);
+  font: inherit;
+  font-size: 12px;
+}
+.device-dropdown .chip-code {
+  font-family: 'JetBrains Mono', monospace;
+  font-size: 11px;
+  color: var(--ink-bright);
+}
+.device-dropdown .sep {
+  color: var(--ink-faint);
+  margin: 0 2px;
+}
+.device-dropdown .chip-shape {
+  font-size: 11px;
+  color: var(--accent);
+}
+.device-dropdown svg { color: var(--ink-faint); flex-shrink: 0; }
+
+.mode-toggle {
+  display: flex;
+  gap: 0;
+  background: var(--elev);
+  border: 1px solid var(--line2);
+  border-radius: 5px;
+  overflow: hidden;
+  margin-left: 10px;
+}
+.mode-btn {
+  padding: 5px 13px;
+  font: inherit;
+  font-size: 12px;
+  font-weight: 500;
+  border: none;
+  background: transparent;
+  color: var(--ink-dim);
+  cursor: pointer;
+  letter-spacing: 0.02em;
+  transition: color 0.15s;
+}
+.mode-btn.active {
+  background: var(--accent);
+  color: #061419;
+  font-weight: 600;
+}
+
+.topbar-actions {
+  margin-left: auto;
+  display: flex;
+  align-items: center;
+  gap: 6px;
+}
+.tb-btn {
+  display: flex;
+  align-items: center;
+  gap: 5px;
+  padding: 5px 10px;
+  font: inherit;
+  font-size: 12px;
+  font-weight: 500;
+  background: var(--elev);
+  border: 1px solid var(--line2);
+  border-radius: 5px;
+  color: var(--ink-dim);
+  cursor: pointer;
+  white-space: nowrap;
+}
+.tb-btn.primary {
+  background: var(--accent);
+  border-color: var(--accent);
+  color: #061419;
+  font-weight: 600;
+}
+.tb-btn svg { flex-shrink: 0; }
+
+/* ── BODY 3-COL ─────────────────────────────────────── */
+.body {
+  flex: 1 1 0;
+  display: grid;
+  grid-template-columns: 210px 1fr 220px;
+  overflow: hidden;
+}
+
+/* ── LEFT RAIL ──────────────────────────────────────── */
+.left-rail {
+  display: flex;
+  flex-direction: column;
+  background: var(--surface);
+  border-right: 1px solid var(--line);
+  overflow: hidden;
+}
+
+.rail-tabs {
+  display: flex;
+  border-bottom: 1px solid var(--line);
+  flex-shrink: 0;
+}
+.rail-tab {
+  flex: 1;
+  padding: 9px 0 8px;
+  text-align: center;
+  font-size: 12px;
+  font-weight: 500;
+  color: var(--ink-faint);
+  cursor: pointer;
+  border-bottom: 2px solid transparent;
+  margin-bottom: -1px;
+  letter-spacing: 0.03em;
+  user-select: none;
+}
+.rail-tab.active {
+  color: var(--accent);
+  border-bottom-color: var(--accent);
+}
+
+.rail-search-wrap {
+  padding: 8px 10px 6px;
+  flex-shrink: 0;
+  position: relative;
+}
+.rail-search {
+  width: 100%;
+  background: var(--elev);
+  border: 1px solid var(--line);
+  border-radius: 4px;
+  padding: 5px 8px 5px 26px;
+  font: 11px/1 'JetBrains Mono', monospace;
+  color: var(--ink-dim);
+  outline: none;
+  transition: border-color 0.15s;
+}
+.rail-search::placeholder { color: var(--ink-faint); }
+.rail-search:focus { border-color: var(--line2); }
+.search-icon {
+  position: absolute;
+  left: 18px;
+  top: 50%;
+  transform: translateY(-50%);
+  color: var(--ink-faint);
+  pointer-events: none;
+}
+
+.rail-live-badge {
+  position: absolute;
+  top: 8px;
+  right: 10px;
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  background: rgba(87,199,216,0.07);
+  border: 1px solid rgba(87,199,216,0.18);
+  border-radius: 20px;
+  padding: 2px 7px 2px 5px;
+  font-size: 10px;
+  font-weight: 600;
+  letter-spacing: 0.06em;
+  color: var(--online);
+  text-transform: uppercase;
+}
+.live-dot {
+  width: 6px;
+  height: 6px;
+  border-radius: 50%;
+  background: var(--online);
+  animation: livePulse 2s ease-in-out infinite;
+  flex-shrink: 0;
+}
+.live-dot.drift {
+  background: var(--drift);
+  animation: driftPulse 2.5s ease-in-out infinite;
+}
+
+.path-tree {
+  flex: 1 1 0;
+  overflow-y: auto;
+  overflow-x: hidden;
+  padding-bottom: 8px;
+}
+.path-tree::-webkit-scrollbar { width: 4px; }
+.path-tree::-webkit-scrollbar-track { background: transparent; }
+.path-tree::-webkit-scrollbar-thumb { background: var(--line2); border-radius: 2px; }
+
+.tree-group {
+  margin-top: 2px;
+}
+.tree-group-header {
+  display: flex;
+  align-items: center;
+  gap: 5px;
+  padding: 5px 10px 5px 8px;
+  cursor: pointer;
+  user-select: none;
+}
+.tree-group-header:hover { background: var(--elev); }
+.expand-arrow {
+  color: var(--ink-faint);
+  flex-shrink: 0;
+  transition: transform 0.15s;
+}
+.expand-arrow.open { transform: rotate(90deg); }
+.group-name {
+  font-size: 11px;
+  font-weight: 600;
+  letter-spacing: 0.05em;
+  text-transform: uppercase;
+  color: var(--ink-dim);
+  flex: 1;
+}
+.group-count {
+  font-size: 10px;
+  color: var(--ink-faint);
+  font-family: 'JetBrains Mono', monospace;
+}
+
+.tree-items { }
+
+.path-row {
+  display: flex;
+  align-items: center;
+  gap: 0;
+  padding: 4px 8px 4px 20px;
+  cursor: pointer;
+  position: relative;
+  border-left: 2px solid transparent;
+  transition: background 0.1s;
+}
+.path-row:hover { background: var(--elev); }
+.path-row.selected {
+  background: var(--elev);
+  border-left-color: var(--accent);
+}
+.path-row.selected .path-name {
+  color: var(--ink-bright);
+}
+
+.path-connector {
+  color: var(--ink-faint);
+  font-size: 10px;
+  margin-right: 5px;
+  font-family: 'JetBrains Mono', monospace;
+  flex-shrink: 0;
+  line-height: 1;
+}
+.path-dot-wrap {
+  width: 14px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  flex-shrink: 0;
+  margin-right: 5px;
+}
+.path-dot {
+  width: 5px;
+  height: 5px;
+  border-radius: 50%;
+  background: var(--online);
+  animation: livePulse 2s ease-in-out infinite;
+  flex-shrink: 0;
+}
+.path-dot.drift-color {
+  background: var(--drift);
+  animation: driftPulse 2.5s ease-in-out infinite;
+}
+.path-name {
+  font-family: 'JetBrains Mono', monospace;
+  font-size: 10.5px;
+  color: var(--ink-dim);
+  flex: 1;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.path-value {
+  font-family: 'JetBrains Mono', monospace;
+  font-size: 10px;
+  color: var(--accent);
+  flex-shrink: 0;
+  margin-left: 4px;
+}
+
+/* stagger each dot's pulse slightly */
+.path-row:nth-child(1) .path-dot { animation-delay: 0s; }
+.path-row:nth-child(2) .path-dot { animation-delay: 0.3s; }
+.path-row:nth-child(3) .path-dot { animation-delay: 0.6s; }
+.path-row:nth-child(4) .path-dot { animation-delay: 0.9s; }
+
+/* ── CENTER CANVAS ──────────────────────────────────── */
+.center {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  background: var(--bg);
+  position: relative;
+  gap: 10px;
+}
+
+/* subtle grid texture */
+.center::before {
+  content: '';
+  position: absolute;
+  inset: 0;
+  background-image:
+    linear-gradient(var(--line) 1px, transparent 1px),
+    linear-gradient(90deg, var(--line) 1px, transparent 1px);
+  background-size: 24px 24px;
+  opacity: 0.25;
+  pointer-events: none;
+}
+
+.canvas-meta {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  font-size: 11px;
+  color: var(--ink-faint);
+  font-family: 'JetBrains Mono', monospace;
+  z-index: 1;
+}
+.canvas-meta .dim { color: var(--ink-dim); }
+
+.device-frame {
+  position: relative;
+  z-index: 1;
+  width: 320px;
+  height: 320px;
+  background: #060e15;
+  border-radius: 12px;
+  border: 2px solid var(--line2);
+  box-shadow:
+    0 0 0 6px rgba(6,14,21,0.8),
+    0 0 0 7px var(--line),
+    0 8px 40px rgba(0,0,0,0.55);
+  overflow: hidden;
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  grid-template-rows: 1fr 1fr;
+  gap: 1px;
+  background-color: var(--line);
+}
+
+/* ── DEVICE CELLS ────────────────────────────────────── */
+.cell {
+  background: #0a161f;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  position: relative;
+  padding: 10px 8px 8px;
+  overflow: hidden;
+}
+
+/* Cell 1 — SOG bound + active */
+.cell.bound-active {
+  background: #0b1a26;
+  animation: bindingPulse 2.2s ease-in-out infinite;
+}
+.cell.bound-active .cell-binding-bar {
+  display: flex;
+}
+
+.cell-binding-bar {
+  display: none;
+  position: absolute;
+  top: 0; left: 0; right: 0;
+  height: 2px;
+  background: var(--accent);
+  opacity: 0.85;
+}
+
+.cell-label {
+  font-size: 10px;
+  font-weight: 600;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+  color: var(--ink-faint);
+  margin-bottom: 2px;
+}
+.cell-value {
+  font-size: 28px;
+  font-weight: 700;
+  color: var(--ink-bright);
+  line-height: 1;
+  letter-spacing: -0.01em;
+}
+.cell-unit {
+  font-size: 11px;
+  color: var(--ink-dim);
+  margin-top: 1px;
+}
+.cell-path-hint {
+  font-family: 'JetBrains Mono', monospace;
+  font-size: 8.5px;
+  color: var(--ink-faint);
+  margin-top: 4px;
+  opacity: 0.7;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  max-width: 100%;
+}
+.cell-live-val {
+  font-family: 'JetBrains Mono', monospace;
+  font-size: 8px;
+  color: var(--accent);
+  opacity: 0.8;
+}
+
+/* SOG cell specific */
+.cell-sog .cell-label { color: var(--accent); opacity: 0.85; }
+.cell-sog .cell-value { color: var(--ink-bright); }
+
+/* Bound chip inside cell */
+.cell-bound-chip {
+  position: absolute;
+  top: 6px;
+  right: 6px;
+  display: flex;
+  align-items: center;
+  gap: 3px;
+  background: rgba(87,199,216,0.1);
+  border: 1px solid rgba(87,199,216,0.25);
+  border-radius: 10px;
+  padding: 1px 5px 1px 3px;
+  font-size: 8.5px;
+  font-weight: 600;
+  color: var(--accent);
+  letter-spacing: 0.04em;
+}
+.cell-bound-chip .mini-dot {
+  width: 4px; height: 4px;
+  border-radius: 50%;
+  background: var(--online);
+  animation: livePulse 2s ease-in-out infinite;
+}
+
+/* Compass cell */
+.compass-wrap {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 3px;
+}
+.compass-ring {
+  width: 56px;
+  height: 56px;
+  border-radius: 50%;
+  border: 2px solid var(--line2);
+  position: relative;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+}
+.compass-ring::before {
+  content: 'N';
+  position: absolute;
+  top: 2px;
+  left: 50%;
+  transform: translateX(-50%);
+  font-size: 7px;
+  font-weight: 700;
+  color: var(--danger);
+  letter-spacing: 0;
+}
+.compass-needle {
+  width: 2px;
+  height: 22px;
+  background: linear-gradient(to bottom, var(--danger) 50%, var(--ink-faint) 50%);
+  border-radius: 1px;
+  transform: rotate(127deg);
+  transform-origin: center bottom;
+  position: absolute;
+  bottom: 50%;
+}
+.compass-hdg {
+  font-family: 'JetBrains Mono', monospace;
+  font-size: 10px;
+  font-weight: 500;
+  color: var(--ink-bright);
+}
+.compass-path-hint {
+  font-family: 'JetBrains Mono', monospace;
+  font-size: 8px;
+  color: var(--ink-faint);
+  opacity: 0.65;
+}
+
+/* AWA cell */
+.awa-arc {
+  width: 54px;
+  height: 36px;
+  position: relative;
+  margin-bottom: 2px;
+}
+.awa-arc svg { display: block; }
+.awa-val {
+  font-family: 'JetBrains Mono', monospace;
+  font-size: 11px;
+  font-weight: 500;
+  color: var(--ink-bright);
+}
+.awa-path-hint {
+  font-family: 'JetBrains Mono', monospace;
+  font-size: 8px;
+  color: var(--ink-faint);
+  opacity: 0.65;
+}
+
+/* Empty drop cell */
+.cell-empty {
+  border: 1.5px dashed var(--line2);
+  opacity: 0.45;
+}
+.cell-empty .drop-hint {
+  font-size: 9px;
+  color: var(--ink-faint);
+  letter-spacing: 0.04em;
+  text-align: center;
+}
+
+/* Data-mode overlay: all cells get subtle path overlay */
+.data-mode-overlay {
+  position: absolute;
+  inset: 0;
+  pointer-events: none;
+}
+
+/* ── RIGHT INSPECTOR ────────────────────────────────── */
+.right-inspector {
+  display: flex;
+  flex-direction: column;
+  background: var(--surface);
+  border-left: 1px solid var(--line);
+  overflow: hidden;
+}
+
+.inspector-header {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  padding: 10px 12px 9px;
+  border-bottom: 1px solid var(--line);
+  flex-shrink: 0;
+}
+.inspector-title {
+  font-size: 12px;
+  font-weight: 600;
+  color: var(--ink-bright);
+  letter-spacing: 0.03em;
+}
+.insp-badge {
+  margin-left: auto;
+  font-size: 10px;
+  font-weight: 500;
+  background: rgba(87,199,216,0.1);
+  border: 1px solid rgba(87,199,216,0.2);
+  border-radius: 10px;
+  padding: 1px 7px;
+  color: var(--accent);
+  letter-spacing: 0.03em;
+}
+
+.inspector-body {
+  flex: 1 1 0;
+  overflow-y: auto;
+  overflow-x: hidden;
+}
+.inspector-body::-webkit-scrollbar { width: 3px; }
+.inspector-body::-webkit-scrollbar-thumb { background: var(--line2); border-radius: 2px; }
+
+/* Sections */
+.insp-section {
+  border-bottom: 1px solid var(--line);
+}
+.insp-section-header {
+  display: flex;
+  align-items: center;
+  gap: 5px;
+  padding: 7px 12px 6px;
+  cursor: pointer;
+  user-select: none;
+}
+.insp-section-header:hover { background: var(--elev); }
+.insp-section-label {
+  font-size: 11px;
+  font-weight: 600;
+  letter-spacing: 0.05em;
+  text-transform: uppercase;
+  color: var(--ink-dim);
+  flex: 1;
+}
+.insp-chevron {
+  color: var(--ink-faint);
+  transition: transform 0.15s;
+}
+.insp-chevron.open { transform: rotate(90deg); }
+
+.insp-section-body {
+  padding: 6px 12px 10px;
+}
+
+/* Binding section — highlighted */
+.insp-section.binding-active {
+  background: rgba(87,199,216,0.03);
+  border-bottom-color: rgba(87,199,216,0.12);
+}
+.insp-section.binding-active .insp-section-label {
+  color: var(--accent);
+}
+
+.field-label {
+  font-size: 10px;
+  font-weight: 500;
+  letter-spacing: 0.05em;
+  text-transform: uppercase;
+  color: var(--ink-faint);
+  margin-bottom: 4px;
+}
+.path-display {
+  font-family: 'JetBrains Mono', monospace;
+  font-size: 11px;
+  color: var(--accent);
+  background: var(--elev);
+  border: 1px solid var(--line2);
+  border-radius: 4px;
+  padding: 5px 8px;
+  letter-spacing: 0.01em;
+  margin-bottom: 7px;
+  word-break: break-all;
+}
+
+.live-value-row {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  margin-bottom: 7px;
+}
+.lv-dot {
+  width: 6px; height: 6px;
+  border-radius: 50%;
+  background: var(--online);
+  animation: livePulse 2s ease-in-out infinite;
+  flex-shrink: 0;
+}
+.lv-value {
+  font-family: 'JetBrains Mono', monospace;
+  font-size: 13px;
+  font-weight: 500;
+  color: var(--ink-bright);
+}
+.bound-chip {
+  display: inline-flex;
+  align-items: center;
+  gap: 3px;
+  background: rgba(74,195,110,0.12);
+  border: 1px solid rgba(74,195,110,0.3);
+  border-radius: 10px;
+  padding: 1px 6px 1px 4px;
+  font-size: 9.5px;
+  font-weight: 600;
+  color: var(--online);
+  letter-spacing: 0.04em;
+  margin-left: auto;
+}
+.bound-chip .dot {
+  width: 4px; height: 4px;
+  border-radius: 50%;
+  background: var(--online);
+  animation: livePulse 2s ease-in-out infinite;
+}
+
+.change-link {
+  display: inline-block;
+  font-size: 11px;
+  color: var(--accent);
+  text-decoration: underline;
+  text-underline-offset: 2px;
+  text-decoration-color: rgba(87,199,216,0.45);
+  cursor: pointer;
+  margin-top: 2px;
+}
+.change-link:hover { text-decoration-color: var(--accent); }
+
+/* Display / Layout sections */
+.field-row {
+  display: flex;
+  align-items: center;
+  margin-bottom: 6px;
+}
+.field-row .field-label {
+  margin-bottom: 0;
+  flex: 0 0 70px;
+}
+.field-input {
+  flex: 1;
+  background: var(--elev);
+  border: 1px solid var(--line);
+  border-radius: 4px;
+  padding: 4px 7px;
+  font: 11px/1.4 'JetBrains Mono', monospace;
+  color: var(--ink);
+  outline: none;
+}
+.field-input:focus { border-color: var(--line2); }
+.field-select {
+  flex: 1;
+  background: var(--elev);
+  border: 1px solid var(--line);
+  border-radius: 4px;
+  padding: 4px 7px;
+  font: 11px/1.4 'Montserrat', sans-serif;
+  color: var(--ink);
+  outline: none;
+  cursor: pointer;
+  appearance: none;
+}
+
+/* Path info callout */
+.path-callout {
+  background: rgba(87,199,216,0.05);
+  border: 1px solid rgba(87,199,216,0.14);
+  border-radius: 6px;
+  padding: 9px 10px;
+  margin-top: 4px;
+}
+.path-callout-title {
+  font-size: 9.5px;
+  font-weight: 600;
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+  color: var(--accent);
+  margin-bottom: 7px;
+}
+.path-meta-row {
+  display: flex;
+  align-items: flex-start;
+  gap: 6px;
+  margin-bottom: 4px;
+  font-size: 10px;
+}
+.path-meta-key {
+  color: var(--ink-faint);
+  flex: 0 0 72px;
+  font-weight: 500;
+}
+.path-meta-val {
+  font-family: 'JetBrains Mono', monospace;
+  color: var(--ink-dim);
+  font-size: 10px;
+  flex: 1;
+}
+.path-meta-val .arrow {
+  color: var(--accent);
+  margin: 0 3px;
+}
+
+/* ── BOTTOM STATUS BAR ──────────────────────────────── */
+.statusbar {
+  flex: 0 0 32px;
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 0 14px;
+  background: var(--surface2);
+  border-top: 1px solid var(--line);
+  font-size: 11px;
+}
+
+.status-check {
+  display: flex;
+  align-items: center;
+  gap: 5px;
+  color: var(--online);
+  font-weight: 500;
+}
+.status-check svg { flex-shrink: 0; }
+
+.status-chip {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  padding: 2px 7px;
+  border-radius: 10px;
+  font-size: 10px;
+  font-weight: 500;
+  letter-spacing: 0.03em;
+}
+.chip-struct {
+  background: rgba(87,199,216,0.1);
+  border: 1px solid rgba(87,199,216,0.18);
+  color: var(--accent);
+}
+.chip-semantic {
+  background: rgba(74,195,110,0.08);
+  border: 1px solid rgba(74,195,110,0.2);
+  color: var(--online);
+}
+.chip-cap {
+  background: rgba(200,160,255,0.08);
+  border: 1px solid rgba(200,160,255,0.18);
+  color: var(--new);
+}
+
+.status-sep {
+  width: 1px;
+  height: 14px;
+  background: var(--line);
+  margin: 0 2px;
+}
+
+.autosaved {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  color: var(--ink-faint);
+  font-size: 10.5px;
+  margin-left: auto;
+}
+.autosaved svg { color: var(--online); flex-shrink: 0; }
+
+/* Rail position-relative wrapper for the LIVE badge */
+.rail-top-area {
+  position: relative;
+  flex-shrink: 0;
+}
+</style>
+</head>
+<body>
+<div class="app">
+
+  <!-- ══════════ TOP BAR ══════════ -->
+  <header class="topbar">
+
+    <!-- Logo -->
+    <a class="logo" href="#">
+      <span class="logo-mark">
+        <svg width="14" height="14" viewBox="0 0 14 14" fill="none" xmlns="http://www.w3.org/2000/svg">
+          <path d="M2 10L7 4L12 10" stroke="#061419" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"/>
+          <path d="M5 10H9" stroke="#061419" stroke-width="1.5" stroke-linecap="round"/>
+        </svg>
+      </span>
+      <span class="logo-text">YEY</span>
+    </a>
+
+    <div class="topbar-sep"></div>
+
+    <!-- Device dropdown -->
+    <button class="device-dropdown">
+      <svg width="13" height="13" viewBox="0 0 13 13" fill="none" style="color:var(--ink-dim)">
+        <rect x="1" y="1" width="11" height="11" rx="2" stroke="currentColor" stroke-width="1.3"/>
+        <rect x="3.5" y="3.5" width="6" height="6" rx="1" fill="currentColor" opacity="0.4"/>
+      </svg>
+      <span class="chip-code">esp32-4848s040</span>
+      <span class="sep">·</span>
+      <span class="chip-shape">square-480</span>
+      <svg width="10" height="10" viewBox="0 0 10 10" fill="none" style="margin-left:4px">
+        <path d="M3 4L5 6L7 4" stroke="currentColor" stroke-width="1.3" stroke-linecap="round" stroke-linejoin="round"/>
+      </svg>
+    </button>
+
+    <!-- Mode toggle -->
+    <div class="mode-toggle" style="margin-left:10px">
+      <button class="mode-btn active">Visual</button>
+      <button class="mode-btn">Source</button>
+    </div>
+
+    <!-- Right actions -->
+    <div class="topbar-actions">
+      <button class="tb-btn">
+        <svg width="12" height="12" viewBox="0 0 12 12" fill="none"><path d="M1 6h10M6 1l5 5-5 5" stroke="currentColor" stroke-width="1.3" stroke-linecap="round" stroke-linejoin="round"/></svg>
+        Import
+      </button>
+      <button class="tb-btn">
+        <svg width="12" height="12" viewBox="0 0 12 12" fill="none"><path d="M11 6H1M6 11L1 6l5-5" stroke="currentColor" stroke-width="1.3" stroke-linecap="round" stroke-linejoin="round"/></svg>
+        Export
+      </button>
+      <div class="topbar-sep"></div>
+      <button class="tb-btn">
+        <svg width="12" height="12" viewBox="0 0 12 12" fill="none"><path d="M2 6.5L4.5 9L10 3" stroke="currentColor" stroke-width="1.4" stroke-linecap="round" stroke-linejoin="round"/></svg>
+        Save
+      </button>
+      <button class="tb-btn primary">
+        <svg width="12" height="12" viewBox="0 0 12 12" fill="none"><path d="M6 1v7M3 5l3 3 3-3M1.5 10.5h9" stroke="#061419" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"/></svg>
+        Push
+      </button>
+    </div>
+
+  </header>
+
+  <!-- ══════════ BODY ══════════ -->
+  <div class="body">
+
+    <!-- ──── LEFT RAIL ──── -->
+    <aside class="left-rail">
+
+      <!-- Tabs -->
+      <div class="rail-tabs">
+        <div class="rail-tab">Elements</div>
+        <div class="rail-tab active">Data</div>
+      </div>
+
+      <!-- Search + LIVE badge wrapper -->
+      <div class="rail-top-area">
+        <div class="rail-search-wrap">
+          <svg class="search-icon" width="12" height="12" viewBox="0 0 12 12" fill="none">
+            <circle cx="5" cy="5" r="3.5" stroke="currentColor" stroke-width="1.2"/>
+            <path d="M8 8L10.5 10.5" stroke="currentColor" stroke-width="1.2" stroke-linecap="round"/>
+          </svg>
+          <input class="rail-search" type="text" placeholder="Filter paths…" value="">
+        </div>
+        <span class="rail-live-badge" style="top:10px;right:10px">
+          <span class="live-dot"></span>
+          LIVE
+        </span>
+      </div>
+
+      <!-- Path tree -->
+      <div class="path-tree">
+
+        <!-- navigation group -->
+        <div class="tree-group">
+          <div class="tree-group-header">
+            <svg class="expand-arrow open" width="10" height="10" viewBox="0 0 10 10" fill="none">
+              <path d="M3.5 2L6.5 5L3.5 8" stroke="currentColor" stroke-width="1.3" stroke-linecap="round" stroke-linejoin="round"/>
+            </svg>
+            <span class="group-name">navigation</span>
+            <span class="group-count">4</span>
+          </div>
+          <div class="tree-items">
+            <!-- speedOverGround — SELECTED -->
+            <div class="path-row selected">
+              <span class="path-connector">├</span>
+              <span class="path-dot-wrap"><span class="path-dot"></span></span>
+              <span class="path-name">speedOverGround</span>
+              <span class="path-value">4.5 kn</span>
+            </div>
+            <div class="path-row">
+              <span class="path-connector">├</span>
+              <span class="path-dot-wrap"><span class="path-dot" style="animation-delay:0.4s"></span></span>
+              <span class="path-name">speedThroughWater</span>
+              <span class="path-value">4.2 kn</span>
+            </div>
+            <div class="path-row">
+              <span class="path-connector">├</span>
+              <span class="path-dot-wrap"><span class="path-dot" style="animation-delay:0.8s"></span></span>
+              <span class="path-name">headingTrue</span>
+              <span class="path-value">127°</span>
+            </div>
+            <div class="path-row">
+              <span class="path-connector">└</span>
+              <span class="path-dot-wrap"><span class="path-dot" style="animation-delay:1.2s"></span></span>
+              <span class="path-name">position.latitude</span>
+              <span class="path-value">37.8044</span>
+            </div>
+          </div>
+        </div>
+
+        <!-- environment group -->
+        <div class="tree-group">
+          <div class="tree-group-header">
+            <svg class="expand-arrow open" width="10" height="10" viewBox="0 0 10 10" fill="none">
+              <path d="M3.5 2L6.5 5L3.5 8" stroke="currentColor" stroke-width="1.3" stroke-linecap="round" stroke-linejoin="round"/>
+            </svg>
+            <span class="group-name">environment</span>
+            <span class="group-count">3</span>
+          </div>
+          <div class="tree-items">
+            <div class="path-row">
+              <span class="path-connector">├</span>
+              <span class="path-dot-wrap"><span class="path-dot" style="animation-delay:0.2s"></span></span>
+              <span class="path-name">wind.speedApparent</span>
+              <span class="path-value">12.3 kn</span>
+            </div>
+            <div class="path-row">
+              <span class="path-connector">├</span>
+              <span class="path-dot-wrap"><span class="path-dot" style="animation-delay:0.55s"></span></span>
+              <span class="path-name">wind.angleApparent</span>
+              <span class="path-value">45°</span>
+            </div>
+            <div class="path-row">
+              <span class="path-connector">└</span>
+              <span class="path-dot-wrap"><span class="path-dot" style="animation-delay:0.9s"></span></span>
+              <span class="path-name">outside.temperature</span>
+              <span class="path-value">18.4°C</span>
+            </div>
+          </div>
+        </div>
+
+        <!-- depth group -->
+        <div class="tree-group">
+          <div class="tree-group-header">
+            <svg class="expand-arrow open" width="10" height="10" viewBox="0 0 10 10" fill="none">
+              <path d="M3.5 2L6.5 5L3.5 8" stroke="currentColor" stroke-width="1.3" stroke-linecap="round" stroke-linejoin="round"/>
+            </svg>
+            <span class="group-name">depth</span>
+            <span class="group-count">1</span>
+          </div>
+          <div class="tree-items">
+            <div class="path-row">
+              <span class="path-connector">└</span>
+              <span class="path-dot-wrap"><span class="path-dot" style="animation-delay:1.0s"></span></span>
+              <span class="path-name">belowTransducer</span>
+              <span class="path-value">8.2 m</span>
+            </div>
+          </div>
+        </div>
+
+        <!-- electrical group -->
+        <div class="tree-group">
+          <div class="tree-group-header">
+            <svg class="expand-arrow open" width="10" height="10" viewBox="0 0 10 10" fill="none">
+              <path d="M3.5 2L6.5 5L3.5 8" stroke="currentColor" stroke-width="1.3" stroke-linecap="round" stroke-linejoin="round"/>
+            </svg>
+            <span class="group-name">electrical</span>
+            <span class="group-count">2</span>
+          </div>
+          <div class="tree-items">
+            <div class="path-row">
+              <span class="path-connector">├</span>
+              <span class="path-dot-wrap"><span class="path-dot drift-color" style="animation-delay:0.35s"></span></span>
+              <span class="path-name">batteries.0.soc</span>
+              <span class="path-value" style="color:var(--drift)">72%</span>
+            </div>
+            <div class="path-row">
+              <span class="path-connector">└</span>
+              <span class="path-dot-wrap"><span class="path-dot" style="animation-delay:0.7s"></span></span>
+              <span class="path-name">batteries.0.voltage</span>
+              <span class="path-value">12.8 V</span>
+            </div>
+          </div>
+        </div>
+
+      </div><!-- /path-tree -->
+    </aside>
+
+    <!-- ──── CENTER CANVAS ──── -->
+    <main class="center">
+
+      <div class="canvas-meta">
+        <span class="dim">480×480</span>
+        <span style="color:var(--line2)">·</span>
+        <span>3/4 tiles</span>
+        <span style="color:var(--line2)">·</span>
+        <span style="color:var(--accent);font-size:10px;letter-spacing:0.04em;">DATA BINDING ACTIVE</span>
+      </div>
+
+      <!-- Device frame -->
+      <div class="device-frame">
+
+        <!-- Cell 1 — SOG — BOUND + ACTIVE -->
+        <div class="cell bound-active cell-sog">
+          <div class="cell-binding-bar"></div>
+          <div class="cell-bound-chip">
+            <span class="mini-dot"></span>
+            bound
+          </div>
+          <div class="cell-label">SOG</div>
+          <div class="cell-value">4.5</div>
+          <div class="cell-unit">kn</div>
+          <div class="cell-path-hint">navigation.speedOverGround</div>
+          <div class="cell-live-val" style="animation:livePulse 2s ease-in-out infinite">● 4.5 kn live</div>
+        </div>
+
+        <!-- Cell 2 — Compass / HDG -->
+        <div class="cell">
+          <div class="cell-label" style="margin-bottom:4px">HDG</div>
+          <div class="compass-wrap">
+            <div class="compass-ring">
+              <div class="compass-needle"></div>
+            </div>
+            <div class="compass-hdg">127°</div>
+          </div>
+          <div class="cell-path-hint">navigation.headingTrue</div>
+        </div>
+
+        <!-- Cell 3 — AWA -->
+        <div class="cell">
+          <div class="cell-label" style="margin-bottom:4px">AWA</div>
+          <div class="awa-arc">
+            <svg width="54" height="36" viewBox="0 0 54 36" fill="none">
+              <path d="M4 34 A24 24 0 0 1 50 34" stroke="var(--line2)" stroke-width="3" stroke-linecap="round"/>
+              <path d="M4 34 A24 24 0 0 1 32 11" stroke="var(--accent)" stroke-width="3" stroke-linecap="round"/>
+              <circle cx="32" cy="11" r="3" fill="var(--accent)"/>
+            </svg>
+          </div>
+          <div class="awa-val">45°</div>
+          <div class="awa-path-hint">environment.wind.angleApparent</div>
+        </div>
+
+        <!-- Cell 4 — Empty drop zone -->
+        <div class="cell cell-empty">
+          <svg width="20" height="20" viewBox="0 0 20 20" fill="none" style="margin-bottom:5px;opacity:0.4">
+            <rect x="2" y="2" width="16" height="16" rx="3" stroke="currentColor" stroke-width="1.2" stroke-dasharray="3 2"/>
+            <path d="M10 7v6M7 10h6" stroke="currentColor" stroke-width="1.2" stroke-linecap="round"/>
+          </svg>
+          <div class="drop-hint">Drop widget<br>or bind path</div>
+        </div>
+
+      </div><!-- /device-frame -->
+
+    </main>
+
+    <!-- ──── RIGHT INSPECTOR ──── -->
+    <aside class="right-inspector">
+
+      <div class="inspector-header">
+        <span class="inspector-title">Inspector</span>
+        <span class="insp-badge">Single Value</span>
+      </div>
+
+      <div class="inspector-body">
+
+        <!-- Binding section — ACTIVE / HIGHLIGHTED -->
+        <div class="insp-section binding-active">
+          <div class="insp-section-header">
+            <svg class="insp-chevron open" width="10" height="10" viewBox="0 0 10 10" fill="none">
+              <path d="M3.5 2L6.5 5L3.5 8" stroke="currentColor" stroke-width="1.3" stroke-linecap="round" stroke-linejoin="round"/>
+            </svg>
+            <span class="insp-section-label">Binding</span>
+          </div>
+          <div class="insp-section-body">
+
+            <div class="field-label">SignalK Path</div>
+            <div class="path-display">navigation.speedOverGround</div>
+
+            <div class="live-value-row">
+              <span class="lv-dot"></span>
+              <span class="lv-value">4.5 kn</span>
+              <span class="bound-chip"><span class="dot"></span>bound</span>
+            </div>
+
+            <a class="change-link">Change binding</a>
+
+          </div>
+        </div>
+
+        <!-- Display section -->
+        <div class="insp-section">
+          <div class="insp-section-header">
+            <svg class="insp-chevron open" width="10" height="10" viewBox="0 0 10 10" fill="none">
+              <path d="M3.5 2L6.5 5L3.5 8" stroke="currentColor" stroke-width="1.3" stroke-linecap="round" stroke-linejoin="round"/>
+            </svg>
+            <span class="insp-section-label" style="color:var(--ink-dim)">Display</span>
+          </div>
+          <div class="insp-section-body">
+            <div class="field-row">
+              <span class="field-label">Unit</span>
+              <select class="field-select"><option>kn</option><option>m/s</option></select>
+            </div>
+            <div class="field-row">
+              <span class="field-label">Decimals</span>
+              <input class="field-input" type="number" value="1" min="0" max="3">
+            </div>
+            <div class="field-row">
+              <span class="field-label">Label</span>
+              <input class="field-input" type="text" value="SOG">
+            </div>
+          </div>
+        </div>
+
+        <!-- Layout section -->
+        <div class="insp-section">
+          <div class="insp-section-header">
+            <svg class="insp-chevron open" width="10" height="10" viewBox="0 0 10 10" fill="none">
+              <path d="M3.5 2L6.5 5L3.5 8" stroke="currentColor" stroke-width="1.3" stroke-linecap="round" stroke-linejoin="round"/>
+            </svg>
+            <span class="insp-section-label" style="color:var(--ink-dim)">Layout</span>
+          </div>
+          <div class="insp-section-body">
+            <div class="field-row">
+              <span class="field-label">Span</span>
+              <span style="font-family:'JetBrains Mono',monospace;font-size:11px;color:var(--ink-dim)">1 × 1</span>
+            </div>
+          </div>
+        </div>
+
+        <!-- Path info callout -->
+        <div style="padding: 8px 12px 12px;">
+          <div class="path-callout">
+            <div class="path-callout-title">Path Info</div>
+            <div class="path-meta-row">
+              <span class="path-meta-key">Path</span>
+              <span class="path-meta-val">navigation.speedOverGround</span>
+            </div>
+            <div class="path-meta-row">
+              <span class="path-meta-key">Unit</span>
+              <span class="path-meta-val">m/s <span class="arrow">→</span> kn</span>
+            </div>
+            <div class="path-meta-row">
+              <span class="path-meta-key">Update</span>
+              <span class="path-meta-val">~1 Hz</span>
+            </div>
+            <div class="path-meta-row">
+              <span class="path-meta-key">Source</span>
+              <span class="path-meta-val">SignalK · nmea0183</span>
+            </div>
+          </div>
+        </div>
+
+      </div><!-- /inspector-body -->
+    </aside>
+
+  </div><!-- /body -->
+
+  <!-- ══════════ STATUS BAR ══════════ -->
+  <footer class="statusbar">
+
+    <div class="status-check">
+      <svg width="13" height="13" viewBox="0 0 13 13" fill="none">
+        <circle cx="6.5" cy="6.5" r="5.5" stroke="currentColor" stroke-width="1.2"/>
+        <path d="M4 6.5L5.8 8.3L9 5" stroke="currentColor" stroke-width="1.3" stroke-linecap="round" stroke-linejoin="round"/>
+      </svg>
+      Valid for square-480
+    </div>
+
+    <div class="status-sep"></div>
+
+    <span class="status-chip chip-struct">structural ✓</span>
+    <span class="status-chip chip-semantic">semantic ✓</span>
+    <span class="status-chip chip-cap">capability ✓</span>
+
+    <div class="autosaved">
+      <svg width="12" height="12" viewBox="0 0 12 12" fill="none">
+        <path d="M2 6.5L4.5 9L10 3" stroke="currentColor" stroke-width="1.4" stroke-linecap="round" stroke-linejoin="round"/>
+      </svg>
+      Autosaved
+    </div>
+
+  </footer>
+
+</div><!-- /app -->
+</body>
+</html>

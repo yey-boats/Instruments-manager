@@ -1,0 +1,989 @@
+<!-- @dsCard group="Yey Boats Instruments — Manager" name="Dashboard Builder — v1 Definition" subtitle="Manager-embedded editor: goals, panes, flow, gap table" viewport="1240x900" -->
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1.0" />
+<title>Dashboard Builder — v1 Definition</title>
+<style>
+@import url('https://fonts.googleapis.com/css2?family=Montserrat:wght@400;500;600;700&family=JetBrains+Mono:wght@400;500&display=swap');
+:root {
+  --bg: #0a121c;
+  --surface: #0e1825;
+  --surface2: #0c1521;
+  --elev: #12202f;
+  --line: #1d2b3a;
+  --line2: #24364a;
+  --ink: #cbd6e2;
+  --ink-dim: #8aa0b4;
+  --ink-faint: #5b7286;
+  --ink-bright: #eef4fb;
+  --accent: #57c7d8;
+  --online: oklch(0.72 0.15 155);
+  --drift: oklch(0.80 0.13 75);
+  --danger: oklch(0.64 0.19 25);
+  --new: oklch(0.74 0.13 300);
+}
+
+*, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+
+body {
+  background: var(--bg);
+  color: var(--ink);
+  font-family: 'Montserrat', sans-serif;
+  font-size: 14px;
+  line-height: 1.65;
+  min-height: 900px;
+}
+
+.page {
+  max-width: 1200px;
+  margin: 0 auto;
+  padding: 48px 40px 80px;
+}
+
+/* ── Hero ── */
+.hero {
+  border-bottom: 1px solid var(--line);
+  padding-bottom: 36px;
+  margin-bottom: 52px;
+}
+
+.hero-eyebrow {
+  font-family: 'JetBrains Mono', monospace;
+  font-size: 11px;
+  font-weight: 500;
+  color: var(--accent);
+  letter-spacing: 0.12em;
+  text-transform: uppercase;
+  margin-bottom: 14px;
+}
+
+.hero h1 {
+  font-size: 34px;
+  font-weight: 700;
+  color: var(--ink-bright);
+  letter-spacing: -0.02em;
+  line-height: 1.2;
+  margin-bottom: 10px;
+}
+
+.hero-subtitle {
+  font-size: 16px;
+  font-weight: 400;
+  color: var(--ink-dim);
+  max-width: 640px;
+}
+
+.hero-meta {
+  display: flex;
+  gap: 24px;
+  margin-top: 22px;
+  flex-wrap: wrap;
+}
+
+.meta-chip {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  font-size: 12px;
+  font-weight: 500;
+  color: var(--ink-dim);
+  background: var(--elev);
+  border: 1px solid var(--line);
+  border-radius: 6px;
+  padding: 4px 10px;
+}
+
+.meta-chip .dot {
+  width: 6px;
+  height: 6px;
+  border-radius: 50%;
+  background: var(--accent);
+}
+
+/* ── Section ── */
+section {
+  margin-bottom: 52px;
+}
+
+.section-label {
+  font-family: 'JetBrains Mono', monospace;
+  font-size: 10px;
+  font-weight: 500;
+  color: var(--ink-faint);
+  letter-spacing: 0.14em;
+  text-transform: uppercase;
+  margin-bottom: 8px;
+}
+
+.section-heading {
+  font-size: 20px;
+  font-weight: 700;
+  color: var(--ink-bright);
+  margin-bottom: 20px;
+  letter-spacing: -0.01em;
+}
+
+/* ── Goals ── */
+.goals-grid {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 12px;
+}
+
+.goal-item {
+  display: flex;
+  align-items: flex-start;
+  gap: 12px;
+  background: var(--surface);
+  border: 1px solid var(--line);
+  border-radius: 10px;
+  padding: 16px 18px;
+}
+
+.goal-icon {
+  width: 28px;
+  height: 28px;
+  border-radius: 7px;
+  background: color-mix(in srgb, var(--accent) 12%, transparent);
+  border: 1px solid color-mix(in srgb, var(--accent) 25%, transparent);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  flex-shrink: 0;
+  font-size: 13px;
+}
+
+.goal-text {
+  font-size: 13.5px;
+  color: var(--ink);
+  padding-top: 3px;
+}
+
+/* ── Callout ── */
+.callout {
+  border-left: 3px solid var(--accent);
+  background: var(--elev);
+  border-radius: 0 10px 10px 0;
+  padding: 20px 24px;
+  margin-bottom: 0;
+}
+
+.callout-title {
+  font-size: 12px;
+  font-weight: 700;
+  color: var(--accent);
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+  margin-bottom: 8px;
+}
+
+.callout p {
+  font-size: 13.5px;
+  color: var(--ink);
+  line-height: 1.7;
+}
+
+.callout p + p {
+  margin-top: 10px;
+}
+
+.mono {
+  font-family: 'JetBrains Mono', monospace;
+  color: var(--accent);
+  font-size: 12.5px;
+}
+
+/* ── Author model layout ── */
+.author-model {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 20px;
+  align-items: start;
+}
+
+.author-prose {
+  font-size: 13.5px;
+  color: var(--ink);
+  line-height: 1.75;
+}
+
+.author-prose p + p {
+  margin-top: 12px;
+}
+
+/* ── Pane cards ── */
+.panes-grid {
+  display: grid;
+  grid-template-columns: repeat(3, 1fr);
+  gap: 16px;
+}
+
+.pane-card {
+  background: var(--surface);
+  border: 1px solid var(--line);
+  border-radius: 12px;
+  overflow: hidden;
+}
+
+.pane-card-header {
+  padding: 16px 20px 14px;
+  border-bottom: 1px solid var(--line);
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 10px;
+}
+
+.pane-card-name {
+  font-size: 13px;
+  font-weight: 700;
+  color: var(--ink-bright);
+  letter-spacing: 0.01em;
+}
+
+.pane-badge {
+  font-family: 'JetBrains Mono', monospace;
+  font-size: 10px;
+  font-weight: 500;
+  color: var(--ink-faint);
+  background: var(--elev);
+  border: 1px solid var(--line);
+  border-radius: 4px;
+  padding: 2px 7px;
+  white-space: nowrap;
+}
+
+.pane-card-body {
+  padding: 18px 20px;
+}
+
+.pane-desc {
+  font-size: 12.5px;
+  color: var(--ink-dim);
+  margin-bottom: 14px;
+  line-height: 1.65;
+}
+
+.pane-item-list {
+  list-style: none;
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+
+.pane-item-list li {
+  display: flex;
+  align-items: baseline;
+  gap: 8px;
+  font-size: 12.5px;
+  color: var(--ink);
+}
+
+.pane-item-list li::before {
+  content: '·';
+  color: var(--accent);
+  font-weight: 700;
+  flex-shrink: 0;
+}
+
+.pane-item-list .sub-note {
+  font-family: 'JetBrains Mono', monospace;
+  font-size: 11px;
+  color: var(--ink-faint);
+}
+
+.pane-tab-row {
+  display: flex;
+  gap: 6px;
+  margin-bottom: 14px;
+}
+
+.pane-tab {
+  font-size: 11px;
+  font-weight: 600;
+  padding: 4px 10px;
+  border-radius: 5px;
+  border: 1px solid var(--line2);
+  color: var(--ink-dim);
+  background: var(--surface2);
+}
+
+.pane-tab.active {
+  color: var(--accent);
+  background: color-mix(in srgb, var(--accent) 10%, transparent);
+  border-color: color-mix(in srgb, var(--accent) 30%, transparent);
+}
+
+/* ── Top bar section ── */
+.topbar-card {
+  background: var(--surface);
+  border: 1px solid var(--line);
+  border-radius: 12px;
+  overflow: hidden;
+}
+
+.topbar-mockup {
+  background: var(--surface2);
+  border-bottom: 1px solid var(--line);
+  padding: 10px 20px;
+  display: flex;
+  align-items: center;
+  gap: 16px;
+  flex-wrap: wrap;
+}
+
+.tb-logo {
+  font-family: 'JetBrains Mono', monospace;
+  font-size: 12px;
+  font-weight: 500;
+  color: var(--accent);
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+  border-right: 1px solid var(--line2);
+  padding-right: 16px;
+}
+
+.tb-dropdown {
+  display: flex;
+  align-items: center;
+  gap: 7px;
+  font-size: 12px;
+  color: var(--ink);
+  background: var(--elev);
+  border: 1px solid var(--line2);
+  border-radius: 6px;
+  padding: 5px 10px;
+}
+
+.tb-dropdown .caret {
+  color: var(--ink-faint);
+  font-size: 9px;
+}
+
+.tb-device-class {
+  font-family: 'JetBrains Mono', monospace;
+  font-size: 11px;
+  color: var(--ink-dim);
+}
+
+.tb-spacer {
+  flex: 1;
+}
+
+.tb-toggle {
+  display: flex;
+  border: 1px solid var(--line2);
+  border-radius: 6px;
+  overflow: hidden;
+}
+
+.tb-toggle-btn {
+  font-size: 11px;
+  font-weight: 600;
+  padding: 5px 12px;
+  color: var(--ink-dim);
+  background: var(--elev);
+}
+
+.tb-toggle-btn.active {
+  color: var(--ink-bright);
+  background: var(--line2);
+}
+
+.tb-push-btn {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  font-size: 12px;
+  font-weight: 700;
+  color: var(--bg);
+  background: var(--accent);
+  border-radius: 6px;
+  padding: 6px 14px;
+  letter-spacing: 0.01em;
+}
+
+.tb-push-btn .split {
+  border-left: 1px solid color-mix(in srgb, var(--bg) 30%, transparent);
+  padding-left: 8px;
+  font-size: 10px;
+}
+
+.topbar-notes {
+  padding: 18px 20px;
+  display: grid;
+  grid-template-columns: repeat(4, 1fr);
+  gap: 16px;
+}
+
+.topbar-note-item {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+}
+
+.tn-label {
+  font-size: 10px;
+  font-weight: 700;
+  color: var(--ink-faint);
+  letter-spacing: 0.1em;
+  text-transform: uppercase;
+}
+
+.tn-value {
+  font-size: 12.5px;
+  color: var(--ink);
+}
+
+/* ── Push flow ── */
+.flow-steps {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  position: relative;
+}
+
+.flow-step {
+  display: flex;
+  align-items: flex-start;
+  gap: 16px;
+  background: var(--surface);
+  border: 1px solid var(--line);
+  border-radius: 10px;
+  padding: 16px 20px;
+  position: relative;
+}
+
+.flow-step + .flow-step {
+  margin-top: 4px;
+}
+
+.step-num {
+  width: 28px;
+  height: 28px;
+  border-radius: 50%;
+  background: color-mix(in srgb, var(--accent) 12%, transparent);
+  border: 1.5px solid color-mix(in srgb, var(--accent) 35%, transparent);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  font-size: 12px;
+  font-weight: 700;
+  color: var(--accent);
+  flex-shrink: 0;
+}
+
+.step-num.done {
+  background: color-mix(in srgb, var(--online) 12%, transparent);
+  border-color: color-mix(in srgb, var(--online) 35%, transparent);
+  color: var(--online);
+}
+
+.step-body {
+  flex: 1;
+  padding-top: 3px;
+}
+
+.step-title {
+  font-size: 13.5px;
+  font-weight: 600;
+  color: var(--ink-bright);
+  margin-bottom: 3px;
+}
+
+.step-detail {
+  font-size: 12.5px;
+  color: var(--ink-dim);
+  line-height: 1.6;
+}
+
+.step-badge {
+  font-size: 11px;
+  font-weight: 600;
+  padding: 2px 9px;
+  border-radius: 99px;
+  margin-left: 8px;
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+}
+
+.badge-validate {
+  color: var(--drift);
+  background: color-mix(in srgb, var(--drift) 12%, transparent);
+}
+
+.badge-push {
+  color: var(--accent);
+  background: color-mix(in srgb, var(--accent) 12%, transparent);
+}
+
+.badge-confirm {
+  color: var(--new);
+  background: color-mix(in srgb, var(--new) 12%, transparent);
+}
+
+.badge-ok {
+  color: var(--online);
+  background: color-mix(in srgb, var(--online) 12%, transparent);
+}
+
+/* ── Gap Table ── */
+.gap-table {
+  width: 100%;
+  border-collapse: collapse;
+  border-spacing: 0;
+  border-radius: 12px;
+  overflow: hidden;
+  border: 1px solid var(--line);
+}
+
+.gap-table thead tr {
+  background: var(--elev);
+}
+
+.gap-table thead th {
+  font-size: 11px;
+  font-weight: 700;
+  color: var(--ink-faint);
+  letter-spacing: 0.1em;
+  text-transform: uppercase;
+  text-align: left;
+  padding: 12px 20px;
+  border-bottom: 1px solid var(--line2);
+}
+
+.gap-table thead th:first-child {
+  width: 38%;
+}
+
+.gap-table thead th:nth-child(2),
+.gap-table thead th:nth-child(3) {
+  width: 31%;
+}
+
+.gap-table tbody tr:nth-child(odd) {
+  background: var(--surface);
+}
+
+.gap-table tbody tr:nth-child(even) {
+  background: var(--surface2);
+}
+
+.gap-table tbody td {
+  padding: 12px 20px;
+  font-size: 13px;
+  color: var(--ink);
+  border-bottom: 1px solid var(--line);
+  vertical-align: middle;
+}
+
+.gap-table tbody tr:last-child td {
+  border-bottom: none;
+}
+
+.gap-table .feature-name {
+  font-weight: 500;
+  color: var(--ink-bright);
+}
+
+.check-pill {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  font-size: 12px;
+  font-weight: 600;
+  color: var(--online);
+}
+
+.check-pill::before {
+  content: '✓';
+  font-size: 13px;
+}
+
+.deferred-pill {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  font-size: 12px;
+  font-weight: 500;
+  color: var(--ink-faint);
+}
+
+.deferred-pill::before {
+  content: '—';
+  font-size: 13px;
+}
+
+.full-note {
+  font-size: 12px;
+  color: var(--ink-dim);
+}
+
+.same-chip {
+  font-family: 'JetBrains Mono', monospace;
+  font-size: 11px;
+  color: var(--ink-faint);
+  background: var(--elev);
+  border: 1px solid var(--line);
+  border-radius: 4px;
+  padding: 1px 6px;
+}
+
+/* ── Divider ── */
+.divider {
+  height: 1px;
+  background: var(--line);
+  margin: 48px 0;
+}
+
+/* ── Footnote ── */
+.footnote {
+  font-size: 11.5px;
+  color: var(--ink-faint);
+  border-top: 1px solid var(--line);
+  padding-top: 24px;
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 10px;
+}
+
+.footnote .mono {
+  font-size: 11px;
+}
+</style>
+</head>
+<body>
+<div class="page">
+
+  <!-- ── Hero ── -->
+  <header class="hero">
+    <div class="hero-eyebrow">Yey Boats Instruments — Manager · Spec Document</div>
+    <h1>Dashboard Builder — v1 Definition</h1>
+    <p class="hero-subtitle">Manager-embedded visual editor for MIDL tile layouts — goals, panes, flow, and gap analysis</p>
+    <div class="hero-meta">
+      <span class="meta-chip"><span class="dot"></span>Manager App — Embedded Editor</span>
+      <span class="meta-chip"><span class="dot"></span>v1 Scope</span>
+      <span class="meta-chip"><span class="dot"></span>MIDL Config Authoring</span>
+      <span class="meta-chip"><span class="dot"></span>SignalK Binding</span>
+    </div>
+  </header>
+
+  <!-- ── Goals ── -->
+  <section>
+    <div class="section-label">01 — Goals</div>
+    <h2 class="section-heading">What the Builder Must Achieve</h2>
+    <div class="goals-grid">
+      <div class="goal-item">
+        <div class="goal-icon">⬡</div>
+        <div class="goal-text">Author MIDL tile configurations visually inside the Manager app — no hand-editing of JSON files required.</div>
+      </div>
+      <div class="goal-item">
+        <div class="goal-icon">⬡</div>
+        <div class="goal-text">Bind SignalK paths to tiles via a live data tree — point-and-click path selection with live value preview.</div>
+      </div>
+      <div class="goal-item">
+        <div class="goal-icon">⬡</div>
+        <div class="goal-text">Validate authored configs against the device manifest schema before any push — structural, semantic, and capability checks.</div>
+      </div>
+      <div class="goal-item">
+        <div class="goal-icon">⬡</div>
+        <div class="goal-text">Push the validated MIDL config directly to a selected device — the device pulls and re-renders immediately.</div>
+      </div>
+    </div>
+  </section>
+
+  <!-- ── Generic Author Model ── -->
+  <section>
+    <div class="section-label">02 — Authoring Model</div>
+    <h2 class="section-heading">Generic-Author, Device-at-Push</h2>
+    <div class="author-model">
+      <div class="author-prose">
+        <p>Dashboards are authored <strong style="color:var(--ink-bright)">generically</strong> — not device-first. The Builder works with a MIDL config that describes tile types, bindings, layout, and properties without being tied to a specific physical unit.</p>
+        <p>A device is selected only as the <strong style="color:var(--ink-bright)">push destination</strong>. When you click "Push to device", you choose which connected instrument receives the config. The device class drives the manifest, which constrains which tile types are structurally valid and what properties each tile may carry.</p>
+        <p>The device renders whatever valid MIDL it receives — the Builder's job is to guarantee that validity before delivery. This separation keeps authored configs portable across multiple units of the same class.</p>
+      </div>
+      <div class="callout">
+        <div class="callout-title">Key Invariant</div>
+        <p>The Builder never stores a device serial number inside a config file. The config describes <span class="mono">layout + tile-type + signalK-path + display-props</span>. The physical target is supplied only at push time.</p>
+        <p>Manifest/schema is loaded by device <em>class</em> (e.g. <span class="mono">esp32-4848s040 · square-480</span>), not by serial. Multiple devices of the same class share one schema.</p>
+      </div>
+    </div>
+  </section>
+
+  <div class="divider"></div>
+
+  <!-- ── V1 Panes ── -->
+  <section>
+    <div class="section-label">03 — V1 Panes</div>
+    <h2 class="section-heading">Editor Layout — Three Panes</h2>
+    <div class="panes-grid">
+
+      <!-- Left Rail -->
+      <div class="pane-card">
+        <div class="pane-card-header">
+          <div class="pane-card-name">Left Rail</div>
+          <span class="pane-badge">210 px</span>
+        </div>
+        <div class="pane-card-body">
+          <div class="pane-tab-row">
+            <span class="pane-tab active">Elements</span>
+            <span class="pane-tab">Data</span>
+          </div>
+          <p class="pane-desc"><strong>Elements tab</strong> — palette of tile types sourced from the loaded manifest. Drag or click-to-insert.</p>
+          <ul class="pane-item-list">
+            <li>Single-Value <span class="sub-note">basic readout</span></li>
+            <li>Hero <span class="sub-note">large primary value</span></li>
+            <li>Compass <span class="sub-note">bearing ring</span></li>
+            <li>Wind Rose <span class="sub-note">apparent / true wind</span></li>
+            <li>Gauge / Bar <span class="sub-note">range indicator</span></li>
+            <li>Trend <span class="sub-note">sparkline history</span></li>
+            <li>Autopilot <span class="sub-note">AP control tile</span></li>
+            <li>Button <span class="sub-note">momentary action</span></li>
+          </ul>
+          <p class="pane-desc" style="margin-top:14px"><strong>Data tab</strong> — live SignalK path tree with streaming values. Click a path to bind it to the selected tile.</p>
+        </div>
+      </div>
+
+      <!-- Center Canvas -->
+      <div class="pane-card">
+        <div class="pane-card-header">
+          <div class="pane-card-name">Center Canvas</div>
+          <span class="pane-badge">flex</span>
+        </div>
+        <div class="pane-card-body">
+          <p class="pane-desc">Device frame rendered at true resolution with a visual grid overlay. Selection handles appear on the active tile.</p>
+          <ul class="pane-item-list">
+            <li>Device frame at true px resolution <span class="sub-note">480×480 for square-480</span></li>
+            <li>Grid cells aligned to tile budget</li>
+            <li>Selection handles on active cell</li>
+            <li>Tile budget indicator <span class="sub-note" style="color:var(--accent)">480×480 · 3/4 tiles</span></li>
+            <li>Add cell / remove cell controls</li>
+            <li>SVG live preview rendered by midl renderer</li>
+          </ul>
+          <div class="callout" style="margin-top:16px; padding:12px 16px">
+            <div class="callout-title" style="font-size:10px">V1 constraint</div>
+            <p style="font-size:12px">Tile placement via grid cells only. Free drag-drop canvas is deferred to Full.</p>
+          </div>
+        </div>
+      </div>
+
+      <!-- Right Inspector -->
+      <div class="pane-card">
+        <div class="pane-card-header">
+          <div class="pane-card-name">Right Inspector</div>
+          <span class="pane-badge">220 px</span>
+        </div>
+        <div class="pane-card-body">
+          <p class="pane-desc">Selected tile's MIDL properties. All fields map 1-to-1 to MIDL schema properties.</p>
+          <ul class="pane-item-list">
+            <li>Type <span class="sub-note">tile type selector</span></li>
+            <li>Binding <span class="sub-note mono">vessels.self.navigation.speedOverGround</span></li>
+            <li>Live value preview <span class="sub-note">current SignalK value</span></li>
+            <li>Unit <span class="sub-note">e.g. kn, °, m/s</span></li>
+            <li>Decimals <span class="sub-note">display precision</span></li>
+            <li>Span <span class="sub-note">tile grid span 1–4</span></li>
+            <li>Sided <span class="sub-note">port / stbd / both</span></li>
+            <li>Color <span class="sub-note">theme override or auto</span></li>
+          </ul>
+        </div>
+      </div>
+
+    </div>
+  </section>
+
+  <!-- ── Top Bar ── -->
+  <section>
+    <div class="section-label">04 — Top Bar</div>
+    <h2 class="section-heading">Editor Controls</h2>
+    <div class="topbar-card">
+      <div class="topbar-mockup">
+        <div class="tb-logo">YEY · Builder</div>
+        <div class="tb-dropdown">
+          <span class="tb-device-class">esp32-4848s040 · square-480</span>
+          <span class="caret">▾</span>
+        </div>
+        <div class="tb-spacer"></div>
+        <div class="tb-toggle">
+          <span class="tb-toggle-btn active">Visual</span>
+          <span class="tb-toggle-btn">Source</span>
+        </div>
+        <div class="tb-push-btn">
+          Push to device
+          <span class="split">▾</span>
+        </div>
+      </div>
+      <div class="topbar-notes">
+        <div class="topbar-note-item">
+          <span class="tn-label">Logo area</span>
+          <span class="tn-value">App branding + Builder context label</span>
+        </div>
+        <div class="topbar-note-item">
+          <span class="tn-label">Device-class dropdown</span>
+          <span class="tn-value">Loads layout schema; constrains valid tile types and grid config</span>
+        </div>
+        <div class="topbar-note-item">
+          <span class="tn-label">Source / Visual toggle</span>
+          <span class="tn-value">Switch between raw MIDL text editor and visual canvas mode</span>
+        </div>
+        <div class="topbar-note-item">
+          <span class="tn-label">Push to device ▾</span>
+          <span class="tn-value">Primary v1 action — replaces "Publish". Dropdown selects the target device by serial + friendly name</span>
+        </div>
+      </div>
+    </div>
+  </section>
+
+  <div class="divider"></div>
+
+  <!-- ── Validation + Push Flow ── -->
+  <section>
+    <div class="section-label">05 — Validation + Push Flow</div>
+    <h2 class="section-heading">From Authoring to Device Render</h2>
+    <div class="flow-steps">
+
+      <div class="flow-step">
+        <div class="step-num">1</div>
+        <div class="step-body">
+          <div class="step-title">Author tiles in Visual mode or Source mode</div>
+          <div class="step-detail">Place tiles on the grid canvas, set type and SignalK binding via the Inspector, or edit MIDL text directly in Source mode. Both modes stay in sync.</div>
+        </div>
+      </div>
+
+      <div class="flow-step">
+        <div class="step-num">2</div>
+        <div class="step-body">
+          <div class="step-title">
+            Validation runs continuously
+            <span class="step-badge badge-validate">Live</span>
+          </div>
+          <div class="step-detail">Three layers checked on every edit: <strong>structural</strong> (valid MIDL schema), <strong>semantic</strong> (paths exist in current SignalK stream), <strong>capability</strong> (tile type is supported by the selected device class manifest). Errors surface inline.</div>
+        </div>
+      </div>
+
+      <div class="flow-step">
+        <div class="step-num">3</div>
+        <div class="step-body">
+          <div class="step-title">
+            Select push destination
+            <span class="step-badge badge-push">Target</span>
+          </div>
+          <div class="step-detail">Click the "Push to device ▾" dropdown to choose a connected device by serial number and friendly name. Only online devices are listed.</div>
+        </div>
+      </div>
+
+      <div class="flow-step">
+        <div class="step-num">4</div>
+        <div class="step-body">
+          <div class="step-title">
+            Confirm diff and push
+            <span class="step-badge badge-confirm">Diff</span>
+          </div>
+          <div class="step-detail">A summary dialog shows the change count, e.g. <span class="mono">"3 tiles change, 1 tile added"</span>. Confirm to transmit the validated MIDL payload to the device.</div>
+        </div>
+      </div>
+
+      <div class="flow-step">
+        <div class="step-num">5</div>
+        <div class="step-body">
+          <div class="step-title">Device pulls new config and re-renders</div>
+          <div class="step-detail">The firmware receives the new MIDL config, parses it, and re-renders the display using the existing tile renderer pipeline. No firmware update required.</div>
+        </div>
+      </div>
+
+      <div class="flow-step">
+        <div class="step-num done">✓</div>
+        <div class="step-body">
+          <div class="step-title">
+            Status confirmed
+            <span class="step-badge badge-ok">Pushed</span>
+          </div>
+          <div class="step-detail">Manager receives acknowledgement from the device. Status banner shows: <span class="mono" style="color:var(--online)">✓ Pushed — device pulled config</span>. Autosave records the pushed config locally.</div>
+        </div>
+      </div>
+
+    </div>
+  </section>
+
+  <div class="divider"></div>
+
+  <!-- ── Gap Table ── -->
+  <section>
+    <div class="section-label">06 — Gap Analysis</div>
+    <h2 class="section-heading">V1 vs Full — Feature Gap Table</h2>
+    <table class="gap-table">
+      <thead>
+        <tr>
+          <th>Feature</th>
+          <th>V1</th>
+          <th>Full / Deferred</th>
+        </tr>
+      </thead>
+      <tbody>
+        <tr>
+          <td class="feature-name">Visual tile placement</td>
+          <td><span class="check-pill">Grid cell placement</span></td>
+          <td><span class="full-note">Free drag-drop canvas with pixel positioning</span></td>
+        </tr>
+        <tr>
+          <td class="feature-name">Tile resize</td>
+          <td><span class="check-pill">Span config in Inspector</span></td>
+          <td><span class="full-note">Drag handles on canvas edges</span></td>
+        </tr>
+        <tr>
+          <td class="feature-name">Multi-screen / pages</td>
+          <td><span class="deferred-pill">Deferred</span></td>
+          <td><span class="full-note">Screen rail for multi-page dashboard authoring</span></td>
+        </tr>
+        <tr>
+          <td class="feature-name">Live value injection in canvas</td>
+          <td><span class="deferred-pill">Deferred</span></td>
+          <td><span class="full-note">Live SignalK value overlay rendered directly in canvas tiles</span></td>
+        </tr>
+        <tr>
+          <td class="feature-name">Per-class device variants</td>
+          <td><span class="deferred-pill">Deferred</span></td>
+          <td><span class="full-note">Variant picker per device class (e.g. round vs. square frame)</span></td>
+        </tr>
+        <tr>
+          <td class="feature-name">Cloud publish</td>
+          <td><span class="deferred-pill">Deferred</span></td>
+          <td><span class="full-note">Publish to fleet config store for OTA distribution</span></td>
+        </tr>
+        <tr>
+          <td class="feature-name">Source (MIDL text) mode</td>
+          <td><span class="check-pill">Included</span></td>
+          <td><span class="same-chip">same</span></td>
+        </tr>
+        <tr>
+          <td class="feature-name">SVG live preview</td>
+          <td><span class="check-pill">Live renderer in canvas</span></td>
+          <td><span class="same-chip">same</span></td>
+        </tr>
+        <tr>
+          <td class="feature-name">Push to device</td>
+          <td><span class="check-pill">v1 publish action</span></td>
+          <td><span class="same-chip">same</span></td>
+        </tr>
+        <tr>
+          <td class="feature-name">Autosave</td>
+          <td><span class="check-pill">Local autosave on edit</span></td>
+          <td><span class="same-chip">same</span></td>
+        </tr>
+      </tbody>
+    </table>
+  </section>
+
+  <!-- ── Footnote ── -->
+  <footer class="footnote">
+    <span>Yey Boats — Manager · Dashboard Builder Spec · v1</span>
+    <span class="mono">builder-v1-definition.html</span>
+  </footer>
+
+</div>
+</body>
+</html>

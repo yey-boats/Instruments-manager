@@ -1,0 +1,1056 @@
+<!-- @dsCard group="Yey Boats Instruments — Manager" name="Dashboard Builder — Push to Device" subtitle="Device picker, diff confirm, push success states" viewport="1000x720" -->
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=1000">
+<title>Dashboard Builder — Push to Device</title>
+<style>
+@import url('https://fonts.googleapis.com/css2?family=Montserrat:wght@400;500;600;700&family=JetBrains+Mono:wght@400;500&display=swap');
+:root {
+  --bg: #0a121c;
+  --surface: #0e1825;
+  --surface2: #0c1521;
+  --elev: #12202f;
+  --line: #1d2b3a;
+  --line2: #24364a;
+  --ink: #cbd6e2;
+  --ink-dim: #8aa0b4;
+  --ink-faint: #5b7286;
+  --ink-bright: #eef4fb;
+  --accent: #57c7d8;
+  --online: oklch(0.72 0.15 155);
+  --drift: oklch(0.80 0.13 75);
+  --danger: oklch(0.64 0.19 25);
+  --new: oklch(0.74 0.13 300);
+}
+
+*, *::before, *::after {
+  box-sizing: border-box;
+  margin: 0;
+  padding: 0;
+}
+
+html, body {
+  width: 1000px;
+  min-height: 720px;
+  background: var(--bg);
+  font-family: 'Montserrat', sans-serif;
+  color: var(--ink);
+  overflow-x: hidden;
+}
+
+/* ── Background grid hint (faint editor context) ── */
+.bg-grid {
+  position: fixed;
+  inset: 0;
+  pointer-events: none;
+  z-index: 0;
+  opacity: 0.055;
+  display: grid;
+  grid-template-columns: 1fr 1fr 1fr;
+  gap: 1px;
+  background: var(--line);
+}
+.bg-grid-col {
+  background: var(--surface2);
+}
+
+/* ── Editor toolbar (faint context bar) ── */
+.toolbar {
+  position: relative;
+  z-index: 10;
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  padding: 0 24px;
+  height: 44px;
+  background: var(--surface2);
+  border-bottom: 1px solid var(--line);
+  opacity: 0.72;
+}
+
+.toolbar-logo {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  font-family: 'Montserrat', sans-serif;
+  font-weight: 700;
+  font-size: 13px;
+  color: var(--ink-bright);
+  letter-spacing: 0.04em;
+}
+
+.toolbar-logo-mark {
+  width: 22px;
+  height: 22px;
+  border-radius: 6px;
+  background: linear-gradient(135deg, var(--accent) 0%, oklch(0.60 0.18 200) 100%);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+}
+
+.toolbar-logo-mark svg {
+  width: 12px;
+  height: 12px;
+  fill: #0a121c;
+}
+
+.toolbar-sep {
+  width: 1px;
+  height: 20px;
+  background: var(--line2);
+  margin: 0 4px;
+}
+
+.toolbar-file {
+  font-size: 12px;
+  color: var(--ink-dim);
+  font-weight: 500;
+}
+
+.toolbar-device-chip {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  padding: 3px 10px 3px 7px;
+  border-radius: 20px;
+  border: 1px solid var(--line2);
+  background: var(--elev);
+  font-size: 11px;
+  color: var(--ink-dim);
+  font-family: 'JetBrains Mono', monospace;
+}
+
+.online-dot {
+  width: 6px;
+  height: 6px;
+  border-radius: 50%;
+  background: var(--online);
+  box-shadow: 0 0 5px var(--online);
+  animation: pulse-dot 2.4s ease-in-out infinite;
+}
+
+@keyframes pulse-dot {
+  0%, 100% { opacity: 1; box-shadow: 0 0 5px var(--online); }
+  50% { opacity: 0.6; box-shadow: 0 0 2px var(--online); }
+}
+
+.toolbar-spacer { flex: 1; }
+
+.toolbar-tabs {
+  display: flex;
+  gap: 2px;
+}
+
+.toolbar-tab {
+  padding: 4px 12px;
+  font-size: 11px;
+  color: var(--ink-faint);
+  border-radius: 6px;
+  font-weight: 500;
+}
+
+.toolbar-tab.active {
+  color: var(--ink);
+  background: var(--elev);
+}
+
+.toolbar-push-btn {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  padding: 5px 14px;
+  border-radius: 8px;
+  background: var(--accent);
+  color: #071018;
+  font-size: 12px;
+  font-weight: 700;
+  font-family: 'Montserrat', sans-serif;
+  letter-spacing: 0.03em;
+  border: none;
+  box-shadow: 0 0 14px color-mix(in srgb, var(--accent) 35%, transparent);
+  cursor: default;
+}
+
+.toolbar-push-btn svg {
+  width: 12px;
+  height: 12px;
+  fill: #071018;
+}
+
+/* ── Main content ── */
+.main {
+  position: relative;
+  z-index: 10;
+  padding: 32px 24px 28px;
+}
+
+/* ── Flow header ── */
+.flow-header {
+  text-align: center;
+  margin-bottom: 28px;
+}
+
+.flow-title {
+  font-size: 11px;
+  font-weight: 600;
+  letter-spacing: 0.12em;
+  text-transform: uppercase;
+  color: var(--ink-faint);
+  margin-bottom: 4px;
+}
+
+/* ── Step track ── */
+.step-track {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 0;
+  margin-bottom: 10px;
+}
+
+.step-node {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 6px;
+}
+
+.step-badge {
+  width: 28px;
+  height: 28px;
+  border-radius: 50%;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  font-size: 12px;
+  font-weight: 700;
+  font-family: 'Montserrat', sans-serif;
+  border: 2px solid var(--line2);
+  color: var(--ink-faint);
+  background: var(--surface2);
+  transition: all 0.3s;
+}
+
+.step-badge.active {
+  border-color: var(--accent);
+  color: var(--accent);
+  background: color-mix(in srgb, var(--accent) 10%, var(--surface2));
+  box-shadow: 0 0 10px color-mix(in srgb, var(--accent) 25%, transparent);
+}
+
+.step-badge.done {
+  border-color: var(--online);
+  color: #071018;
+  background: var(--online);
+  box-shadow: 0 0 10px color-mix(in srgb, var(--online) 30%, transparent);
+}
+
+.step-label {
+  font-size: 10px;
+  font-weight: 500;
+  color: var(--ink-faint);
+  white-space: nowrap;
+}
+
+.step-label.active {
+  color: var(--ink-dim);
+}
+
+.step-connector {
+  width: 220px;
+  height: 2px;
+  background: var(--line2);
+  position: relative;
+  overflow: hidden;
+  margin-bottom: 22px;
+  flex-shrink: 0;
+}
+
+.step-connector-fill {
+  position: absolute;
+  inset: 0;
+  background: linear-gradient(90deg, var(--accent), oklch(0.60 0.18 200));
+  opacity: 0.4;
+}
+
+/* ── Shimmer animation for arrows ── */
+.shimmer-line {
+  position: relative;
+  overflow: hidden;
+}
+
+.shimmer-line::after {
+  content: '';
+  position: absolute;
+  top: 0;
+  left: -60%;
+  width: 50%;
+  height: 100%;
+  background: linear-gradient(90deg, transparent, rgba(87,199,216,0.7), transparent);
+  animation: shimmer-flow 2.2s ease-in-out infinite;
+}
+
+@keyframes shimmer-flow {
+  0% { left: -60%; }
+  100% { left: 120%; }
+}
+
+/* ── Flow row ── */
+.flow-row {
+  display: flex;
+  align-items: stretch;
+  gap: 0;
+  justify-content: center;
+}
+
+/* ── Panel cards ── */
+.panel {
+  width: 285px;
+  flex-shrink: 0;
+  background: var(--surface);
+  border: 1px solid var(--line);
+  border-radius: 12px;
+  display: flex;
+  flex-direction: column;
+  overflow: hidden;
+}
+
+.panel.success {
+  box-shadow: 0 0 24px oklch(0.72 0.15 155 / 0.2), 0 0 48px oklch(0.72 0.15 155 / 0.08);
+  border-color: color-mix(in srgb, var(--online) 30%, var(--line));
+}
+
+.panel-header {
+  padding: 16px 16px 12px;
+  border-bottom: 1px solid var(--line);
+}
+
+.panel-header-row {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  margin-bottom: 4px;
+}
+
+.panel-title {
+  font-size: 14px;
+  font-weight: 700;
+  color: var(--ink-bright);
+  letter-spacing: -0.01em;
+}
+
+.step-pill {
+  font-size: 10px;
+  font-weight: 600;
+  color: var(--ink-faint);
+  background: var(--elev);
+  border: 1px solid var(--line2);
+  border-radius: 20px;
+  padding: 2px 8px;
+  letter-spacing: 0.04em;
+}
+
+.panel-subtitle {
+  font-size: 11px;
+  color: var(--ink-faint);
+  font-weight: 500;
+}
+
+.panel-body {
+  flex: 1;
+  padding: 12px;
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+
+.panel-footer {
+  padding: 12px;
+  border-top: 1px solid var(--line);
+}
+
+/* ── Device list ── */
+.device-list {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+}
+
+.device-row {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  padding: 9px 10px;
+  border-radius: 8px;
+  border: 1px solid transparent;
+  cursor: default;
+  transition: background 0.15s;
+}
+
+.device-row.selected {
+  background: var(--elev);
+  border-color: var(--line2);
+  border-left: 3px solid var(--accent);
+  padding-left: 8px;
+}
+
+.device-row.unselected {
+  background: var(--surface2);
+  border-color: var(--line);
+  opacity: 0.75;
+}
+
+.device-row-top {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+}
+
+.device-id {
+  font-family: 'JetBrains Mono', monospace;
+  font-size: 11px;
+  font-weight: 500;
+  color: var(--ink);
+  flex: 1;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.device-row.selected .device-id {
+  color: var(--ink-bright);
+}
+
+.dot {
+  width: 7px;
+  height: 7px;
+  border-radius: 50%;
+  flex-shrink: 0;
+}
+
+.dot-online {
+  background: var(--online);
+  box-shadow: 0 0 5px color-mix(in srgb, var(--online) 60%, transparent);
+  animation: pulse-dot 2.4s ease-in-out infinite;
+}
+
+.dot-offline {
+  background: var(--ink-faint);
+}
+
+.device-row-bottom {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.hw-chip {
+  font-size: 10px;
+  font-weight: 500;
+  font-family: 'JetBrains Mono', monospace;
+  color: var(--ink-dim);
+  background: var(--line2);
+  border-radius: 4px;
+  padding: 1px 6px;
+}
+
+.last-push {
+  font-size: 10px;
+  color: var(--ink-faint);
+  font-weight: 500;
+}
+
+/* ── Next button ── */
+.btn-primary {
+  width: 100%;
+  padding: 9px 16px;
+  background: var(--accent);
+  color: #071018;
+  border: none;
+  border-radius: 8px;
+  font-family: 'Montserrat', sans-serif;
+  font-size: 12px;
+  font-weight: 700;
+  letter-spacing: 0.03em;
+  cursor: default;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 6px;
+}
+
+.btn-ghost {
+  padding: 8px 14px;
+  background: transparent;
+  color: var(--ink-dim);
+  border: 1px solid var(--line2);
+  border-radius: 8px;
+  font-family: 'Montserrat', sans-serif;
+  font-size: 12px;
+  font-weight: 600;
+  cursor: default;
+}
+
+.btn-row {
+  display: flex;
+  gap: 8px;
+}
+
+.btn-row .btn-primary {
+  width: auto;
+  flex: 1;
+}
+
+/* ── Diff section ── */
+.diff-summary-row {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  margin-bottom: 4px;
+}
+
+.diff-summary-badge {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  padding: 3px 10px;
+  border-radius: 20px;
+  font-size: 11px;
+  font-weight: 600;
+  background: color-mix(in srgb, var(--drift) 12%, var(--surface2));
+  color: var(--drift);
+  border: 1px solid color-mix(in srgb, var(--drift) 30%, transparent);
+}
+
+.diff-list {
+  display: flex;
+  flex-direction: column;
+  gap: 3px;
+}
+
+.diff-row {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  padding: 7px 9px;
+  border-radius: 6px;
+  background: var(--surface2);
+  border: 1px solid var(--line);
+}
+
+.diff-row-top {
+  display: flex;
+  align-items: center;
+  gap: 7px;
+}
+
+.diff-indicator {
+  width: 8px;
+  height: 8px;
+  border-radius: 2px;
+  flex-shrink: 0;
+}
+
+.diff-indicator.changed {
+  background: var(--drift);
+}
+
+.diff-indicator.added {
+  background: var(--online);
+}
+
+.diff-op {
+  font-family: 'JetBrains Mono', monospace;
+  font-size: 11px;
+  font-weight: 500;
+  width: 56px;
+  flex-shrink: 0;
+}
+
+.diff-op.changed { color: var(--drift); }
+.diff-op.added { color: var(--online); }
+
+.diff-path {
+  font-family: 'JetBrains Mono', monospace;
+  font-size: 10px;
+  color: var(--ink-dim);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  flex: 1;
+}
+
+.diff-row-detail {
+  font-size: 10px;
+  color: var(--ink-faint);
+  font-family: 'JetBrains Mono', monospace;
+  padding-left: 15px;
+}
+
+.config-stat {
+  font-size: 10px;
+  color: var(--ink-faint);
+  font-weight: 500;
+  text-align: right;
+  margin-top: 2px;
+}
+
+/* ── Arrow connectors ── */
+.flow-arrow {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  width: 46px;
+  flex-shrink: 0;
+  gap: 6px;
+  padding-bottom: 0;
+  padding-top: 0;
+  align-self: center;
+}
+
+.flow-arrow-line {
+  width: 36px;
+  height: 2px;
+  background: var(--line2);
+  position: relative;
+  overflow: hidden;
+  border-radius: 1px;
+}
+
+.flow-arrow-line::after {
+  content: '';
+  position: absolute;
+  top: 0;
+  left: -70%;
+  width: 60%;
+  height: 100%;
+  background: linear-gradient(90deg, transparent, color-mix(in srgb, var(--accent) 80%, transparent), transparent);
+  animation: shimmer-flow 1.8s ease-in-out infinite;
+}
+
+.flow-arrow-head {
+  font-size: 14px;
+  color: var(--line2);
+  line-height: 1;
+  margin-top: -8px;
+  position: relative;
+  left: 16px;
+}
+
+/* Combine them into a single arrow shape */
+.arrow-combo {
+  display: flex;
+  align-items: center;
+  width: 46px;
+}
+
+.arrow-combo .arrow-line {
+  flex: 1;
+  height: 2px;
+  background: var(--line2);
+  position: relative;
+  overflow: hidden;
+  border-radius: 1px;
+}
+
+.arrow-combo .arrow-line::after {
+  content: '';
+  position: absolute;
+  top: 0;
+  left: -70%;
+  width: 60%;
+  height: 100%;
+  background: linear-gradient(90deg, transparent, color-mix(in srgb, var(--accent) 80%, transparent), transparent);
+  animation: shimmer-flow 1.8s ease-in-out infinite;
+}
+
+.arrow-combo .arrow-head {
+  font-size: 12px;
+  color: var(--ink-faint);
+  flex-shrink: 0;
+  margin-left: 1px;
+}
+
+/* ── Success panel body ── */
+.success-body {
+  flex: 1;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 10px;
+  padding: 20px 16px;
+  text-align: center;
+}
+
+.success-icon {
+  width: 52px;
+  height: 52px;
+  margin-bottom: 4px;
+}
+
+.success-heading {
+  font-size: 20px;
+  font-weight: 700;
+  color: var(--ink-bright);
+  letter-spacing: -0.02em;
+}
+
+.success-sub {
+  font-size: 11px;
+  font-family: 'JetBrains Mono', monospace;
+  color: var(--ink-dim);
+}
+
+.success-stats {
+  font-size: 11px;
+  color: var(--ink-faint);
+  font-weight: 500;
+  background: var(--elev);
+  border: 1px solid var(--line2);
+  border-radius: 6px;
+  padding: 5px 12px;
+  letter-spacing: 0.02em;
+}
+
+.device-live-row {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  font-size: 11px;
+  color: var(--online);
+  font-weight: 500;
+}
+
+.device-live-dot {
+  width: 7px;
+  height: 7px;
+  border-radius: 50%;
+  background: var(--online);
+  box-shadow: 0 0 6px color-mix(in srgb, var(--online) 70%, transparent);
+  animation: pulse-dot 2s ease-in-out infinite;
+}
+
+.success-link {
+  font-size: 11px;
+  color: var(--accent);
+  font-weight: 600;
+  text-decoration: none;
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  margin-top: 2px;
+}
+
+/* ── Callout box ── */
+.callout {
+  margin: 24px auto 0;
+  max-width: 916px;
+  background: var(--elev);
+  border-left: 3px solid var(--accent);
+  border-radius: 0 8px 8px 0;
+  padding: 13px 18px;
+  display: flex;
+  gap: 12px;
+  align-items: flex-start;
+}
+
+.callout-icon {
+  flex-shrink: 0;
+  margin-top: 1px;
+}
+
+.callout-icon svg {
+  width: 16px;
+  height: 16px;
+  fill: var(--accent);
+  opacity: 0.8;
+}
+
+.callout-label {
+  font-size: 10px;
+  font-weight: 700;
+  text-transform: uppercase;
+  letter-spacing: 0.1em;
+  color: var(--accent);
+  margin-bottom: 4px;
+  opacity: 0.85;
+}
+
+.callout-text {
+  font-size: 11.5px;
+  color: var(--ink-dim);
+  line-height: 1.6;
+  font-weight: 400;
+}
+
+</style>
+</head>
+<body>
+
+<!-- Background grid hint -->
+<div class="bg-grid" aria-hidden="true">
+  <div class="bg-grid-col"></div>
+  <div class="bg-grid-col"></div>
+  <div class="bg-grid-col"></div>
+</div>
+
+<!-- Editor toolbar context -->
+<header class="toolbar">
+  <div class="toolbar-logo">
+    <div class="toolbar-logo-mark">
+      <svg viewBox="0 0 12 12"><path d="M2 2h3v3H2zm5 0h3v3H7zM2 7h3v3H2zm5 0h3v3H7z"/></svg>
+    </div>
+    YEY Builder
+  </div>
+  <div class="toolbar-sep"></div>
+  <span class="toolbar-file">dashboard-main.midl</span>
+  <div class="toolbar-sep"></div>
+  <div class="toolbar-tabs">
+    <div class="toolbar-tab active">Layout</div>
+    <div class="toolbar-tab">Tiles</div>
+    <div class="toolbar-tab">Preview</div>
+  </div>
+  <div class="toolbar-spacer"></div>
+  <div class="toolbar-device-chip">
+    <div class="online-dot"></div>
+    yey-d-28372f8a0290
+  </div>
+  <div class="toolbar-push-btn">
+    <svg viewBox="0 0 12 12"><path d="M6 1l4 4H7v6H5V5H2L6 1z"/></svg>
+    Push to Device
+  </div>
+</header>
+
+<!-- Main flow -->
+<main class="main">
+
+  <!-- Step track -->
+  <div class="step-track">
+    <div class="step-node">
+      <div class="step-badge active">1</div>
+      <div class="step-label active">Device Picker</div>
+    </div>
+    <div class="step-connector shimmer-line">
+      <div class="step-connector-fill"></div>
+    </div>
+    <div class="step-node">
+      <div class="step-badge active">2</div>
+      <div class="step-label active">Review Changes</div>
+    </div>
+    <div class="step-connector shimmer-line">
+      <div class="step-connector-fill"></div>
+    </div>
+    <div class="step-node">
+      <div class="step-badge done">
+        <svg width="14" height="14" viewBox="0 0 14 14" fill="none"><path d="M3 7l3 3 5-6" stroke="#071018" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"/></svg>
+      </div>
+      <div class="step-label active">Pushed</div>
+    </div>
+  </div>
+
+  <!-- 3-panel flow row -->
+  <div class="flow-row">
+
+    <!-- ── PANEL 1: Device Picker ── -->
+    <div class="panel">
+      <div class="panel-header">
+        <div class="panel-header-row">
+          <span class="panel-title">Push to Device</span>
+          <span class="step-pill">1 of 3</span>
+        </div>
+        <div class="panel-subtitle">Select destination device</div>
+      </div>
+
+      <div class="panel-body">
+        <div class="device-list">
+
+          <!-- Row 1: selected -->
+          <div class="device-row selected">
+            <div class="device-row-top">
+              <div class="dot dot-online"></div>
+              <span class="device-id">yey-d-28372f8a0290</span>
+            </div>
+            <div class="device-row-bottom">
+              <span class="hw-chip">square-480 · v2.1.3</span>
+              <span class="last-push">Last push: 2h ago</span>
+            </div>
+          </div>
+
+          <!-- Row 2 -->
+          <div class="device-row unselected">
+            <div class="device-row-top">
+              <div class="dot dot-online"></div>
+              <span class="device-id">yey-d-1a4fc2b83d11</span>
+            </div>
+            <div class="device-row-bottom">
+              <span class="hw-chip">square-480 · v2.1.3</span>
+              <span class="last-push">Last push: 1d ago</span>
+            </div>
+          </div>
+
+          <!-- Row 3: offline -->
+          <div class="device-row unselected">
+            <div class="device-row-top">
+              <div class="dot dot-offline"></div>
+              <span class="device-id" style="color:var(--ink-faint)">yey-d-offline-99</span>
+            </div>
+            <div class="device-row-bottom">
+              <span class="hw-chip" style="opacity:0.55">square-480</span>
+              <span class="last-push">Offline</span>
+            </div>
+          </div>
+
+        </div>
+      </div>
+
+      <div class="panel-footer">
+        <button class="btn-primary">
+          Next: Review changes
+          <svg width="12" height="12" viewBox="0 0 12 12" fill="#071018"><path d="M4.5 2l4 4-4 4" stroke="#071018" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round" fill="none"/></svg>
+        </button>
+      </div>
+    </div>
+
+    <!-- Arrow 1→2 -->
+    <div class="flow-arrow">
+      <div class="arrow-combo">
+        <div class="arrow-line"></div>
+        <span class="arrow-head">›</span>
+      </div>
+    </div>
+
+    <!-- ── PANEL 2: Confirm / Diff ── -->
+    <div class="panel">
+      <div class="panel-header">
+        <div class="panel-header-row">
+          <span class="panel-title">Review Changes</span>
+          <span class="step-pill">2 of 3</span>
+        </div>
+        <div class="panel-subtitle" style="font-family:'JetBrains Mono',monospace;font-size:10px;color:var(--ink-faint)">Pushing to yey-d-28372f8a0290</div>
+      </div>
+
+      <div class="panel-body">
+        <div class="diff-summary-row">
+          <div class="diff-summary-badge">
+            <svg width="10" height="10" viewBox="0 0 10 10" fill="none"><circle cx="5" cy="5" r="4" stroke="currentColor" stroke-width="1.2"/><path d="M5 3v3M5 7.5v.1" stroke="currentColor" stroke-width="1.2" stroke-linecap="round"/></svg>
+            3 tiles change
+          </div>
+        </div>
+
+        <div class="diff-list">
+
+          <!-- diff row 1: changed -->
+          <div class="diff-row">
+            <div class="diff-row-top">
+              <div class="diff-indicator changed"></div>
+              <span class="diff-op changed">~ tile[0]</span>
+              <span class="diff-path">navigation.speedOverGround</span>
+            </div>
+            <div class="diff-row-detail" style="color:var(--drift)">type: single-value · was: speedThroughWater</div>
+          </div>
+
+          <!-- diff row 2: added -->
+          <div class="diff-row">
+            <div class="diff-row-top">
+              <div class="diff-indicator added"></div>
+              <span class="diff-op added">+ tile[2]</span>
+              <span class="diff-path">navigation.headingTrue</span>
+            </div>
+            <div class="diff-row-detail" style="color:var(--online)">NEW: compass · was: (empty)</div>
+          </div>
+
+          <!-- diff row 3: changed -->
+          <div class="diff-row">
+            <div class="diff-row-top">
+              <div class="diff-indicator changed"></div>
+              <span class="diff-op changed">~ tile[3]</span>
+              <span class="diff-path">unit: kn → °  · label: AWA</span>
+            </div>
+            <div class="diff-row-detail" style="color:var(--drift)">was: deg · label unchanged</div>
+          </div>
+
+        </div>
+
+        <div class="config-stat">Config size: 847 bytes</div>
+      </div>
+
+      <div class="panel-footer">
+        <div class="btn-row">
+          <button class="btn-ghost">← Back</button>
+          <button class="btn-primary">
+            Push Now
+            <svg width="12" height="12" viewBox="0 0 12 12" fill="#071018"><path d="M6 1l4 4H7v6H5V5H2L6 1z"/></svg>
+          </button>
+        </div>
+      </div>
+    </div>
+
+    <!-- Arrow 2→3 -->
+    <div class="flow-arrow">
+      <div class="arrow-combo">
+        <div class="arrow-line"></div>
+        <span class="arrow-head">›</span>
+      </div>
+    </div>
+
+    <!-- ── PANEL 3: Success ── -->
+    <div class="panel success">
+      <div class="panel-header">
+        <div class="panel-header-row">
+          <span class="panel-title">Done</span>
+          <span class="step-pill" style="border-color:color-mix(in srgb, var(--online) 40%, var(--line2));color:var(--online)">3 of 3</span>
+        </div>
+        <div class="panel-subtitle">Push complete</div>
+      </div>
+
+      <div class="success-body">
+        <!-- Success checkmark SVG -->
+        <svg class="success-icon" viewBox="0 0 52 52" fill="none">
+          <circle cx="26" cy="26" r="24" stroke="var(--online)" stroke-width="2" opacity="0.3"/>
+          <circle cx="26" cy="26" r="20" fill="color-mix(in srgb, var(--online) 12%, transparent)" stroke="var(--online)" stroke-width="1.5"/>
+          <path d="M16 27l7 7 13-15" stroke="var(--online)" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"/>
+        </svg>
+
+        <div class="success-heading">Pushed!</div>
+        <div class="success-sub">yey-d-28372f8a0290 pulled config</div>
+
+        <div class="success-stats">3 tiles updated · 847 bytes · 0.3s</div>
+
+        <div class="device-live-row">
+          <div class="device-live-dot"></div>
+          Device online · new layout active
+        </div>
+
+        <a href="#" class="success-link">
+          View device live
+          <svg width="11" height="11" viewBox="0 0 11 11" fill="none"><path d="M2.5 8.5l6-6M4 2.5h4.5V7" stroke="var(--accent)" stroke-width="1.4" stroke-linecap="round" stroke-linejoin="round"/></svg>
+        </a>
+      </div>
+
+      <div class="panel-footer">
+        <button class="btn-ghost" style="width:100%;text-align:center;">Done</button>
+      </div>
+    </div>
+
+  </div><!-- /flow-row -->
+
+  <!-- Callout box -->
+  <div class="callout">
+    <div class="callout-icon">
+      <svg viewBox="0 0 16 16"><path d="M8 1a7 7 0 100 14A7 7 0 008 1zm0 3a1 1 0 110 2 1 1 0 010-2zm0 4v4h-1V8h2z" opacity="0.9"/></svg>
+    </div>
+    <div>
+      <div class="callout-label">What happens on push</div>
+      <div class="callout-text">The device polls for config updates every 30s, or immediately when notified via MQTT. After receiving new MIDL, it validates locally and re-renders all tiles. The browser editor does not need to stay open.</div>
+    </div>
+  </div>
+
+</main>
+
+</body>
+</html>
