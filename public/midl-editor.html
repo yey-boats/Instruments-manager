@@ -1,0 +1,58 @@
+<!doctype html>
+<!-- SPDX-License-Identifier: PolyForm-Noncommercial-1.0.0 -->
+<!-- MIDL dashboard editor. Served as a SignalK webapp page at
+     /yey-boats-display-manager/midl-editor.html (so its relative ./ bundle URLs
+     resolve). Generic MidlEditor authoring; the device picker is ONLY the push
+     destination. Live SignalK delta stream drives the preview. -->
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>MIDL Editor — YEY Boats</title>
+    <style>
+      :root { color-scheme: dark; }
+      html, body { margin: 0; height: 100%; background: #06090d; color: #cdd7e0;
+        font: 14px/1.4 system-ui, -apple-system, Segoe UI, Roboto, sans-serif; }
+      .wrap { min-height: 100%; display: flex; flex-direction: column;
+        padding: 16px 20px; box-sizing: border-box; gap: 14px; }
+      h1 { margin: 0; font-size: 18px; font-weight: 600; letter-spacing: .02em; color: #e7eef5; }
+      .sub { margin: 0; color: #7f8c99; font-size: 13px; }
+      .bar { display: flex; align-items: center; gap: 10px; flex-wrap: wrap; }
+      select { background: #141b22; color: #cdd7e0; border: 1px solid #1f2a33;
+        border-radius: 8px; padding: 5px 10px; font: inherit; }
+      #editor { flex: 1; min-height: 0; }
+      .notice { display: inline-flex; align-items: center; gap: 7px; padding: 5px 12px;
+        border-radius: 999px; font-size: 12px; font-weight: 600; letter-spacing: .03em;
+        background: #0e1a14; color: #6ee7a8; border: 1px solid #1d4d36; }
+      .notice.hidden { display: none; }
+      a { color: #6ea8ff; }
+      .foot { color: #5a6670; font-size: 12px; margin-top: auto; }
+    </style>
+  </head>
+  <body>
+    <div class="wrap">
+      <div>
+        <h1>MIDL Editor</h1>
+        <p class="sub">Author a MIDL dashboard and push it to a device.</p>
+      </div>
+
+      <div class="bar">
+        <label>Push to device
+          <select id="deviceSel">
+            <option value="">— select destination —</option>
+          </select>
+        </label>
+        <span id="pushedNote" class="notice hidden">Pushed to device</span>
+      </div>
+
+      <div id="editor"></div>
+
+      <p class="foot"><a href="./index.html">← Display Manager</a></p>
+    </div>
+
+    <!-- Editor bundle (self-contained: React + renderer + window.MidlEditor incl. mount + parseDoc) -->
+    <script src="./midl-editor.global.js"></script>
+    <!-- Editor page logic -->
+    <script src="./midl-editor.js"></script>
+  </body>
+</html>
