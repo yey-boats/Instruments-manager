@@ -34,7 +34,9 @@ const path = require('path')
 const { spawnSync } = require('child_process')
 const NODE_TEST_FILES = [
   'field-schema.test.js',
-  'editor-crud.test.js'
+  'editor-crud.test.js',
+  'midl-adapter.test.js',
+  'midl-diff.test.js'
 ]
 function runNodeTestSuites () {
   if (!NODE_TEST_FILES.length) return
