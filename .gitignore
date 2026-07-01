@@ -4,3 +4,9 @@ test-results/
 *.bak.*
 .DS_Store
 npm-debug.log*
+# Demo harness video output (large binary files — not committed)
+e2e/editor-demo/*.webm
+e2e/editor-demo/*.mp4
+e2e/editor-demo/video/
+# Temporary mockup screenshots from demo script
+e2e/editor-demo/mockup-*.png
