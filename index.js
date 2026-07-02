@@ -1257,32 +1257,25 @@ function registerRoutes (router, getManager) {
     // The device pulls this over plain LAN HTTP; authorize with the same
     // device token it uses for /commands (scoped to this job's device).
     manager.requireDeviceAuth(info.job.deviceId, authFrom(req))
-    const file = info.artifact && info.artifact.file ? info.artifact.file : {}
-    if (!file.path) {
-      // No local copy (GitHub-release artifact): the manager (host) fetches
-      // the asset over HTTPS, following redirects, and streams it to the
-      // device over HTTP — so the heap-constrained device never does TLS.
-      if (file.url) {
-        const upstream = await fetch(file.url, { redirect: 'follow' })
-        if (!upstream.ok) {
-          res.status(502).json({ error: { code: 'upstream_fetch_failed', message: `upstream GET ${upstream.status}` } })
-          return
-        }
-        const body = Buffer.from(await upstream.arrayBuffer())
-        res.setHeader('content-type', file.contentType || 'application/octet-stream')
-        res.setHeader('content-length', String(body.length))
-        res.setHeader('x-yeyboats-artifact-id', info.artifact.artifactId)
-        res.setHeader('x-yeyboats-sha256', file.sha256 || '')
-        res.end(body)
-        return
-      }
+    const rawFile = info.artifact && info.artifact.file ? info.artifact.file : {}
+    // MGR-3: resolve through firmwareArtifactBinary — the SAME verified path
+    // the browser-flash route uses. For a GitHub-release artifact it fetches
+    // over HTTPS (following redirects) into a local cache and verifies the body
+    // against file.sha256 (throwing 502 artifact_sha_mismatch on drift), and it
+    // extracts+caches Actions-artifact zips. The heap-constrained device never
+    // does TLS; and unlike the old inline fetch here, a corrupted or tampered
+    // upstream asset is rejected server-side and NO bytes are streamed.
+    const file = await manager.firmwareArtifactBinary(info.artifact.artifactId)
+    if (!file || !file.path) {
+      // No stored path and nothing fetchable (e.g. a test fixture): return the
+      // job/artifact descriptor rather than 404, matching prior behaviour.
       res.json(info)
       return
     }
-    res.setHeader('content-type', file.contentType || 'application/octet-stream')
+    res.setHeader('content-type', file.contentType || rawFile.contentType || 'application/octet-stream')
     if (file.size) res.setHeader('content-length', String(file.size))
     res.setHeader('x-yeyboats-artifact-id', info.artifact.artifactId)
-    res.setHeader('x-yeyboats-sha256', file.sha256 || '')
+    res.setHeader('x-yeyboats-sha256', rawFile.sha256 || '')
     res.setHeader('content-disposition', `attachment; filename="${path.basename(file.name || file.path)}"`)
     fs.createReadStream(file.path)
       .on('error', (err) => {

@@ -89,6 +89,7 @@ const ASYNC_BATCH = [
   ['knob-contract', './knob-contract.test'],
   ['github-firmware', './github-firmware.test'],
   ['firmware-source-kind', './firmware-source-kind.test'],
+  ['firmware-download-verify', './firmware-download-verify.test'],
   ['tip-artifacts', './tip-artifacts.test'],
   ['udp-discovery', './udp-discovery.test'],
   ['device-udp-discovery', './device-udp-discovery.test'],
