@@ -1,7 +1,15 @@
 'use strict'
+const fs = require('node:fs')
+const path = require('node:path')
 const { test } = require('node:test')
 const assert = require('node:assert')
 const { v2ToMidl, midlToV2 } = require('../lib/midl-adapter')
+
+// The manifest-validation test needs the built MIDL bundle. It is built by the
+// `pretest` hook; if that could not run (submodule absent), skip that one test
+// rather than crash the suite (MGR-1).
+const midlBuilt = fs.existsSync(
+  path.join(__dirname, '..', 'midl', 'ts', 'dist', 'index.cjs'))
 
 const v2 = {
   settings: { defaultScreen: 'dashboard' },
@@ -34,7 +42,9 @@ test('midlToV2 round-trips the element type and path', () => {
   assert.strictEqual(back.widgets.items.sog.path, 'navigation.speedOverGround')
 })
 
-test('a translated v2 dashboard validates against the square-480 manifest', () => {
+test('a translated v2 dashboard validates against the square-480 manifest', {
+  skip: midlBuilt ? false : 'MIDL bundle not built (midl/ts/dist/index.cjs missing)'
+}, () => {
   const { validateMidl } = require('../lib/midl')
   const doc = JSON.stringify(v2ToMidl(v2))
   const r = validateMidl(doc, 'square-480')
