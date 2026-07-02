@@ -90,6 +90,7 @@ const ASYNC_BATCH = [
   ['github-firmware', './github-firmware.test'],
   ['firmware-source-kind', './firmware-source-kind.test'],
   ['firmware-download-verify', './firmware-download-verify.test'],
+  ['firmware-url-allowlist', './firmware-url-allowlist.test'],
   ['tip-artifacts', './tip-artifacts.test'],
   ['udp-discovery', './udp-discovery.test'],
   ['device-udp-discovery', './device-udp-discovery.test'],
