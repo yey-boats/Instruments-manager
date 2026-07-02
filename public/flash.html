@@ -93,6 +93,18 @@
       margin-top: 12px;
     }
     #detect-status { margin-top: 8px; }
+    .unsigned-warn {
+      margin: 12px 0 0;
+      padding: 10px 12px;
+      border: 1px solid #8a5a18;
+      border-left-width: 4px;
+      border-radius: 8px;
+      background: rgba(138, 90, 24, .18);
+      color: #ffd9a0;
+      font-size: 13px;
+      line-height: 1.45;
+    }
+    .unsigned-warn strong { color: #ffe9c4; }
     a { color: #6fb3ff; }
     .row { display: flex; align-items: center; gap: 12px; flex-wrap: wrap; }
     esp-web-install-button { display: inline-block; }
@@ -160,6 +172,12 @@
         <span slot="not-allowed">Serial access was not granted.</span>
       </esp-web-install-button>
     </div>
+    <p id="unsigned-warn" class="unsigned-warn" hidden>
+      ⚠ <strong>Unsigned build.</strong> This is an untagged CI (TIP) build with
+      no vendor signature. Its integrity is verified only by a SHA-256 checksum
+      the manager computes when it first extracts the artifact — not by a trusted
+      release signature. Only flash it if you understand and accept the risk.
+    </p>
   </section>
 
   <section class="panel">
@@ -238,8 +256,22 @@
     return prefix + tgtTxt + resTxt
   }
 
+  // An artifact is "unsigned" when its vendor trust block opts into unsigned
+  // installs (github-actions-artifact / TIP builds carry allowUnsigned: true).
+  function artifactAllowsUnsigned (a) {
+    return !!(a && a.vendor && a.vendor.trust && a.vendor.trust.allowUnsigned)
+  }
+  function selectedArtifact () {
+    return allArtifacts.find((a) => a.artifactId === sel.value) || null
+  }
+  function updateUnsignedWarning () {
+    const warn = document.getElementById('unsigned-warn')
+    if (warn) warn.hidden = !artifactAllowsUnsigned(selectedArtifact())
+  }
+
   function applyManifest () {
     const id = sel.value
+    updateUnsignedWarning()
     if (!id) { btn.removeAttribute('manifest'); return }
     btn.manifest = BASE + '/firmware/manifest/' + encodeURIComponent(id)
   }
