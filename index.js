@@ -1000,7 +1000,15 @@ function registerRoutes (router, getManager) {
           status = 'created:' + newId
         } else {
           manager.upsertProfile({ id: baseId, name: base.name || baseId, config: cfg })
-          try { manager.queueConfigReload(id) } catch (e) {}
+          // Best-effort reload nudge, but log failures instead of swallowing
+          // them (MGR-8): a broken trigger should not vanish without a trace.
+          try {
+            manager.queueConfigReload(id)
+          } catch (e) {
+            if (manager.app && manager.app.debug) {
+              manager.app.debug(`yey-display: queueConfigReload failed for ${id}: ${e && e.message}`)
+            }
+          }
           status = 'updated'
         }
       }
