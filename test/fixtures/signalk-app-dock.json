@@ -1,0 +1,33 @@
+{
+  "enabled": true,
+  "configuration": {
+    "showNightModeButton": true,
+    "showExitButton": false,
+    "apps": [
+      {
+        "enabled": true,
+        "autostart": true,
+        "url": "/@signalk/freeboard-sk/",
+        "label": "Freeboard-SK",
+        "icon": "/@signalk/freeboard-sk/assets/icons/icon-72x72.png",
+        "color": ""
+      },
+      {
+        "enabled": true,
+        "autostart": false,
+        "url": "/yey-boats-display-manager/",
+        "label": "ESP Displays",
+        "icon": "/yey-boats-display-manager/icon.svg",
+        "color": ""
+      },
+      {
+        "enabled": true,
+        "autostart": false,
+        "url": "/admin/",
+        "label": "Settings",
+        "icon": "/@signalk/app-dock/icon-settings.svg",
+        "color": "#78788c"
+      }
+    ]
+  }
+}

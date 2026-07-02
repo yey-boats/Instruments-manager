@@ -20,6 +20,7 @@
     "load-test": "node tools/load-test.js",
     "midl:build": "npm --prefix midl/ts install --no-audit --no-fund && npm --prefix midl/ts run build",
     "build:midl-bundle": "node tools/build-midl-bundle.js",
+    "pretest": "node tools/ensure-midl-build.js",
     "test": "node test/run.js",
     "test:playwright": "playwright test"
   },
@@ -34,6 +35,6 @@
     "node": ">=20.10"
   },
   "dependencies": {
-    "@yeyboats/proto": "file:../../../proto/js"
+    "@yeyboats/proto": "file:vendor/proto/js"
   }
 }

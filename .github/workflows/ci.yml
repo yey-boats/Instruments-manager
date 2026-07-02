@@ -1,0 +1,59 @@
+name: CI
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+  workflow_dispatch:
+
+jobs:
+  check:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          submodules: recursive
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '20'
+
+      # Install the plugin's deps (resolves the vendored @yeyboats/proto).
+      - name: npm ci
+        run: npm ci
+
+      # `npm run check` = node -c syntax checks + full test suite. The `pretest`
+      # hook builds the MIDL submodule bundle (midl/ts/dist/index.cjs) first.
+      - name: Lint + test
+        run: npm run check
+
+      # Fail the build on known high/critical CVEs (MGR-7).
+      - name: npm audit
+        run: npm audit --audit-level=high
+
+  # Browser E2E is heavy (downloads Chromium); run on demand or nightly, not on
+  # every push. Add the `e2e` label to a PR to trigger it there.
+  playwright:
+    if: >-
+      github.event_name == 'workflow_dispatch' ||
+      github.event_name == 'schedule' ||
+      (github.event_name == 'pull_request' &&
+       contains(github.event.pull_request.labels.*.name, 'e2e'))
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          submodules: recursive
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '20'
+
+      - name: npm ci
+        run: npm ci
+
+      - name: Install Playwright browsers
+        run: npx playwright install --with-deps chromium
+
+      - name: Playwright tests
+        run: npm run test:playwright
