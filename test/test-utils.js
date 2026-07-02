@@ -36,4 +36,12 @@ function mergeTestOptions (base, override) {
   return out
 }
 
-module.exports = { makeManager }
+// Log a skip notice for a test that needs an optional external (a live
+// SignalK install, a sibling `instruments` checkout, ...) which is absent.
+// Tests must call this and return instead of throwing, so `npm test` stays
+// green on a bare clone (see MGR-1).
+function skip (name, reason) {
+  console.log(`SKIP ${name}: ${reason}`)
+}
+
+module.exports = { makeManager, skip }

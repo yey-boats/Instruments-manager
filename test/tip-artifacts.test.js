@@ -189,6 +189,33 @@ module.exports = (async () => {
   assert.ok(bin4848 && bin4848.path)
   assert.deepStrictEqual(fs.readFileSync(bin4848.path), FIRMWARE_BYTES)
 
+  // MGR-4: extraction computes + persists a sha256 of merged_firmware.bin so
+  // later serves self-verify. The unsigned TIP build is now checksum-covered.
+  const crypto = require('crypto')
+  const expectedSha = crypto.createHash('sha256').update(FIRMWARE_BYTES).digest('hex')
+  const tip4848b = manager.getFirmwareArtifact('tip-esp32-4848s040')
+  assert.strictEqual(tip4848b.file.sha256, `sha256:${expectedSha}`, 'extracted sha256 persisted')
+  assert.strictEqual(tip4848b.file.size, FIRMWARE_BYTES.length)
+  assert.strictEqual(tip4848b.signing.checksums, 'sha256-extracted', 'checksum-covered marker set')
+  // Still an unsigned build (allowUnsigned true) — the UI warns on it.
+  assert.strictEqual(tip4848b.vendor.trust.allowUnsigned, true)
+
+  // Cache hit self-verifies without re-fetching (pass a throwing fetch).
+  const cached = await manager.firmwareArtifactBinary('tip-esp32-4848s040',
+    async () => { throw new Error('should not fetch') })
+  assert.strictEqual(cached.path, bin4848.path)
+
+  // Tamper the cached bin: the next serve must refuse it on sha mismatch.
+  fs.writeFileSync(bin4848.path, Buffer.from('TAMPERED-CACHE-BYTES'))
+  await assert.rejects(
+    () => manager.firmwareArtifactBinary('tip-esp32-4848s040',
+      async () => { throw new Error('should not fetch') }),
+    /checksum mismatch|sha/i,
+    'tampered TIP cache is rejected'
+  )
+  // Restore a clean cache for any later assertions.
+  fs.writeFileSync(bin4848.path, FIRMWARE_BYTES)
+
   // Binary serving: deflated entry (nested path) -> exact bytes.
   const binWs = await manager.firmwareArtifactBinary('tip-waveshare-touch-lcd-7b_1024x600', githubFetch)
   assert.deepStrictEqual(fs.readFileSync(binWs.path), FIRMWARE_BYTES)
@@ -230,6 +257,13 @@ module.exports = (async () => {
   debugMsgs = []
   await m2.refreshTipFromArtifacts(noFetch)
   assert.strictEqual(debugMsgs.length, 0, 'skip is logged only once')
+
+  // MGR-4: the flash UI must visibly warn before installing an unsigned build.
+  const path = require('path')
+  const flashHtml = fs.readFileSync(path.join(__dirname, '..', 'public', 'flash.html'), 'utf8')
+  assert.ok(/allowUnsigned/.test(flashHtml), 'flash UI must key off vendor.trust.allowUnsigned')
+  assert.ok(/id="unsigned-warn"/.test(flashHtml), 'flash UI must contain the unsigned-build warning element')
+  assert.ok(/Unsigned build/i.test(flashHtml), 'flash UI must show an "Unsigned build" warning')
 
   console.log('tip-artifacts test passed')
 })()
