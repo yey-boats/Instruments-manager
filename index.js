@@ -158,6 +158,20 @@ module.exports = function yeyBoatsDisplayManagerPlugin (app) {
                   description: 'Personal Access Token / fine-grained token with Actions:read + Contents:read. REQUIRED to download CI Actions artifacts for the TIP build — GitHub requires authentication to download Actions artifacts even for public repos. Leave empty to disable the TIP-from-artifacts source (tagged releases still import without a token).'
                 }
               }
+            },
+            local: {
+              type: 'object',
+              title: 'Local firmware catalog (offline)',
+              description: 'Firmware artifacts read from a directory instead of the GitHub API — for a boat with no internet route to api.github.com. Checked at startup and on every catalog refresh, no network involved, and preferred over GitHub when it has a matching artifact.',
+              properties: {
+                enabled: { type: 'boolean', title: 'Enabled', default: true },
+                dir: {
+                  type: 'string',
+                  title: 'Firmware directory',
+                  description: 'Directory containing index.json (a GitHub-release-shaped {tag_name, prerelease, assets:[{name, size, sha256?}]} record, or an array of them) plus the <target>-merged_firmware.bin binaries it lists. Defaults to the FIRMWARE_DIR environment variable when left empty.',
+                  default: ''
+                }
+              }
             }
           }
         },
@@ -313,7 +327,7 @@ module.exports = function yeyBoatsDisplayManagerPlugin (app) {
           get: { summary: 'List firmware artifacts' }
         },
         '/plugins/yey-boats-display-manager/firmware/catalog/refresh': {
-          post: { summary: 'Refresh firmware artifacts from GitHub releases' }
+          post: { summary: 'Refresh firmware artifacts from the local catalog (FIRMWARE_DIR) and GitHub releases' }
         },
         '/plugins/yey-boats-display-manager/firmware/targets': {
           get: { summary: 'List firmware target/board/resolution table' }
@@ -1099,7 +1113,8 @@ function registerRoutes (baseRouter, getManager) {
   }))
 
   router.post('/ui/firmware/catalog/refresh', wrap(getManager, async (manager, req, res) => {
-    await manager.refreshFirmwareFromGithub()
+    manager.refreshFirmwareFromLocal()
+    await manager.refreshFirmwareFromGithub().catch(() => {})
     await manager.refreshTipFromArtifacts().catch(() => {})
     res.statusCode = 303
     res.setHeader('location', '/plugins/yey-boats-display-manager/ui/firmware')
@@ -1366,7 +1381,12 @@ function registerRoutes (baseRouter, getManager) {
   })))
 
   router.post('/firmware/catalog/refresh', wrap(getManager, async (manager, req, res) => {
-    const result = await manager.refreshFirmwareFromGithub()
+    // Local catalog first (sync, no network — see refreshFirmwareFromLocal),
+    // then GitHub best-effort: offline, these two calls simply find nothing
+    // to do / fail to reach the network, and the local artifacts imported
+    // above are still returned rather than the whole refresh erroring out.
+    manager.refreshFirmwareFromLocal()
+    const result = await manager.refreshFirmwareFromGithub().catch((err) => ({ error: err.message }))
     await manager.refreshTipFromArtifacts().catch(() => {})
     res.json(manager.listFirmware ? { ...result, ...manager.listFirmware() } : result)
   }))

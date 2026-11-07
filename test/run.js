@@ -90,6 +90,7 @@ async function runAsync (name, load) {
 const ASYNC_BATCH = [
   ['knob-contract', './knob-contract.test'],
   ['github-firmware', './github-firmware.test'],
+  ['firmware-local-catalog', './firmware-local-catalog.test'],
   ['firmware-source-kind', './firmware-source-kind.test'],
   ['firmware-download-verify', './firmware-download-verify.test'],
   ['firmware-url-allowlist', './firmware-url-allowlist.test'],
