@@ -208,7 +208,10 @@ module.exports = function yeyBoatsDisplayManagerPlugin (app) {
     }),
     start: (options) => {
       manager = new YeyBoatsDisplayManager(app, options || {})
-      registerAutopilotBridge(app)
+      // Autopilot PUTs (steering.autopilot.*) are NOT handled here. On the demo
+      // boat they are translated for the simulator by the simulator repo's
+      // `signalk-yey-sim-autopilot` plugin; real boats use their own autopilot
+      // plugin (e.g. signalk-autopilot).
       app.debug('yey-boats-display-manager started')
     },
     stop: () => {
@@ -307,56 +310,6 @@ module.exports = function yeyBoatsDisplayManagerPlugin (app) {
   }
 
   return plugin
-}
-
-// Autopilot bridge: the yey-display firmware drives the autopilot the
-// signalk-autopilot / spec-16 way (PUT steering.autopilot.state =
-// "<mode>", PUT steering.autopilot.actions.adjustHeading = <deg>, PUT
-// steering.autopilot.target.headingTrue = <rad>). The KDCube simulator's
-// autopilot instead listens for a `steering.autopilot.command` delta
-// {action, value, nonce}. This bridge registers PUT handlers for the
-// firmware's paths and re-emits them as the sim's command deltas, so the
-// device's steering controls drive the modeled boat end-to-end.
-function registerAutopilotBridge (app) {
-  if (!app || typeof app.registerPutHandler !== 'function') return
-  const CMD = 'steering.autopilot.command'
-  let seq = 0
-  const emit = (action, value) => {
-    app.handleMessage('yeyboats-autopilot-bridge', {
-      updates: [{
-        values: [{ path: CMD, value: { action, value, nonce: `b${++seq}` } }]
-      }]
-    })
-  }
-  const done = (cb) => {
-    const r = { state: 'COMPLETED', statusCode: 200 }
-    if (typeof cb === 'function') cb(r)
-    return r
-  }
-  const reg = (path, fn) => {
-    try { app.registerPutHandler('vessels.self', path, fn, 'yeyboats-autopilot-bridge') } catch (e) {
-      if (app.debug) app.debug(`autopilot bridge: could not register ${path}: ${e.message}`)
-    }
-  }
-  // Mode: "auto"|"wind"|"route"|"standby" (firmware "track"/"pretrack" -> "route").
-  reg('steering.autopilot.state', (ctx, path, value, cb) => {
-    let mode = String(value == null ? '' : value).replace(/^"|"$/g, '')
-    if (mode === 'track' || mode === 'pretrack') mode = 'route'
-    emit('set_mode', mode)
-    return done(cb)
-  })
-  // Heading nudge: firmware sends DEGREES; the sim's "adjust" action expects
-  // radians (it converts back to degrees), so scale here.
-  reg('steering.autopilot.actions.adjustHeading', (ctx, path, value, cb) => {
-    const deg = Number(value) || 0
-    emit('adjust', (deg * Math.PI) / 180)
-    return done(cb)
-  })
-  // Absolute target heading (radians, passed through).
-  reg('steering.autopilot.target.headingTrue', (ctx, path, value, cb) => {
-    emit('set_heading', Number(value) || 0)
-    return done(cb)
-  })
 }
 
 // Apply a list of live-preview field edits onto a profile config, in place.
