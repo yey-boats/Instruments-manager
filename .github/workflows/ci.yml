@@ -31,6 +31,39 @@ jobs:
       - name: npm audit
         run: npm audit --audit-level=high
 
+  # Contract with the firmware (Instruments-manager#16, #15): check out
+  # yey-boats/instruments main and validate the manager's control-protocol
+  # client against the firmware's own schema, fixtures and kProtoMajor, and
+  # fail when vendor/proto has drifted from instruments/proto.
+  contract:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Check out yey-boats/instruments (main)
+        uses: actions/checkout@v4
+        with:
+          repository: yey-boats/instruments
+          ref: main
+          path: .instruments
+          sparse-checkout: |
+            proto
+            include/proto
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '20'
+
+      # Only the vendored @yeyboats/proto (+ ajv) is needed; skip the MIDL build.
+      - name: npm ci
+        run: npm ci
+
+      - name: Contract test against instruments proto/fixtures
+        run: INSTRUMENTS_DIR=.instruments node test/proto-contract.test.js
+
+      - name: vendor/proto matches instruments/proto
+        run: tools/check-vendored-proto.sh .instruments
+
   # Browser E2E is heavy (downloads Chromium); run on demand or nightly, not on
   # every push. Add the `e2e` label to a PR to trigger it there.
   playwright:

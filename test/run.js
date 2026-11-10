@@ -102,6 +102,7 @@ const ASYNC_BATCH = [
 
 async function main () {
   await runAsync('proto-control', () => require('./proto-control.test'))
+  await runAsync('proto-contract', () => require('./proto-contract.test'))
   await Promise.all(ASYNC_BATCH.map(([name, mod]) => runAsync(name, () => require(mod))))
   runNodeTestSuites()
 
