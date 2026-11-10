@@ -73,7 +73,7 @@ Re-registration is idempotent — an already-numbered device is never renumbered
 Pairing also issues the device its **own random web API password** (192-bit,
 URL-safe), delivered in the pulled config. The display enforces HTTP Basic Auth
 once it has one, and the manager presents it on every device HTTP call (live
-status/logs, discovery probe, manager-register). Passwords are kept in
+status/logs, discovery probe, manager-register, and the layout editor's screenshot proxy, which only sends credentials to a registered device's host). Passwords are kept in
 `device-secrets.json` (mode 0600) in the plugin data dir, never in the registry,
 logs or admin JSON. **Rotate web password** on the device page issues a new one;
 the previous one is still tried until the device confirms the new one. Devices
