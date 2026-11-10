@@ -14,19 +14,41 @@ that didn't have the monorepo laid out just so. Vendoring makes the test suite
 hermetic: `npm ci` from a fresh clone resolves the dependency with no external
 paths.
 
+## Source commit
+
+Refreshed from **yey-boats/instruments@c4a967b85a87a0e3b38ad9bca425f13f1cf2b466**
+(`main`, 2026-11-10): `proto/js/{index,validators,version}.js`,
+`proto/js/types.d.ts`, `proto/schema/*.schema.json`, `proto/fixtures/*.json`.
+`js/package.json` is a trimmed copy (no `gen` script / devDependencies);
+`proto/js/test` is not vendored (upstream it still asserts major 1 and fails
+against its own v2 schema).
+
 ## Protocol major version
 
-This copy pins the **major-1** protocol schema
-(`x-proto-major: 1`), which is the version this plugin's `proto-control.js`
-client and its tests target (`versionCompatible('1.0') === true`,
-`'2.0' === false`). The `instruments` schema has since bumped to major 2
-(rebrand); that bump only changed the schema header (`$id` / `title` /
-`x-proto-major`) — the message shapes are byte-identical. When the plugin
-migrates to the v2 wire protocol, refresh this vendored copy from
-`instruments/proto` and update `proto-control.js`'s `PROTO_VERSION`.
+This copy pins the **major-2** protocol schema (`x-proto-major: 2`), matching
+the firmware's `kProtoMajor = 2` (instruments 3912fce, v0.4.0+). The bump from
+1 changed only the schema header (`$id` / `title` / `x-proto-major`); message
+shapes are byte-identical. `lib/proto-control.js` speaks `PROTO_VERSION = '2.0'`.
+
+The upstream fixtures still carry `"v":"1.0"`, as does firmware v0.4.x in its
+DeviceRecord / acks (while it rejects inbound major 1); see
+`LEGACY_RECORD_MAJORS` in `lib/proto-control.js`.
+
+## Freshness
+
+CI's `contract` job checks out yey-boats/instruments `main` and runs
+`tools/check-vendored-proto.sh` (byte-compares the vendored files) plus
+`INSTRUMENTS_DIR=… node test/proto-contract.test.js` (manager vs the firmware's
+schema, fixtures and `kProtoMajor`). Locally:
+
+    tools/check-vendored-proto.sh ../instruments
+    INSTRUMENTS_DIR=../instruments node test/proto-contract.test.js
 
 To refresh:
 
-    cp ../../<path-to>/instruments/proto/js/{index,validators,version}.js vendor/proto/js/
-    cp ../../<path-to>/instruments/proto/js/types.d.ts vendor/proto/js/
-    cp ../../<path-to>/instruments/proto/schema/*.schema.json vendor/proto/schema/
+    I=../instruments   # an up-to-date instruments checkout
+    cp $I/proto/js/{index,validators,version}.js $I/proto/js/types.d.ts vendor/proto/js/
+    cp $I/proto/schema/*.schema.json vendor/proto/schema/
+    cp $I/proto/fixtures/*.json vendor/proto/fixtures/
+
+then update the source commit above.
