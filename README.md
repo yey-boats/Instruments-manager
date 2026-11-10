@@ -70,6 +70,17 @@ number and pushes the OTA password + settings via config-push; the firmware
 applies them to NVS and the device becomes controllable and OTA-ready.
 Re-registration is idempotent — an already-numbered device is never renumbered.
 
+Pairing also issues the device its **own random web API password** (192-bit,
+URL-safe), delivered in the pulled config. The display enforces HTTP Basic Auth
+once it has one, and the manager presents it on every device HTTP call (live
+status/logs, discovery probe, manager-register). Passwords are kept in
+`device-secrets.json` (mode 0600) in the plugin data dir, never in the registry,
+logs or admin JSON. **Rotate web password** on the device page issues a new one;
+the previous one is still tried until the device confirms the new one. Devices
+paired by an older manager (shared default password) are migrated on next
+contact: reached with the old password, given a new one through the config
+pull, then verified over HTTP before the old one is retired.
+
 ### Also included
 Firmware catalog with GitHub-release import + OTA-job runner; dashboard presets;
 the visual layout editor (per-device screen/widget CRUD, manifest-gated);

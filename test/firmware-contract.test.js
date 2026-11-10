@@ -88,22 +88,19 @@ assert.strictEqual(firstConfig.display.width, 480)
 assert.strictEqual(firstConfig.layout.variant, 'square-480')
 assert.strictEqual(firstConfig.widgets.variant, 'square-480')
 assert.strictEqual(firstConfig.widgets.items.mapPreview, undefined)
-assert.deepStrictEqual(firstConfig.webAuth, {
-  enabled: true,
-  username: 'yeyboats',
-  password: 'yeyboats-dev'
-})
+// #19: the password is random per device (see device-web-password.test.js).
+assert.strictEqual(firstConfig.webAuth.enabled, true)
+assert.strictEqual(firstConfig.webAuth.username, 'yeyboats')
+assert.match(firstConfig.webAuth.password, /^[A-Za-z0-9_-]{22,63}$/)
 
 const { manager: openWebManager, auth: openWebAuth } = makeManager({
   auth: { mode: 'dev-shared-token', devToken: 'test-token' },
-  deviceWebAuth: { enabled: false, username: 'yeyboats', password: 'unused' }
+  deviceWebAuth: { enabled: false, username: 'yeyboats' }
 })
 openWebManager.registerDevice({ device: { id: 'yey-d-open-web', name: 'Open Web' } }, openWebAuth)
-assert.deepStrictEqual(openWebManager.generateConfig('yey-d-open-web').webAuth, {
-  enabled: false,
-  username: 'yeyboats',
-  password: 'unused'
-})
+const openWeb = openWebManager.generateConfig('yey-d-open-web').webAuth
+assert.strictEqual(openWeb.enabled, false)
+assert.strictEqual(openWeb.username, 'yeyboats')
 
 const heartbeat = manager.updateStatus(deviceId, {
   time: '2026-05-27T18:20:00Z',
