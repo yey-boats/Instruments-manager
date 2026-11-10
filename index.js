@@ -1,6 +1,6 @@
 const fs = require('fs')
 const path = require('path')
-const { YeyBoatsDisplayManager } = require('./lib/manager')
+const { YeyBoatsDisplayManager, basicAuthHeaders } = require('./lib/manager')
 const presets = require('./lib/screen-presets')
 const fieldSchema = require('./lib/field-schema')
 const midlAdapter = require('./lib/midl-adapter')
@@ -683,15 +683,27 @@ function registerRoutes (router, getManager) {
         res.status(403).json({ error: 'only private-network hosts allowed' })
         return
       }
+      // #20: displays enforce Basic Auth once a web password is set
+      // (instruments#28). Send the device's own credentials, but only when
+      // the host is a registered device; any other host gets none. A 401
+      // moves on to a fallback password the device may still hold (#19).
+      const manager = getManager()
+      const auths = manager ? manager.deviceWebAuthCandidatesForProxy(u.hostname) : [null]
       // node 18+ has global fetch; SignalK ships node 20.
       // redirect: 'manual' prevents an attacker-controlled device from
       // 302'ing this server-side fetch to an arbitrary host (the
       // private-host check above only validates the URL we typed,
       // not what the device might redirect us to).
-      const upstream = await fetch(u.origin + '/api/screenshot.png', {
-        signal: AbortSignal.timeout(10000),
-        redirect: 'manual'
-      })
+      let upstream
+      for (const auth of auths) {
+        upstream = await fetch(u.origin + '/api/screenshot.png', {
+          headers: basicAuthHeaders(auth),
+          signal: AbortSignal.timeout(10000),
+          redirect: 'manual'
+        })
+        if (upstream.status !== 401) break
+        await upstream.arrayBuffer().catch(() => {}) // release the socket
+      }
       if (upstream.status >= 300 && upstream.status < 400) {
         res.status(502).json({ error: 'device tried to redirect; refusing' })
         return
