@@ -97,7 +97,8 @@ const ASYNC_BATCH = [
   ['discovery-scan', './discovery-scan.test'],
   ['signalk-register-device', './signalk-register-device.test'],
   ['live-device', './live-device.test'],
-  ['device-resolution', './device-resolution.test']
+  ['device-resolution', './device-resolution.test'],
+  ['device-web-password', './device-web-password.test']
 ]
 
 async function main () {

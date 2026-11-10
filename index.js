@@ -99,11 +99,10 @@ module.exports = function yeyBoatsDisplayManagerPlugin (app) {
         deviceWebAuth: {
           type: 'object',
           title: 'Device Web API Basic Auth',
-          description: 'Credentials pushed to devices and used by this plugin to read live status and logs.',
+          description: 'Basic Auth pushed to devices and used by this plugin for device HTTP calls. Each device gets its own random password at pairing (stored 0600 in the plugin data dir); rotate it from the device page.',
           properties: {
             enabled: { type: 'boolean', title: 'Enabled', default: true },
-            username: { type: 'string', title: 'Username', default: 'yeyboats' },
-            password: { type: 'string', title: 'Password', default: 'yeyboats-dev' }
+            username: { type: 'string', title: 'Username', default: 'yeyboats' }
           }
         },
         discoveryUdp: {
@@ -818,6 +817,12 @@ function registerRoutes (router, getManager) {
     res.end()
   }))
   // Bulk cleanup of the registered-devices list.
+  router.post('/ui/devices/:id/web-auth/rotate', wrap(getManager, (manager, req, res) => {
+    manager.rotateDeviceWebPassword(req.params.id)
+    res.statusCode = 303
+    res.setHeader('location', `/plugins/yey-boats-display-manager/ui/devices/${encodeURIComponent(req.params.id)}?status=web-password-rotated#config`)
+    res.end()
+  }))
   router.post('/ui/devices/clear-offline', wrap(getManager, (manager, req, res) => {
     const r = manager.deleteOfflineDevices()
     res.statusCode = 303
@@ -1136,6 +1141,17 @@ function registerRoutes (router, getManager) {
 
   router.post('/devices/:id/tokens/rotate', wrap(getManager, (manager, req, res) => {
     res.json(manager.rotateDeviceToken(req.params.id))
+  }))
+
+  // instruments-manager#19: per-device web API password. Status never
+  // includes the password; rotation queues a config.reload so the device
+  // pulls the new one (the old one stays a fallback until verified).
+  router.get('/devices/:id/web-auth', wrap(getManager, (manager, req, res) => {
+    res.json(manager.webAuthStatus(req.params.id))
+  }))
+
+  router.post('/devices/:id/web-auth/rotate', wrap(getManager, (manager, req, res) => {
+    res.json(manager.rotateDeviceWebPassword(req.params.id))
   }))
 
   router.post('/devices/:id/tokens/revoke', wrap(getManager, (manager, req, res) => {
@@ -2131,7 +2147,7 @@ function renderDevicePage (manager, id, live = {}, opts = {}) {
       ${otaSection}
       <h2>Firmware jobs</h2>
       ${firmwareJobTable(jobs)}
-      ${renderDeviceConfigDetails(device, config, profilesList, configViews, opts.openConfig)}
+      ${renderDeviceConfigDetails(device, config, profilesList, configViews, opts.openConfig, safeWebAuthStatus(manager, id))}
     </section>`
 }
 
@@ -2143,7 +2159,35 @@ function renderDevicePage (manager, id, live = {}, opts = {}) {
 // settings + the consolidated widget/path editor + screen/tile editor, all in
 // one form) and the read-only renderDeviceConfigWidget preview live here so the
 // PATHS and FIELDS are editable on the same screen as everything else.
-function renderDeviceConfigDetails (device, config, profiles, views, open) {
+function safeWebAuthStatus (manager, id) {
+  try { return manager.webAuthStatus(id) } catch (e) { return null }
+}
+
+// Device web API password (instruments-manager#19): state only, never the
+// password itself, plus the rotate action.
+function renderWebPasswordSection (id, web) {
+  if (!web) return ''
+  const stateLabel = web.state === 'verified'
+    ? 'verified on device'
+    : 'pending: device has not confirmed it yet'
+  return `
+          <section class="config-section" id="web-password">
+            <h3>Device web password</h3>
+            ${keyValueTable([
+              ['Basic auth', web.enabled ? 'yes' : 'no'],
+              ['Username', web.username],
+              ['Password', `per-device, ${stateLabel}`],
+              ['Last issued', web.rotatedAt || ''],
+              ['Verified', web.verifiedAt || '']
+            ])}
+            <form method="post" action="/plugins/yey-boats-display-manager/ui/devices/${encodeURIComponent(id)}/web-auth/rotate"
+                  onsubmit="return confirm('Rotate the web password for this device? It is pushed with the next config pull.')">
+              <div class="actions"><button type="submit">Rotate web password</button></div>
+            </form>
+          </section>`
+}
+
+function renderDeviceConfigDetails (device, config, profiles, views, open, webAuth) {
   const id = device.id
   return `
       <details class="dev-config" id="config"${open ? ' open' : ''}>
@@ -2155,6 +2199,7 @@ function renderDeviceConfigDetails (device, config, profiles, views, open) {
           </p>
           ${renderDeviceConfigForm(device, config, profiles, views)}
           ${renderDeviceConfigWidget(config, views)}
+          ${renderWebPasswordSection(id, webAuth)}
         </div>
       </details>
       <style>
