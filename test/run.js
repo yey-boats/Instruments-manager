@@ -99,7 +99,8 @@ const ASYNC_BATCH = [
   ['live-device', './live-device.test'],
   ['device-resolution', './device-resolution.test'],
   ['device-web-password', './device-web-password.test'],
-  ['screenshot-proxy-auth', './screenshot-proxy-auth.test']
+  ['screenshot-proxy-auth', './screenshot-proxy-auth.test'],
+  ['manager-auth', './manager-auth.test']
 ]
 
 async function main () {

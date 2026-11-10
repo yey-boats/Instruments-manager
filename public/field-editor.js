@@ -115,7 +115,9 @@
     var h = { 'content-type': 'application/json' };
     var t = localStorage.getItem('SK_TOKEN');
     if (t) h.authorization = 'Bearer ' + t;
-    h['x-yeyboats-authorization'] = 'Bearer ' + (localStorage.getItem('YEYBOATS_DEV_TOKEN') || 'yeyboats-dev');
+    // #23: operator routes rely on the SignalK session; no public default token.
+    var mt = localStorage.getItem('YEYBOATS_MANAGER_TOKEN');
+    if (mt) h['x-yeyboats-authorization'] = 'Bearer ' + mt;
     return h;
   }
   function api (path, opts) {

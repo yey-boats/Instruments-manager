@@ -69,22 +69,23 @@ module.exports = function yeyBoatsDisplayManagerPlugin (app) {
         auth: {
           type: 'object',
           title: 'Authentication',
+          description: 'Displays authenticate with their own per-device token. This install generates its own manager API token on first start (shown once on the manager Settings page) for pairing displays and tooling. The shared development token and "disabled" only take effect when SignalK runs with YEYBOATS_MANAGER_DEV_AUTH=1.',
           properties: {
             mode: {
               type: 'string',
               title: 'Mode',
-              enum: ['dev-shared-token', 'provision-token', 'disabled'],
-              default: 'dev-shared-token'
+              enum: ['device-token', 'provision-token', 'dev-shared-token', 'disabled'],
+              default: 'device-token'
             },
             devToken: {
               type: 'string',
-              title: 'Development shared token',
-              default: 'yeyboats-dev'
+              title: 'Development shared token (dev auth only)',
+              description: 'Only used with YEYBOATS_MANAGER_DEV_AUTH=1 and mode dev-shared-token. Defaults to the public firmware bootstrap token.'
             },
             provisionToken: {
               type: 'string',
-              title: 'Provisioning token',
-              default: 'yeyboats-provision'
+              title: 'Static provisioning token (optional)',
+              description: 'Extra secret displays may present to pair, e.g. one baked into a firmware build. Leave empty to pair with the manager API token or one-time provisioning tokens.'
             }
           }
         },
@@ -206,20 +207,36 @@ module.exports = function yeyBoatsDisplayManagerPlugin (app) {
       }
     }),
     start: (options) => {
-      manager = new YeyBoatsDisplayManager(app, options || {})
+      options = options || {}
+      // #23: dev auth (shared token / disabled) only from the environment,
+      // never from the saved plugin config.
+      const devAuth = process.env.YEYBOATS_MANAGER_DEV_AUTH === '1'
+      options = { ...options, auth: { ...(options.auth || {}), devAuth } }
+      manager = new YeyBoatsDisplayManager(app, options)
+      const a = manager.options.auth
+      if (a.requestedMode !== a.mode && a.requestedMode !== 'provision-token') {
+        app.debug(`yey-boats-display-manager: auth.mode "${a.requestedMode}" needs YEYBOATS_MANAGER_DEV_AUTH=1; using per-device tokens`)
+      }
+      if (manager.apiToken.pendingReveal()) {
+        app.debug('yey-boats-display-manager: a manager API token is waiting to be viewed on the Settings page')
+      }
       // Autopilot PUTs (steering.autopilot.*) are NOT handled here. On the demo
       // boat they are translated for the simulator by the simulator repo's
       // `signalk-yey-sim-autopilot` plugin; real boats use their own autopilot
       // plugin (e.g. signalk-autopilot).
       app.debug('yey-boats-display-manager started')
     },
+    _manager: () => manager,
     stop: () => {
       if (manager && manager.close) manager.close()
       manager = undefined
     },
     statusMessage: () => {
       if (!manager) return 'stopped'
-      return `${Object.keys(manager.store.registry.devices).length} device(s)`
+      const parts = [`${Object.keys(manager.store.registry.devices).length} device(s)`]
+      if (manager.apiToken && manager.apiToken.pendingReveal()) parts.push('new manager API token: view it on the manager Settings page')
+      if (manager.isDevAuthMode()) parts.push(`DEV auth mode ${manager.options.auth.mode}`)
+      return parts.join(' · ')
     },
     registerWithRouter: (router) => {
       registerRoutes(router, () => manager)
@@ -614,6 +631,11 @@ function registerRoutes (router, getManager) {
       sendReload: checkboxValue(body.sendReload),
       issueToken: checkboxValue(body.issueToken)
     })
+    // #23: deliver the new per-device token over the display's web API.
+    if (manager.secrets.pendingManagerToken(req.params.id)) {
+      manager.pushDeviceManagerToken(req.params.id).catch(() => {})
+      result.tokenDelivery = { state: 'pending' }
+    }
     if (String(req.headers['content-type'] || '').includes('application/x-www-form-urlencoded')) {
       res.statusCode = 303
       res.setHeader('location', `/plugins/yey-boats-display-manager/ui/devices/${encodeURIComponent(req.params.id)}`)
@@ -688,7 +710,9 @@ function registerRoutes (router, getManager) {
       // the host is a registered device; any other host gets none. A 401
       // moves on to a fallback password the device may still hold (#19).
       const manager = getManager()
-      const auths = manager ? manager.deviceWebAuthCandidatesForProxy(u.hostname) : [null]
+      // #23: and only on the device's registered web API port.
+      const port = u.port ? Number(u.port) : (u.protocol === 'https:' ? 443 : 80)
+      const auths = manager ? manager.deviceWebAuthCandidatesForProxy(u.hostname, port) : [null]
       // node 18+ has global fetch; SignalK ships node 20.
       // redirect: 'manual' prevents an attacker-controlled device from
       // 302'ing this server-side fetch to an arbitrary host (the
@@ -1054,7 +1078,13 @@ function registerRoutes (router, getManager) {
   }))
 
   router.post('/devices/register', wrap(getManager, (manager, req, res) => {
-    res.json(manager.registerDevice(req.body || {}, authFrom(req)))
+    try {
+      res.json(manager.registerDevice(req.body || {}, authFrom(req)))
+    } catch (err) {
+      // #23: list an unauthenticated display in Discovery so it can be claimed.
+      if (err.status === 401) manager.noteRejectedRegistration(req.body || {}, remoteAddressOf(req))
+      throw err
+    }
   }))
 
   router.get('/devices/:id', wrap(getManager, (manager, req, res) => {
@@ -1085,9 +1115,9 @@ function registerRoutes (router, getManager) {
     res.json(await manager.getLiveLogs(req.params.id, req.query.since))
   }))
 
+  // #23: secrets in the config only reach the device's own token.
   router.get('/devices/:id/config', wrap(getManager, (manager, req, res) => {
-    manager.requireDeviceAuth(req.params.id, authFrom(req))
-    res.json(manager.generateConfig(req.params.id))
+    res.json(manager.deviceConfigFor(req.params.id, authFrom(req)))
   }))
 
   router.get('/profiles', wrap(getManager, (manager, req, res) => {
@@ -1152,12 +1182,44 @@ function registerRoutes (router, getManager) {
   }))
 
   router.post('/devices/:id/tokens/rotate', wrap(getManager, (manager, req, res) => {
-    res.json(manager.rotateDeviceToken(req.params.id))
+    const result = manager.rotateDeviceToken(req.params.id)
+    if (manager.secrets.pendingManagerToken(req.params.id)) {
+      manager.pushDeviceManagerToken(req.params.id).catch(() => {})
+      result.tokenDelivery = { state: 'pending' }
+    }
+    res.json(result)
   }))
 
   // instruments-manager#19: per-device web API password. Status never
   // includes the password; rotation queues a config.reload so the device
   // pulls the new one (the old one stays a fallback until verified).
+  // #23: per-device manager token delivery (claim / migration) — retry now.
+  router.post('/devices/:id/tokens/deliver', wrap(getManager, async (manager, req, res) => {
+    res.json(await manager.pushDeviceManagerToken(req.params.id))
+  }))
+
+  // #23: the manager API token. Status only; the plaintext is shown once on
+  // the Settings page.
+  router.get('/manager-token', wrap(getManager, (manager, req, res) => {
+    res.json(manager.apiToken.status())
+  }))
+
+  router.post('/ui/manager-token/ack', wrap(getManager, (manager, req, res) => {
+    manager.apiToken.acknowledge()
+    manager.store.audit('manager.apiToken.acknowledged', 'system')
+    res.statusCode = 303
+    res.setHeader('location', '/plugins/yey-boats-display-manager/ui/settings')
+    res.end()
+  }))
+
+  router.post('/ui/manager-token/rotate', wrap(getManager, (manager, req, res) => {
+    manager.apiToken.rotate()
+    manager.store.audit('manager.apiToken.rotated', 'system')
+    res.statusCode = 303
+    res.setHeader('location', '/plugins/yey-boats-display-manager/ui/settings#manager-token')
+    res.end()
+  }))
+
   router.get('/devices/:id/web-auth', wrap(getManager, (manager, req, res) => {
     res.json(manager.webAuthStatus(req.params.id))
   }))
@@ -1298,9 +1360,46 @@ function registerRoutes (router, getManager) {
   }))
 }
 
+// #23: CSRF guard for state-changing routes. The operator UI posts forms and
+// fetches same-origin; SignalK's session cookie would ride along on a
+// cross-site request too (and with SignalK security off there is no session at
+// all). Browsers always say where a request comes from (Sec-Fetch-Site /
+// Origin / Referer), so refuse anything cross-site. Non-browser clients
+// (displays, curl, tooling) send none of these and are unaffected.
+const SAFE_METHODS = ['GET', 'HEAD', 'OPTIONS']
+function csrfRejection (req) {
+  const method = String((req && req.method) || 'GET').toUpperCase()
+  if (SAFE_METHODS.includes(method)) return null
+  const h = (req && req.headers) || {}
+  const site = String(h['sec-fetch-site'] || '').toLowerCase()
+  if (site && site !== 'same-origin' && site !== 'none') return `cross-site request (${site})`
+  let origin = h.origin ? String(h.origin) : ''
+  if (!origin && h.referer) {
+    try { origin = new URL(String(h.referer)).origin } catch (e) { return 'unparseable referer' }
+  }
+  if (!origin) return null
+  if (origin === 'null') return 'opaque origin'
+  let host
+  try { host = new URL(origin).host.toLowerCase() } catch (e) { return 'unparseable origin' }
+  const allowed = [h['x-forwarded-host'], h.host]
+    .filter(Boolean)
+    .map((v) => String(v).split(',')[0].trim().toLowerCase())
+  return allowed.includes(host) ? null : 'cross-origin request'
+}
+
+function remoteAddressOf (req) {
+  return (req && ((req.socket && req.socket.remoteAddress) ||
+    (req.connection && req.connection.remoteAddress) || req.ip)) || null
+}
+
 function wrap (getManager, handler) {
   return (req, res) => {
     try {
+      const csrf = csrfRejection(req)
+      if (csrf) {
+        res.status(403).json({ error: { code: 'csrf_rejected', message: `refused ${csrf}` } })
+        return
+      }
       const manager = getManager()
       if (!manager) {
         res.status(503).json({ error: { code: 'plugin_stopped', message: 'plugin is not running' } })
@@ -1556,6 +1655,9 @@ function renderUiShell (title, body, dashboard, page = '') {
     ${nav(page)}
   </header>
   <main>
+    ${dashboard.managerApiToken && dashboard.managerApiToken.revealPending && page !== 'settings'
+      ? '<p class="panel" role="status"><b>New manager API token.</b> This install generated its own manager API token. <a href="/plugins/yey-boats-display-manager/ui/settings#manager-token">View and save it on the Settings page</a>; it is shown only until you confirm.</p>'
+      : ''}
     ${body}
   </main>
 <div id="relogin-modal" style="display:none;position:fixed;inset:0;background:rgba(0,0,0,.5);z-index:9999;align-items:center;justify-content:center;">
@@ -3704,6 +3806,7 @@ function renderSettingsPage (manager, req) {
   const passwordInput = (name, isSet) =>
     `<input type="password" name="${escapeHtml(name)}" value=""${isSet ? ' placeholder="(unchanged)"' : ''}>`
   return `
+    ${renderManagerTokenSection(manager)}
     <form class="config-form" method="post" action="/plugins/yey-boats-display-manager/ui/settings">
       <h2>System settings</h2>
       ${saved ? '<p class="muted">Saved.</p>' : ''}
@@ -3734,6 +3837,31 @@ function renderSettingsPage (manager, req) {
         <button type="submit">Save settings</button>
       </div>
     </form>`
+}
+
+// #23: the manager API token, shown in full only until the admin confirms
+// they have saved it.
+function renderManagerTokenSection (manager) {
+  const token = manager.apiToken ? manager.apiToken.pendingReveal() : null
+  const st = manager.apiToken ? manager.apiToken.status() : {}
+  const base = '/plugins/yey-boats-display-manager/ui/manager-token'
+  const legacy = Object.values(manager.store.registry.devices).filter((d) => d.legacyTokenHash).length
+  return `
+    <section class="panel" id="manager-token">
+      <h2>Manager API token</h2>
+      <p class="muted">Pairs displays and authenticates tooling (<code>X-YeyBoats-Authorization: Bearer &lt;token&gt;</code>).
+        Displays use their own per-device token; the old shared <code>yeyboats-dev</code> token is no longer accepted.</p>
+      ${token
+        ? `<p><b>Copy this token now.</b> It is shown only until you confirm below.</p>
+           <p><code style="user-select:all;word-break:break-all;">${escapeHtml(token)}</code></p>
+           <form method="post" action="${base}/ack" style="display:inline"><button type="submit">I have saved it</button></form>`
+        : `<p class="muted">Token set ${escapeHtml(st.createdAt || '')}. It is not shown again; rotate to get a new one.</p>`}
+      <form method="post" action="${base}/rotate" style="display:inline"
+            onsubmit="return confirm('Rotate the manager API token? Tooling using the old one stops working.')">
+        <button type="submit">Rotate token</button>
+      </form>
+      ${legacy ? `<p class="muted">${legacy} display(s) still on the shared dev token are being moved to their own token.</p>` : ''}
+    </section>`
 }
 
 function nav (active) {

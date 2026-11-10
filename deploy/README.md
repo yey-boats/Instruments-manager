@@ -298,6 +298,30 @@ Then query the state path again.
 SignalK protects plugin routes with its normal HTTP auth. Device management
 auth is carried separately with `X-YeyBoats-Authorization`.
 
+Manager auth (instruments-manager#23):
+
+- On first start the plugin generates its own **manager API token** (256-bit,
+  `manager-api-token.json` in the plugin data dir, mode 0600). Open the manager
+  UI **Settings** page to copy it; it is shown until you press *I have saved
+  it*, after which only a hash is kept. *Rotate token* issues a new one.
+- The manager API token pairs displays (`POST /devices/register`), announces
+  discovered devices and lets tooling read a device config with its secrets
+  redacted. It never acts as a display.
+- Each display gets its own random token at pairing. Only that token can send
+  its heartbeat (and so change its address), poll its commands or receive its
+  web password / OTA password in `GET /devices/:id/config`.
+- New displays running stock firmware (compiled-in bootstrap token) show up
+  under Discovery; *Claim* pushes the display its token over its web API.
+  Displays already paired with the old shared `yeyboats-dev` token keep
+  working: on start the manager pushes each one its own token the same way,
+  and stops accepting the shared token for that display once it is used.
+  Until then the shared token can keep the display online but cannot change
+  its address or read its secrets.
+- The shared dev token and `auth.mode=disabled` only take effect when SignalK
+  runs with `YEYBOATS_MANAGER_DEV_AUTH=1` (local development only).
+- State-changing routes refuse cross-site browser requests (CSRF); scripts and
+  displays (no `Origin`/`Sec-Fetch-Site` headers) are unaffected.
+
 ```sh
 TOKEN=$(curl -s -H 'Content-Type: application/json' \
   -d '{"username":"admin","password":"admin"}' \
@@ -307,9 +331,12 @@ curl -s \
   -H "Authorization: Bearer $TOKEN" \
   http://localhost:3000/plugins/yey-boats-display-manager/.well-known/yeyboats-management
 
+# Manager API token from the manager UI Settings page.
+MANAGER_TOKEN=ybm_...
+
 curl -s -X POST \
   -H "Authorization: Bearer $TOKEN" \
-  -H "X-YeyBoats-Authorization: Bearer yeyboats-dev" \
+  -H "X-YeyBoats-Authorization: Bearer $MANAGER_TOKEN" \
   -H 'Content-Type: application/json' \
   -d '{"device":{"id":"yey-d-aabbccddeeff","board":"esp32-4848s040"}}' \
   http://localhost:3000/plugins/yey-boats-display-manager/devices/register
