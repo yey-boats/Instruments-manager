@@ -141,9 +141,12 @@ module.exports = (async () => {
   }
 
   // 3. Handshake against the firmware's inbound gate.
+  // Upstream fixtures are stamped with the firmware's own version since
+  // instruments#25/#26; v0.4.x devices in the field still stamp "1.0", so pin
+  // that explicitly to keep LEGACY_RECORD_MAJORS exercised.
   const shipped = fx['device_record.json']
   await handshake(fwMajor, fx, { ...shipped, v: `${fwMajor}.0` }, 'record stamped with firmware major')
-  await handshake(fwMajor, fx, shipped, 'record as shipped by firmware v0.4.x')
+  await handshake(fwMajor, fx, { ...shipped, v: '1.0' }, 'record as shipped by firmware v0.4.x')
 
   console.log(`proto-contract test passed (${SOURCE}, proto major ${fwMajor})`)
 })()

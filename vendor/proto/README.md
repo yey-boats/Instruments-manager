@@ -16,8 +16,9 @@ paths.
 
 ## Source commit
 
-Refreshed from **yey-boats/instruments@c4a967b85a87a0e3b38ad9bca425f13f1cf2b466**
-(`main`, 2026-11-10): `proto/js/{index,validators,version}.js`,
+Refreshed from **yey-boats/instruments@1e50329ad072f880328966569b7dba56e56f3c1d**
+(PR #26 `fix/25-proto-version-stamp` head, 2026-11-10; lands on `main` when
+#26 merges): `proto/js/{index,validators,version}.js`,
 `proto/js/types.d.ts`, `proto/schema/*.schema.json`, `proto/fixtures/*.json`.
 `js/package.json` is a trimmed copy (no `gen` script / devDependencies);
 `proto/js/test` is not vendored (upstream it still asserts major 1 and fails
@@ -30,9 +31,11 @@ the firmware's `kProtoMajor = 2` (instruments 3912fce, v0.4.0+). The bump from
 1 changed only the schema header (`$id` / `title` / `x-proto-major`); message
 shapes are byte-identical. `lib/proto-control.js` speaks `PROTO_VERSION = '2.0'`.
 
-The upstream fixtures still carry `"v":"1.0"`, as does firmware v0.4.x in its
-DeviceRecord / acks (while it rejects inbound major 1); see
-`LEGACY_RECORD_MAJORS` in `lib/proto-control.js`.
+Since instruments#26 the upstream fixtures carry `"v":"2.0"` (the negative
+fixture is now `attach_v1major.json`), but firmware v0.4.x in the field still
+stamps `"1.0"` in its DeviceRecord / acks (while it rejects inbound major 1);
+see `LEGACY_RECORD_MAJORS` in `lib/proto-control.js`, exercised by the v0.4.x
+handshake in `test/proto-contract.test.js`.
 
 ## Freshness
 
