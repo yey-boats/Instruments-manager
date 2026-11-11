@@ -442,8 +442,40 @@ function applyScreenEdits (cfg, edits) {
   return cfg
 }
 
-function registerRoutes (router, getManager) {
+function registerRoutes (baseRouter, getManager) {
+  // #23: every state-changing route is an operator route unless it is one of
+  // the few the displays themselves call (those authenticate the device).
+  const router = operatorGuardedRouter(baseRouter, getManager)
   router.use(jsonBody)
+
+  // #23: UI sign-in with the manager API token (needed when SignalK security
+  // is off; with it on, a SignalK admin session is enough).
+  router.get('/ui/login', wrap(getManager, (manager, req, res) => {
+    res.setHeader('content-type', 'text/html; charset=utf-8')
+    res.end(renderUiShell('Sign in', renderLoginPage(manager, req), manager.dashboard(), 'login'))
+  }))
+
+  router.post('/ui/login', wrap(getManager, (manager, req, res) => {
+    const token = String((req.body && req.body.token) || '').trim()
+    if (!token || !manager.apiToken.verify(token)) {
+      manager.store.audit('manager.login.failed', 'system')
+      res.statusCode = 401
+      res.setHeader('content-type', 'text/html; charset=utf-8')
+      res.end(renderUiShell('Sign in', renderLoginPage(manager, req, 'That is not this manager\'s API token.'), manager.dashboard(), 'login'))
+      return
+    }
+    res.setHeader('set-cookie', operatorCookie(req, token))
+    res.statusCode = 303
+    res.setHeader('location', safeNext(req.body && req.body.next))
+    res.end()
+  }))
+
+  router.post('/ui/logout', wrap(getManager, (manager, req, res) => {
+    res.setHeader('set-cookie', operatorCookie(req, '', true))
+    res.statusCode = 303
+    res.setHeader('location', `${PLUGIN_BASE}/ui/login`)
+    res.end()
+  }))
 
   router.get('/.well-known/yeyboats-management', wrap(getManager, (manager, req, res) => {
     res.json(manager.discovery())
@@ -1181,13 +1213,36 @@ function registerRoutes (router, getManager) {
     res.json(manager.ackCommand(req.params.id, req.params.commandId, req.body || {}, authFrom(req)))
   }))
 
+  // #23: rotation is a Re-claim; the new token is never in the response.
   router.post('/devices/:id/tokens/rotate', wrap(getManager, (manager, req, res) => {
     const result = manager.rotateDeviceToken(req.params.id)
-    if (manager.secrets.pendingManagerToken(req.params.id)) {
-      manager.pushDeviceManagerToken(req.params.id).catch(() => {})
-      result.tokenDelivery = { state: 'pending' }
+    res.json(startReclaimDelivery(manager, req.params.id, result))
+  }))
+
+  // #23: Re-claim a paired display (operator). With its own token it
+  // collects the new one itself; otherwise `confirmAddress` (host[:port]) is
+  // where the operator confirmed it is, and the only place credentials go.
+  router.get('/reclaim/candidates', wrap(getManager, (manager, req, res) => {
+    res.json({ devices: manager.reclaimCandidates() })
+  }))
+
+  router.post('/devices/:id/reclaim', wrap(getManager, (manager, req, res) => {
+    const result = manager.reclaimDevice(req.params.id, req.body || {})
+    res.json(startReclaimDelivery(manager, req.params.id, result))
+  }))
+
+  router.post('/ui/devices/:id/reclaim', wrap(getManager, (manager, req, res) => {
+    const id = req.params.id
+    let status = 'reclaim-pending'
+    try {
+      startReclaimDelivery(manager, id, manager.reclaimDevice(id, req.body || {}))
+    } catch (err) {
+      if (!err.status || (err.status >= 500 && err.status !== 501)) throw err
+      status = `reclaim-failed:${(err.payload && err.payload.error && err.payload.error.code) || 'error'}`
     }
-    res.json(result)
+    res.statusCode = 303
+    res.setHeader('location', `${PLUGIN_BASE}/ui/devices/${encodeURIComponent(id)}?status=${encodeURIComponent(status)}#manager-token`)
+    res.end()
   }))
 
   // instruments-manager#19: per-device web API password. Status never
@@ -1358,6 +1413,130 @@ function registerRoutes (router, getManager) {
   router.post('/devices/:id/firmware/confirm', wrap(getManager, (manager, req, res) => {
     res.json(manager.confirmFirmware(req.params.id, req.body || {}, authFrom(req)))
   }))
+}
+
+const PLUGIN_BASE = '/plugins/yey-boats-display-manager'
+const OPERATOR_COOKIE = 'yeyboats_manager'
+
+// #23: state-changing routes the displays call themselves; each one
+// authenticates the device (or, for announce/register, a provisioning
+// credential) in the manager. Plus the UI sign-in itself.
+const DEVICE_FACING_ROUTES = new Set([
+  'POST /devices/register',
+  'POST /devices/:id/status',
+  'POST /devices/:id/commands/:commandId/ack',
+  'POST /devices/:id/firmware/jobs/:jobId/progress',
+  'POST /devices/:id/firmware/confirm',
+  'POST /discovery/devices',
+  'POST /ui/login',
+  'POST /ui/logout'
+])
+
+// Wraps the router so every non-GET route (except the device-facing ones)
+// requires an operator credential before its handler runs.
+function operatorGuardedRouter (router, getManager) {
+  const guarded = (method) => (p, ...handlers) => {
+    if (DEVICE_FACING_ROUTES.has(`${method.toUpperCase()} ${p}`) || !handlers.length) {
+      return router[method](p, ...handlers)
+    }
+    const last = handlers.pop()
+    return router[method](p, ...handlers, operatorGuard(getManager, last))
+  }
+  return {
+    use: (...a) => router.use(...a),
+    get: (...a) => router.get(...a),
+    post: guarded('post'),
+    put: guarded('put'),
+    patch: guarded('patch'),
+    delete: guarded('delete')
+  }
+}
+
+function operatorGuard (getManager, handler) {
+  return (req, res, next) => {
+    const manager = getManager()
+    // Stopped plugin / CSRF: the route's wrap() answers those.
+    if (!manager || csrfRejection(req) || operatorAllowed(manager, req)) return handler(req, res, next)
+    const formPost = String((req.headers && req.headers['content-type']) || '').includes('application/x-www-form-urlencoded')
+    if (formPost) {
+      res.statusCode = 303
+      res.setHeader('location', `${PLUGIN_BASE}/ui/login?next=${encodeURIComponent(refererPath(req))}`)
+      res.end()
+      return
+    }
+    res.status(401).json({
+      error: {
+        code: 'operator_auth_required',
+        message: manager.signalkSecurityEnabled()
+          ? 'this needs a SignalK admin session or the manager API token (X-YeyBoats-Authorization: Bearer <token>)'
+          : 'SignalK security is off: this needs the manager API token (X-YeyBoats-Authorization: Bearer <token>, or sign in on the manager UI)'
+      }
+    })
+  }
+}
+
+// #23: an operator is the manager API token holder (header, or the UI
+// sign-in cookie), or -- with SignalK security on -- a SignalK admin. With
+// SignalK security off (dummy strategy) there is no SignalK session to trust.
+// The explicit dev auth modes keep the old open behaviour.
+function operatorAllowed (manager, req) {
+  if (manager.isDevAuthMode()) return true
+  const a = authFrom(req)
+  if (a.bearer && manager.apiToken.verify(a.bearer)) return true
+  if (a.provision && manager.apiToken.verify(a.provision)) return true
+  const cookie = readCookie(req, OPERATOR_COOKIE)
+  if (cookie && manager.apiToken.verify(cookie)) return true
+  return manager.signalkAdmin(req)
+}
+
+function readCookie (req, name) {
+  const header = String((req && req.headers && req.headers.cookie) || '')
+  for (const part of header.split(';')) {
+    const i = part.indexOf('=')
+    if (i < 0) continue
+    if (part.slice(0, i).trim() === name) {
+      try { return decodeURIComponent(part.slice(i + 1).trim()) } catch (e) { return null }
+    }
+  }
+  return null
+}
+
+function operatorCookie (req, token, clear) {
+  const h = (req && req.headers) || {}
+  const https = (req && req.secure) || String(h['x-forwarded-proto'] || '').split(',')[0].trim() === 'https'
+  return [
+    `${OPERATOR_COOKIE}=${clear ? '' : encodeURIComponent(token)}`,
+    `Path=${PLUGIN_BASE}`,
+    'HttpOnly',
+    'SameSite=Strict',
+    clear ? 'Max-Age=0' : 'Max-Age=2592000',
+    https ? 'Secure' : null
+  ].filter(Boolean).join('; ')
+}
+
+// Only redirect back inside the plugin.
+function safeNext (next) {
+  const n = String(next || '')
+  return n.startsWith(`${PLUGIN_BASE}/`) && !n.startsWith('//') && !/[\r\n]/.test(n) ? n : `${PLUGIN_BASE}/ui`
+}
+
+function refererPath (req) {
+  try {
+    const u = new URL(String((req.headers && req.headers.referer) || ''))
+    return u.pathname + u.search
+  } catch (e) {
+    return `${PLUGIN_BASE}/ui`
+  }
+}
+
+// A confirmed-address Re-claim: push the token there now (the operator just
+// confirmed it). A device-token Re-claim is collected by the display.
+function startReclaimDelivery (manager, id, result) {
+  if (result && result.method === 'confirmed-address' && manager.secrets.pendingManagerToken(id)) {
+    manager.pushDeviceManagerToken(id).catch(() => {})
+    return { ...result, tokenDelivery: { state: 'pending' } }
+  }
+  return result
 }
 
 // #23: CSRF guard for state-changing routes. The operator UI posts forms and
@@ -1655,6 +1834,12 @@ function renderUiShell (title, body, dashboard, page = '') {
     ${nav(page)}
   </header>
   <main>
+    ${dashboard.auth && !dashboard.auth.devAuth && dashboard.auth.signalkSecurity === 'off' && page !== 'login'
+      ? `<p class="panel" role="status"><b>SignalK security is off.</b> Changes here need the manager API token: <a href="${PLUGIN_BASE}/ui/login">sign in</a>.</p>`
+      : ''}
+    ${dashboard.auth && dashboard.auth.reclaimNeeded && page !== 'settings'
+      ? `<p class="panel" role="status"><b>${escapeHtml(dashboard.auth.reclaimNeeded)} display(s) need re-claiming.</b> <a href="${PLUGIN_BASE}/ui/settings#reclaim">Confirm their addresses</a> before the manager sends them credentials.</p>`
+      : ''}
     ${dashboard.managerApiToken && dashboard.managerApiToken.revealPending && page !== 'settings'
       ? '<p class="panel" role="status"><b>New manager API token.</b> This install generated its own manager API token. <a href="/plugins/yey-boats-display-manager/ui/settings#manager-token">View and save it on the Settings page</a>; it is shown only until you confirm.</p>'
       : ''}
@@ -2261,7 +2446,7 @@ function renderDevicePage (manager, id, live = {}, opts = {}) {
       ${otaSection}
       <h2>Firmware jobs</h2>
       ${firmwareJobTable(jobs)}
-      ${renderDeviceConfigDetails(device, config, profilesList, configViews, opts.openConfig, safeWebAuthStatus(manager, id))}
+      ${renderDeviceConfigDetails(device, config, profilesList, configViews, opts.openConfig, safeWebAuthStatus(manager, id), manager)}
     </section>`
 }
 
@@ -2301,7 +2486,7 @@ function renderWebPasswordSection (id, web) {
           </section>`
 }
 
-function renderDeviceConfigDetails (device, config, profiles, views, open, webAuth) {
+function renderDeviceConfigDetails (device, config, profiles, views, open, webAuth, manager) {
   const id = device.id
   return `
       <details class="dev-config" id="config"${open ? ' open' : ''}>
@@ -2314,6 +2499,7 @@ function renderDeviceConfigDetails (device, config, profiles, views, open, webAu
           ${renderDeviceConfigForm(device, config, profiles, views)}
           ${renderDeviceConfigWidget(config, views)}
           ${renderWebPasswordSection(id, webAuth)}
+          ${manager ? renderDeviceTokenSection(manager, id) : ''}
         </div>
       </details>
       <style>
@@ -3806,7 +3992,7 @@ function renderSettingsPage (manager, req) {
   const passwordInput = (name, isSet) =>
     `<input type="password" name="${escapeHtml(name)}" value=""${isSet ? ' placeholder="(unchanged)"' : ''}>`
   return `
-    ${renderManagerTokenSection(manager)}
+    ${renderManagerTokenSection(manager, req)}
     <form class="config-form" method="post" action="/plugins/yey-boats-display-manager/ui/settings">
       <h2>System settings</h2>
       ${saved ? '<p class="muted">Saved.</p>' : ''}
@@ -3840,27 +4026,114 @@ function renderSettingsPage (manager, req) {
 }
 
 // #23: the manager API token, shown in full only until the admin confirms
-// they have saved it.
-function renderManagerTokenSection (manager) {
-  const token = manager.apiToken ? manager.apiToken.pendingReveal() : null
+// they have saved it -- and only to an operator (SignalK admin, or signed in
+// with the token). With SignalK security off nobody else may see it.
+function renderManagerTokenSection (manager, req) {
+  const operator = operatorAllowed(manager, req || {})
+  const token = operator && manager.apiToken ? manager.apiToken.pendingReveal() : null
   const st = manager.apiToken ? manager.apiToken.status() : {}
-  const base = '/plugins/yey-boats-display-manager/ui/manager-token'
-  const legacy = Object.values(manager.store.registry.devices).filter((d) => d.legacyTokenHash).length
+  const base = `${PLUGIN_BASE}/ui/manager-token`
+  const file = manager.apiToken ? manager.apiToken.file : 'manager-api-token.json'
+  let body
+  if (token) {
+    body = `<p><b>Copy this token now.</b> It is shown only until you confirm below.</p>
+           <p><code style="user-select:all;word-break:break-all;">${escapeHtml(token)}</code></p>
+           <form method="post" action="${base}/ack" style="display:inline"><button type="submit">I have saved it</button></form>`
+  } else if (!operator && st.revealPending) {
+    body = `<p><b>A new token is waiting.</b> ${manager.signalkSecurityEnabled()
+      ? 'Log in to SignalK as an admin to view it.'
+      : `SignalK security is off, so it is not shown here: read it on the server from <code>${escapeHtml(file)}</code> (field <code>reveal</code>) and <a href="${PLUGIN_BASE}/ui/login">sign in</a> with it.`}</p>`
+  } else {
+    body = `<p class="muted">Token set ${escapeHtml(st.createdAt || '')}. It is not shown again; rotate to get a new one.</p>`
+  }
   return `
     <section class="panel" id="manager-token">
       <h2>Manager API token</h2>
-      <p class="muted">Pairs displays and authenticates tooling (<code>X-YeyBoats-Authorization: Bearer &lt;token&gt;</code>).
+      <p class="muted">Pairs displays and authenticates tooling (<code>X-YeyBoats-Authorization: Bearer &lt;token&gt;</code>), and signs you in to make changes here when SignalK security is off.
         Displays use their own per-device token; the old shared <code>yeyboats-dev</code> token is no longer accepted.</p>
-      ${token
-        ? `<p><b>Copy this token now.</b> It is shown only until you confirm below.</p>
-           <p><code style="user-select:all;word-break:break-all;">${escapeHtml(token)}</code></p>
-           <form method="post" action="${base}/ack" style="display:inline"><button type="submit">I have saved it</button></form>`
-        : `<p class="muted">Token set ${escapeHtml(st.createdAt || '')}. It is not shown again; rotate to get a new one.</p>`}
-      <form method="post" action="${base}/rotate" style="display:inline"
+      ${body}
+      ${operator ? `<form method="post" action="${base}/rotate" style="display:inline"
             onsubmit="return confirm('Rotate the manager API token? Tooling using the old one stops working.')">
         <button type="submit">Rotate token</button>
+      </form>` : ''}
+    </section>
+    ${renderReclaimSection(manager)}`
+}
+
+// #23: displays that need an operator Re-claim (paired with the old shared
+// token, or with no usable token). Nothing is sent to them until the
+// operator confirms the address here.
+function renderReclaimSection (manager) {
+  const list = manager.reclaimCandidates()
+  if (!list.length) return ''
+  const rows = list.map((c) => `
+        <tr>
+          <td><a href="${PLUGIN_BASE}/ui/devices/${encodeURIComponent(c.id)}#manager-token">${escapeHtml(c.name)}</a><br><span class="muted">${escapeHtml(c.id)}</span></td>
+          <td>${escapeHtml(c.reason === 'shared-dev-token' ? 'paired with the old shared token' : 'no device token')}<br><span class="muted">${escapeHtml(c.state)}${c.delivery ? ` · delivery ${escapeHtml(c.delivery.state)}${c.delivery.lastError ? `: ${escapeHtml(c.delivery.lastError)}` : ''}` : ''}</span></td>
+          <td>${escapeHtml(c.lastSeen || 'never')}<br><span class="muted">${escapeHtml(c.hostnames.join(', '))}</span></td>
+          <td>${renderReclaimForm(c.id, c.address)}</td>
+        </tr>`).join('')
+  return `
+    <section class="panel" id="reclaim">
+      <h2>Displays to re-claim</h2>
+      <p>These displays are not sent any credentials until you confirm where they are. The address on file may have been
+        reported by anyone holding the old public token, so check it (e.g. on the display's own network screen) before confirming;
+        the manager then sends the display its web password and own token at that address only.</p>
+      <table><thead><tr><th>Display</th><th>State</th><th>Last seen</th><th>Confirm address</th></tr></thead><tbody>${rows}</tbody></table>
+    </section>`
+}
+
+function renderReclaimForm (id, address) {
+  return `<form method="post" action="${PLUGIN_BASE}/ui/devices/${encodeURIComponent(id)}/reclaim"
+              onsubmit="return confirm('Send this display its credentials at ' + this.confirmAddress.value + '?')">
+            <input name="confirmAddress" value="${escapeHtml(address || '')}" placeholder="host:port" required>
+            <button type="submit">Confirm &amp; re-claim</button>
+          </form>`
+}
+
+// Device page: manager token state and the Re-claim action.
+function renderDeviceTokenSection (manager, id) {
+  let st
+  try { st = manager.authStatus(id) } catch (e) { return '' }
+  if (manager.isDevAuthMode()) return ''
+  const candidate = manager.reclaimCandidates().find((c) => c.id === id)
+  const rc = st.reclaim
+  const rows = [
+    ['Device token', st.provisioned ? 'per-device' : (candidate && candidate.reason === 'shared-dev-token' ? 'old shared token (restricted)' : 'none')],
+    ['Re-claim', rc ? `${rc.state}${rc.method ? ` (${rc.method})` : ''}${rc.address ? ` at ${rc.address}` : ''}` : ''],
+    ['Token delivery', st.tokenDelivery ? `${st.tokenDelivery.state}${st.tokenDelivery.lastError ? `: ${st.tokenDelivery.lastError}` : ''}` : '']
+  ]
+  const action = candidate
+    ? `<p>Confirm the display's address before the manager sends it credentials (last seen ${escapeHtml(candidate.lastSeen || 'never')}).</p>${renderReclaimForm(id, candidate.address)}`
+    : `<form method="post" action="${PLUGIN_BASE}/ui/devices/${encodeURIComponent(id)}/reclaim"
+            onsubmit="return confirm('Re-key this display? It collects a new token with its current one on its next heartbeat.')">
+        <div class="actions"><button type="submit">Re-claim (new device token)</button></div>
+      </form>`
+  return `
+          <section class="config-section" id="manager-token">
+            <h3>Manager token</h3>
+            ${keyValueTable(rows)}
+            ${action}
+          </section>`
+}
+
+function renderLoginPage (manager, req, error) {
+  const next = safeNext(req && req.query && req.query.next)
+  const file = manager.apiToken ? manager.apiToken.file : 'manager-api-token.json'
+  return `
+    <section class="panel">
+      <h2>Sign in to make changes</h2>
+      ${error ? `<p role="alert"><b>${escapeHtml(error)}</b></p>` : ''}
+      <p>${manager.signalkSecurityEnabled()
+        ? 'SignalK admins can make changes without signing in here. Tooling and other users can sign in with the manager API token.'
+        : 'SignalK security is off, so the manager asks for its own API token before it changes anything.'}
+        The token is on the Settings page the first time (for a SignalK admin) and, on the server, in <code>${escapeHtml(file)}</code> while it has not been confirmed.</p>
+      <form method="post" action="${PLUGIN_BASE}/ui/login">
+        <input type="hidden" name="next" value="${escapeHtml(next)}">
+        <label>Manager API token <input type="password" name="token" autocomplete="current-password" required></label>
+        <button type="submit">Sign in</button>
       </form>
-      ${legacy ? `<p class="muted">${legacy} display(s) still on the shared dev token are being moved to their own token.</p>` : ''}
+      <form method="post" action="${PLUGIN_BASE}/ui/logout" style="margin-top:1em"><button type="submit">Sign out</button></form>
     </section>`
 }
 

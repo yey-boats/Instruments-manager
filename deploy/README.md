@@ -304,19 +304,48 @@ Manager auth (instruments-manager#23):
   `manager-api-token.json` in the plugin data dir, mode 0600). Open the manager
   UI **Settings** page to copy it; it is shown until you press *I have saved
   it*, after which only a hash is kept. *Rotate token* issues a new one.
-- The manager API token pairs displays (`POST /devices/register`), announces
-  discovered devices and lets tooling read a device config with its secrets
-  redacted. It never acts as a display.
+- The manager API token pairs NEW displays (`POST /devices/register`),
+  announces discovered devices and lets tooling read a device config with its
+  secrets redacted. It never acts as a display, and it cannot re-pair a
+  display that is already paired (`409 reclaim_required`); neither can a
+  provisioning token.
 - Each display gets its own random token at pairing. Only that token can send
   its heartbeat (and so change its address), poll its commands or receive its
   web password / OTA password in `GET /devices/:id/config`.
 - New displays running stock firmware (compiled-in bootstrap token) show up
-  under Discovery; *Claim* pushes the display its token over its web API.
-  Displays already paired with the old shared `yeyboats-dev` token keep
-  working: on start the manager pushes each one its own token the same way,
-  and stops accepting the shared token for that display once it is used.
-  Until then the shared token can keep the display online but cannot change
-  its address or read its secrets.
+  under Discovery and join only when you press *Claim* (no trust on first
+  use); Claim pushes the display its token over its web API. A sighting of an
+  id that is already paired cannot be claimed over it.
+- **Re-claim** (device page, or `POST /devices/:id/reclaim`; *Rotate token*
+  does the same) is the only way to re-key a paired display. A display that
+  still has its token proves itself with it: its next heartbeat asks it to
+  re-register and it collects the new token; its current token keeps working
+  until then, so nobody can lock it out. The new token is never returned to
+  the caller.
+- Operator routes (everything that changes state, except the few the displays
+  call) need the manager API token (`X-YeyBoats-Authorization: Bearer ...`,
+  or *Sign in* on the manager UI, which sets an HttpOnly SameSite cookie),
+  or a SignalK admin session when SignalK security is on. **With SignalK
+  security off, nothing can be changed without the token**, and the Settings
+  page does not show it: read it on the server from `manager-api-token.json`
+  (`reveal` field) and sign in.
+- The pairing-code field (`pairingCode` on Claim / Re-claim) is reserved for
+  the one-time code the display will show on screen; until the firmware
+  supports it a code is refused (501).
+
+Upgrading from a release that used the shared `yeyboats-dev` token
+(release note):
+
+- Displays paired with the shared token keep working but are marked
+  **needs re-claim**: the shared token keeps them online, cannot change their
+  address and does not get their secrets. The manager does **not** send them
+  anything on start, because the address it has on file could have been set
+  by anyone holding the public token.
+- Open *Settings → Displays to re-claim*. For each display check the address
+  (and last-seen time) against the display itself, correct it if needed and
+  press *Confirm & re-claim*. Only then does the manager push the display its
+  web password and own token, to that address only. The shared token is
+  retired for the display once it uses its new one.
 - The shared dev token and `auth.mode=disabled` only take effect when SignalK
   runs with `YEYBOATS_MANAGER_DEV_AUTH=1` (local development only).
 - State-changing routes refuse cross-site browser requests (CSRF); scripts and

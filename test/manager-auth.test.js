@@ -10,9 +10,10 @@
 //   - GET /devices/:id/config returns webAuth.password (and the OTA password)
 //     only to that device's own token
 //   - heartbeat network updates only come from the authenticated device
-//   - devices paired with the shared dev token keep working and are migrated:
-//     the manager pushes a per-device token over the device's authenticated
-//     web API, then stops accepting the shared token for that device
+//   - devices paired with the shared dev token keep working (restricted) and
+//     are migrated once the operator confirms their address (Re-claim): the
+//     manager pushes a per-device token over the device's authenticated web
+//     API, then stops accepting the shared token for that device
 //   - a claim delivers the device its token the same way
 //   - state-changing routes reject cross-site browser requests (CSRF)
 //   - the screenshot proxy only sends a device's credentials to its own port
@@ -184,10 +185,10 @@ module.exports = (async () => {
     assert.strictEqual(again.status, 'updated')
     assert.strictEqual(again.deviceToken, undefined)
     assert.strictEqual(manager.updateStatus('yey-d-a', {}, bearer(a.deviceToken)).status, 'ok')
-    // A device that lost its token re-pairs with an operator credential and gets a new one.
-    const repair = manager.registerDevice({ device: { id: 'yey-d-a' } }, bearer(api))
-    assert.ok(repair.deviceToken && repair.deviceToken !== a.deviceToken)
-    assert.throws(() => manager.updateStatus('yey-d-a', {}, bearer(a.deviceToken)), (e) => e.status === 401)
+    // An operator credential cannot re-pair (re-key) an existing display:
+    // that is an explicit Re-claim (manager-reclaim.test).
+    assert.throws(() => manager.registerDevice({ device: { id: 'yey-d-a' } }, bearer(api)), (e) => e.status === 409)
+    assert.strictEqual(manager.updateStatus('yey-d-a', {}, bearer(a.deviceToken)).status, 'ok')
 
     // ---- 4. config secrets only go to the device's own credential ---------
     const own = manager.deviceConfigFor('yey-d-b', bearer(b.deviceToken))
@@ -228,7 +229,7 @@ module.exports = (async () => {
       const manager = new YeyBoatsDisplayManager(old.app, { ...old.manager.options, auth: { mode: 'dev-shared-token', devToken: DEV } })
       try {
         assert.strictEqual(manager.options.auth.mode, 'device-token')
-        assert.strictEqual(manager.authStatus('yey-d-old').tokenMigration.state, 'pending')
+        assert.strictEqual(manager.authStatus('yey-d-old').tokenMigration.state, 'needs-reclaim')
 
         // The device keeps working with the token it holds...
         assert.strictEqual(manager.updateStatus('yey-d-old', { network: { ip: '10.6.6.6' }, config: { hash: 'x' } }, bearer(DEV)).status, 'ok')
@@ -241,8 +242,12 @@ module.exports = (async () => {
         // Nor register a brand-new device.
         assert.throws(() => manager.registerDevice({ device: { id: 'yey-d-new' } }, bearer(DEV)), (e) => e.status === 401)
 
-        // The manager delivers a per-device token over the device's web API
-        // (its stored address + registered port, its own Basic Auth).
+        // Nothing is pushed until the operator confirms the display's address
+        // (manager-reclaim.test); then the manager delivers a per-device token
+        // over the device's web API there, with the device's own Basic Auth.
+        assert.strictEqual((await manager.pushDeviceManagerToken('yey-d-old')).status, 'skipped')
+        assert.strictEqual(mock.device.commands.length, 0)
+        manager.reclaimDevice('yey-d-old', { confirmAddress: `127.0.0.1:${port}` })
         const result = await manager.pushDeviceManagerToken('yey-d-old')
         assert.strictEqual(result.status, 'delivered')
         assert.strictEqual(mock.device.commands.length, 1)
@@ -283,12 +288,15 @@ module.exports = (async () => {
       assert.strictEqual(manager.updateStatus('yey-d-fresh', {}, bearer(tok)).status, 'ok')
       assert.strictEqual(manager.secrets.pendingManagerToken('yey-d-fresh'), null, 'plaintext dropped once used')
 
-      // Rotation delivers the new token too, so the display is not stranded.
-      const rotated = manager.rotateDeviceToken('yey-d-fresh')
-      assert.strictEqual((await manager.pushDeviceManagerToken('yey-d-fresh')).status, 'delivered')
-      assert.strictEqual(mock.device.commands[1], `manager-token ${rotated.deviceToken}`)
-      assert.throws(() => manager.updateStatus('yey-d-fresh', {}, bearer(tok)), (e) => e.status === 401)
+      // Rotation is a Re-claim: the display collects the new token with its
+      // current one, which keeps working until then (never stranded).
+      const rotation = manager.rotateDeviceToken('yey-d-fresh')
+      assert.strictEqual(rotation.deviceToken, undefined)
+      assert.strictEqual((await manager.pushDeviceManagerToken('yey-d-fresh')).status, 'skipped')
+      assert.strictEqual(manager.updateStatus('yey-d-fresh', {}, bearer(tok)).requestedReregister, true)
+      const rotated = manager.registerDevice({ device: { id: 'yey-d-fresh' } }, bearer(tok))
       assert.strictEqual(manager.updateStatus('yey-d-fresh', {}, bearer(rotated.deviceToken)).status, 'ok')
+      assert.throws(() => manager.updateStatus('yey-d-fresh', {}, bearer(tok)), (e) => e.status === 401)
 
       // An unreachable display: delivery fails, recorded, nothing thrown.
       const { manager: m2 } = makeSecureManager()
@@ -331,7 +339,8 @@ module.exports = (async () => {
 
     // ---- 9. CSRF: cross-site browser requests to state-changing routes ----
     const rotate = routes.find('POST', '/ui/devices/:id/web-auth/rotate')
-    const host = { host: 'signalk.local:3000' }
+    // #23: operator routes need the manager API token (manager-reclaim.test).
+    const host = { host: 'signalk.local:3000', 'x-yeyboats-authorization': `Bearer ${api}` }
     const blocked = [
       { ...host, origin: 'http://evil.example' },
       { ...host, origin: 'null' },
@@ -359,7 +368,7 @@ module.exports = (async () => {
 
     // Manager API token UI: ack drops the plaintext; rotate reveals a new one.
     assert.ok(manager.apiToken.pendingReveal())
-    const settings = await call(routes.find('GET', '/ui/settings'), {})
+    const settings = await call(routes.find('GET', '/ui/settings'), { headers: host })
     assert.ok(String(settings.body).includes(api), 'settings page shows the pending token')
     await call(routes.find('POST', '/ui/manager-token/ack'), { method: 'POST', headers: host })
     assert.strictEqual(manager.apiToken.pendingReveal(), null)
