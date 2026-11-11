@@ -187,3 +187,53 @@ test('SignalK SI values convert to the display unit, as the old preview did', ()
   assert.ok(!/3704/.test(text), `no unconverted metres on the Route screen: ${text}`)
   assert.ok(!/>5\.1</.test(text), `no unconverted m/s on the Route screen: ${text}`)
 })
+
+// PR #31 review: a marker colour starting with '#' went into the SVG raw and
+// the page inserts that SVG with innerHTML, so a saved layout was stored XSS.
+// The glue now passes only theme tokens or #rgb/#rrggbb/#rrggbbaa literals.
+test('hostile colours and glyphs never reach the SVG', () => {
+  const cfg = previewPayload(devicePage())
+  const { DP, W } = loadGlue(cfg)
+  const hostile = [
+    '#fff"/><img src=x onerror=alert(1)>',
+    '#fff" onmouseover="alert(1)',
+    '#fff;fill:url(javascript:alert(1))',
+    'red" onmouseover="alert(1)',
+    'javascript:alert(1)',
+    '#ggg', 'constructor', '__proto__', 'toString'
+  ]
+  const inert = (svg, what) => {
+    const low = svg.toLowerCase()
+    assert.ok(!/<[^>]*\son[a-z]+\s*=/.test(low), `${what}: no event-handler attribute`)
+    assert.ok(!low.includes('<img') && !low.includes('<script'), `${what}: no injected tags`)
+    for (const m of svg.matchAll(/\s(fill|stroke)="([^"]*)"/g)) {
+      assert.match(m[2], /^(none|rgba\(87,199,216,0\.06\)|#[0-9a-fA-F]{3}|#[0-9a-fA-F]{6}|#[0-9a-fA-F]{8})$/, `${what}: ${m[1]}=${m[2]}`)
+    }
+  }
+  for (const c of hostile) {
+    for (const widget of ['compass', 'windRose']) {
+      const scr = {
+        id: 's',
+        tiles: [
+          { widget, title: 'D', path: 'navigation.headingTrue', color: { value: c, needle: c },
+            markers: [{ path: 'navigation.courseOverGroundTrue', glyph: c, color: c }] },
+          { widget: 'numeric', title: 'N', path: 'navigation.speedOverGround', color: { value: c } }
+        ]
+      }
+      const doc = DP.midlDocFor(scr, cfg.midl)
+      const json = JSON.stringify(doc)
+      if (c.length > 9) assert.ok(!json.includes(c), `${widget} ${JSON.stringify(c)}: hostile value not in the doc`)
+      const mk = doc.screens[0].elements.t0.markers[0]
+      assert.strictEqual(mk.color, 'accent', `${widget} ${JSON.stringify(c)}: marker colour falls back to accent`)
+      assert.strictEqual(mk.glyph, 'triangle', `${widget} ${JSON.stringify(c)}: unknown glyph falls back to triangle`)
+      const r = draw(DP, W, cfg, scr, { 'navigation.headingTrue': 1, 'navigation.courseOverGroundTrue': 2, 'navigation.speedOverGround': 3 })
+      assert.ok(r.ok, `${widget} ${JSON.stringify(c)}: doc valid: ${JSON.stringify(r.issues)}`)
+      inert(r.svg, `${widget} ${JSON.stringify(c)}`)
+    }
+  }
+  // legitimate values still pass
+  const ok = DP.midlDocFor({ id: 's', tiles: [{ widget: 'compass', title: 'D', path: 'a.b', markers: [
+    { path: 'c', glyph: 'diamond', color: '#AbC' }, { path: 'c', color: '#36d39980' }, { path: 'c', color: 'warn' }, { path: 'c', color: 'alarm' }] }] }, cfg.midl)
+  assert.deepStrictEqual(ok.screens[0].elements.t0.markers.map((m) => [m.glyph, m.color]),
+    [['diamond', '#AbC'], ['triangle', '#36d39980'], ['triangle', 'warn'], ['triangle', 'danger']])
+})

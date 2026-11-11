@@ -67,6 +67,20 @@
   }
   // Firmware marker colour names -> MIDL theme tokens.
   const MARKER_TOKENS = { accent: 'accent', good: 'good', warn: 'warn', alarm: 'danger' }
+  const own = (o, k) => typeof k === 'string' && Object.prototype.hasOwnProperty.call(o, k)
+  // Colours are document data the renderer writes into SVG attributes, and the
+  // page inserts that SVG with innerHTML: pass only a theme token or a plain
+  // #rgb / #rrggbb / #rrggbbaa literal, never anything else (PR #31 review).
+  const HEX_COLOR = /^#(?:[0-9a-fA-F]{3}|[0-9a-fA-F]{6}|[0-9a-fA-F]{8})$/
+  const THEME_TOKENS = new Set(['panel', 'panel2', 'edge', 'fg', 'dim', 'accent', 'accent2', 'good', 'warn', 'bad',
+    'danger', 'port', 'starboard', 'tide', 'stale', 'bg'])
+  function safeColor (c, fallback) {
+    if (own(MARKER_TOKENS, c)) return MARKER_TOKENS[c]
+    if (typeof c === 'string' && (HEX_COLOR.test(c) || THEME_TOKENS.has(c))) return c
+    return fallback
+  }
+  const GLYPHS = new Set(['triangle', 'diamond', 'circle', 'bar', 'cross', 'chevron_in', 'chevron_out',
+    'chevron_left', 'chevron_right', 'chevron_double'])
   // One screen of flattened tiles -> a one-screen MIDL config document.
   function midlDocFor (scr, midl) {
     const types = (midl && midl.types) || {}
@@ -85,12 +99,12 @@
       }
       if (type !== 'compass' && type !== 'button' && type !== 'autopilot') el.format = formatFor(tile)
       const col = tile.color && typeof tile.color === 'object' ? tile.color : null
-      const accent = col && (col.value || col.fill || col.needle || col.arc || col.line)
+      const accent = col && safeColor(col.value || col.fill || col.needle || col.arc || col.line, null)
       if (accent) el.color = accent
       if ((type === 'compass' || type === 'windrose') && Array.isArray(tile.markers) && tile.markers.length) {
         el.markers = tile.markers.filter((m) => m && typeof m.path === 'string').map((m) => ({
-          glyph: m.glyph || 'triangle',
-          color: MARKER_TOKENS[m.color] || m.color || 'accent',
+          glyph: GLYPHS.has(m.glyph) ? m.glyph : 'triangle',
+          color: safeColor(m.color, 'accent'),
           dir: { kind: 'signalk', path: m.path }
         }))
       }
