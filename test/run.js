@@ -102,6 +102,8 @@ const ASYNC_BATCH = [
   ['screenshot-proxy-auth', './screenshot-proxy-auth.test'],
   ['manager-auth', './manager-auth.test'],
   ['manager-reclaim', './manager-reclaim.test'],
+  ['manager-reclaim-race', './manager-reclaim-race.test'],
+  ['manager-reclaim-hardening', './manager-reclaim-hardening.test'],
   ['firmware-change-repush', './firmware-change-repush.test']
 ]
 

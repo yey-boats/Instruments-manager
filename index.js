@@ -458,7 +458,7 @@ function registerRoutes (baseRouter, getManager) {
   router.post('/ui/login', wrap(getManager, (manager, req, res) => {
     const token = String((req.body && req.body.token) || '').trim()
     if (!token || !manager.apiToken.verify(token)) {
-      manager.store.audit('manager.login.failed', 'system')
+      manager.auditFailedLogin()
       res.statusCode = 401
       res.setHeader('content-type', 'text/html; charset=utf-8')
       res.end(renderUiShell('Sign in', renderLoginPage(manager, req, 'That is not this manager\'s API token.'), manager.dashboard(), 'login'))
@@ -1231,6 +1231,41 @@ function registerRoutes (baseRouter, getManager) {
     res.json(startReclaimDelivery(manager, req.params.id, result))
   }))
 
+  // #25: cancel a pending Re-claim (its new token never becomes valid).
+  router.delete('/devices/:id/reclaim', wrap(getManager, (manager, req, res) => {
+    res.json(manager.cancelReclaim(req.params.id))
+  }))
+
+  // PR #28 review: the pairing-code requirement is sticky once a display has
+  // advertised it; only an operator clears it (e.g. after a downgrade).
+  router.delete('/devices/:id/pairing-code', wrap(getManager, (manager, req, res) => {
+    res.json(manager.clearPairingCodeRequirement(req.params.id))
+  }))
+
+  router.post('/ui/devices/:id/reclaim/cancel', wrap(getManager, (manager, req, res) => {
+    const id = req.params.id
+    let status = 'reclaim-cancelled'
+    try {
+      manager.cancelReclaim(id)
+    } catch (err) {
+      if (!err.status || err.status >= 500) throw err
+      status = `reclaim-cancel-failed:${(err.payload && err.payload.error && err.payload.error.code) || 'error'}`
+    }
+    res.statusCode = 303
+    res.setHeader('location', `${PLUGIN_BASE}/ui/devices/${encodeURIComponent(id)}?status=${encodeURIComponent(status)}#manager-token`)
+    res.end()
+  }))
+
+  // #25: Revoke from the device page (a possibly stolen token): the display
+  // then needs a confirm-address Re-claim.
+  router.post('/ui/devices/:id/tokens/revoke', wrap(getManager, (manager, req, res) => {
+    const id = req.params.id
+    manager.revokeDeviceToken(id)
+    res.statusCode = 303
+    res.setHeader('location', `${PLUGIN_BASE}/ui/devices/${encodeURIComponent(id)}?status=token-revoked#manager-token`)
+    res.end()
+  }))
+
   router.post('/ui/devices/:id/reclaim', wrap(getManager, (manager, req, res) => {
     const id = req.params.id
     let status = 'reclaim-pending'
@@ -1534,7 +1569,7 @@ function refererPath (req) {
 // A confirmed-address Re-claim: push the token there now (the operator just
 // confirmed it). A device-token Re-claim is collected by the display.
 function startReclaimDelivery (manager, id, result) {
-  if (result && result.method === 'confirmed-address' && manager.secrets.pendingManagerToken(id)) {
+  if (result && (result.method === 'confirmed-address' || result.method === 'pairing-code') && manager.secrets.pendingManagerToken(id)) {
     manager.pushDeviceManagerToken(id).catch(() => {})
     return { ...result, tokenDelivery: { state: 'pending' } }
   }
@@ -4073,7 +4108,7 @@ function renderReclaimSection (manager) {
           <td><a href="${PLUGIN_BASE}/ui/devices/${encodeURIComponent(c.id)}#manager-token">${escapeHtml(c.name)}</a><br><span class="muted">${escapeHtml(c.id)}</span></td>
           <td>${escapeHtml(c.reason === 'shared-dev-token' ? 'paired with the old shared token' : 'no device token')}<br><span class="muted">${escapeHtml(c.state)}${c.delivery ? ` · delivery ${escapeHtml(c.delivery.state)}${c.delivery.lastError ? `: ${escapeHtml(c.delivery.lastError)}` : ''}` : ''}</span></td>
           <td>${escapeHtml(c.lastSeen || 'never')}<br><span class="muted">${escapeHtml(c.hostnames.join(', '))}</span></td>
-          <td>${renderReclaimForm(c.id, c.address)}</td>
+          <td>${renderReclaimForm(c.id, c.address, { pairingCode: c.pairingCode })}</td>
         </tr>`).join('')
   return `
     <section class="panel" id="reclaim">
@@ -4085,37 +4120,78 @@ function renderReclaimSection (manager) {
     </section>`
 }
 
-function renderReclaimForm (id, address) {
+function renderReclaimForm (id, address, opts = {}) {
+  const codeField = opts.pairingCode
+    ? `<input name="pairingCode" placeholder="code on the display's screen" autocomplete="off" required>`
+    : ''
   return `<form method="post" action="${PLUGIN_BASE}/ui/devices/${encodeURIComponent(id)}/reclaim"
               onsubmit="return confirm('Send this display its credentials at ' + this.confirmAddress.value + '?')">
+            ${codeField}
             <input name="confirmAddress" value="${escapeHtml(address || '')}" placeholder="host:port" required>
             <button type="submit">Confirm &amp; re-claim</button>
           </form>`
 }
 
 // Device page: manager token state and the Re-claim action.
+// #25: a current-token Re-claim proves only that the caller holds the current
+// token -- a thief holding it could collect the new one. So the page says
+// what to do for a stolen token (Revoke, then confirm the address), lets the
+// operator cancel a pending Re-claim, and asks for the on-screen pairing code
+// when the display can show one.
 function renderDeviceTokenSection (manager, id) {
   let st
   try { st = manager.authStatus(id) } catch (e) { return '' }
   if (manager.isDevAuthMode()) return ''
+  const device = manager.getDevice(id)
   const candidate = manager.reclaimCandidates().find((c) => c.id === id)
   const rc = st.reclaim
+  const pairingCode = manager.deviceSupportsPairingCode(device)
   const rows = [
     ['Device token', st.provisioned ? 'per-device' : (candidate && candidate.reason === 'shared-dev-token' ? 'old shared token (restricted)' : 'none')],
     ['Re-claim', rc ? `${rc.state}${rc.method ? ` (${rc.method})` : ''}${rc.address ? ` at ${rc.address}` : ''}` : ''],
     ['Token delivery', st.tokenDelivery ? `${st.tokenDelivery.state}${st.tokenDelivery.lastError ? `: ${st.tokenDelivery.lastError}` : ''}` : '']
   ]
-  const action = candidate
-    ? `<p>Confirm the display's address before the manager sends it credentials (last seen ${escapeHtml(candidate.lastSeen || 'never')}).</p>${renderReclaimForm(id, candidate.address)}`
-    : `<form method="post" action="${PLUGIN_BASE}/ui/devices/${encodeURIComponent(id)}/reclaim"
-            onsubmit="return confirm('Re-key this display? It collects a new token with its current one on its next heartbeat.')">
+  const pending = rc && (rc.state === 'pending' || rc.state === 'issued') && (device.pendingTokenHash ||
+    (device.tokenDelivery && device.tokenDelivery.state !== 'delivered'))
+  const cancel = pending
+    ? `<form method="post" action="${PLUGIN_BASE}/ui/devices/${encodeURIComponent(id)}/reclaim/cancel"
+            onsubmit="return confirm('Cancel this Re-claim? Its new token will never work.')">
+        <p>${rc.state === 'issued'
+          ? 'The new token was collected with the current token and has not been used yet. If that was not this display, cancel and Revoke.'
+          : 'A Re-claim is pending; no other new token is issued until it completes or you cancel it.'}</p>
+        <div class="actions"><button type="submit">Cancel Re-claim</button></div>
+      </form>`
+    : ''
+  const revoke = st.provisioned
+    ? `<form method="post" action="${PLUGIN_BASE}/ui/devices/${encodeURIComponent(id)}/tokens/revoke"
+            onsubmit="return confirm('Revoke this display\'s token? It goes offline until you re-claim it at a confirmed address.')">
+        <div class="actions"><button type="submit" class="danger">Revoke token</button></div>
+      </form>`
+    : ''
+  const stolen = '<p class="muted"><b>Token may be stolen or leaked?</b> Do not use Re-claim (whoever holds the current token could collect the new one). ' +
+    'Revoke the token, then confirm the display\'s address (check it on the display\'s own network screen) to send it a new one.</p>'
+  let action
+  if (candidate) {
+    action = `<p>Confirm the display's address before the manager sends it credentials (last seen ${escapeHtml(candidate.lastSeen || 'never')}).</p>${renderReclaimForm(id, candidate.address, { pairingCode })}`
+  } else if (pending) {
+    action = ''
+  } else if (pairingCode) {
+    const known = manager.reclaimTarget(device)
+    action = `<p>Enter the pairing code shown on the display's screen and confirm its address.</p>${renderReclaimForm(id, known ? `${known.host}:${known.port}` : '', { pairingCode })}`
+  } else {
+    action = `<form method="post" action="${PLUGIN_BASE}/ui/devices/${encodeURIComponent(id)}/reclaim"
+            onsubmit="return confirm('Re-key this display? It collects a new token (once) with its current one on its next heartbeat.')">
         <div class="actions"><button type="submit">Re-claim (new device token)</button></div>
       </form>`
+  }
   return `
           <section class="config-section" id="manager-token">
             <h3>Manager token</h3>
             ${keyValueTable(rows)}
+            ${cancel}
             ${action}
+            ${st.provisioned ? stolen : ''}
+            ${revoke}
           </section>`
 }
 

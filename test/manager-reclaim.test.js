@@ -272,11 +272,14 @@ module.exports = (async () => {
       isDummy: () => false,
       allowConfigure: (req) => Boolean(req.skIsAuthenticated && req.skPrincipal && req.skPrincipal.permissions === 'admin')
     }
+    // #25: one pending Re-claim per device; cancel the earlier one first.
+    manager.cancelReclaim('yey-d-r')
     const asAdmin = await call(rotate, { params: { id: 'yey-d-r' }, headers: host, extra: { skIsAuthenticated: true, skPrincipal: { identifier: 'admin', permissions: 'admin' } } })
     assert.strictEqual(asAdmin.status, 200)
     const asRw = await call(rotate, { params: { id: 'yey-d-r' }, headers: host, extra: { skIsAuthenticated: true, skPrincipal: { identifier: 'crew', permissions: 'readwrite' } } })
     assert.strictEqual(asRw.status, 401)
     assert.strictEqual((await call(rotate, { params: { id: 'yey-d-r' }, headers: host })).status, 401)
+    manager.cancelReclaim('yey-d-r')
     assert.strictEqual((await call(rotate, { params: { id: 'yey-d-r' }, headers: op })).status, 200, 'API token works with security on too')
   }
 })()
