@@ -101,7 +101,8 @@ const ASYNC_BATCH = [
   ['device-web-password', './device-web-password.test'],
   ['screenshot-proxy-auth', './screenshot-proxy-auth.test'],
   ['manager-auth', './manager-auth.test'],
-  ['manager-reclaim', './manager-reclaim.test']
+  ['manager-reclaim', './manager-reclaim.test'],
+  ['manager-reclaim-race', './manager-reclaim-race.test']
 ]
 
 async function main () {
