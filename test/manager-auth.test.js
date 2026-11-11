@@ -378,6 +378,21 @@ module.exports = (async () => {
     assert.ok(manager.apiToken.verify(api))
     await call(routes.find('POST', '/ui/manager-token/rotate'), { method: 'POST', headers: host })
     assert.ok(!manager.apiToken.verify(api))
+
+    // Fable review of #24: the provisioning payload carries the boat WiFi
+    // password; with SignalK security off it must still need an operator.
+    {
+      const payload = routes.find('GET', '/provisioning/payload')
+      const anon = await call(payload, { headers: { host: 'signalk.local:3000' } })
+      assert.strictEqual(anon.status, 401, 'anonymous provisioning payload refused')
+      assert.ok(!JSON.stringify(anon.json || anon.body || '').includes('password'))
+      const fresh = manager.apiToken.pendingReveal() || null
+      if (fresh) {
+        const ok = await call(payload, { headers: { host: 'signalk.local:3000', 'x-yeyboats-authorization': `Bearer ${fresh}` } })
+        assert.strictEqual(ok.status, 200, 'operator gets the provisioning payload')
+        assert.ok(ok.json && ok.json.wifi, 'payload has wifi')
+      }
+    }
     assert.ok(manager.apiToken.pendingReveal())
   }
 

@@ -1298,12 +1298,14 @@ function registerRoutes (baseRouter, getManager) {
   //     config-push, Slice 7, once the device registers).
   //   - Device number is assigned server-side at registration, not on payload
   //     fetch (a plain GET/prefetch/reload must not burn device numbers).
-  // Every /plugins/yey-boats-display-manager route is behind the SignalK session.
+  // It carries the boat WiFi password, so it needs an operator (manager API
+  // token or UI sign-in, or a SignalK admin when security is on) even though
+  // it is a GET -- with SignalK security off nothing else protects it (#23).
   // Do not add CORS; do not log the secrets.
-  router.get('/provisioning/payload', wrap(getManager, (manager, req, res) => {
+  router.get('/provisioning/payload', operatorGuard(getManager, wrap(getManager, (manager, req, res) => {
     const s = manager.getSettings()
     res.json({ wifi: { ssid: s.network.ssid, password: s.network.password, mdnsDomain: s.network.mdnsDomain } })
-  }))
+  })))
 
   router.post('/firmware/catalog/refresh', wrap(getManager, async (manager, req, res) => {
     const result = await manager.refreshFirmwareFromGithub()
