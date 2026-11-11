@@ -61,7 +61,8 @@ const NODE_TEST_FILES = [
   'field-schema.test.js',
   'editor-crud.test.js',
   'midl-adapter.test.js',
-  'midl-diff.test.js'
+  'midl-diff.test.js',
+  'device-preview-midl.test.js'
 ]
 function runNodeTestSuites () {
   if (!NODE_TEST_FILES.length) return

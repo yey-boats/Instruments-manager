@@ -2104,6 +2104,31 @@ function renderSignalKRegisterForm (managerUrl) {
       </form>`
 }
 
+// #14 (roadmap S7): the device-page preview is drawn by the shared MIDL device
+// bundle. It needs the capability manifest of the display's resolution class
+// and the v2 -> MIDL element-type map (lib/midl-adapter).
+const MIDL_CLASSES = [
+  { id: 'landscape-1024x600', w: 1024, h: 600 },
+  { id: 'landscape-800x480', w: 800, h: 480 },
+  { id: 'square-480', w: 480, h: 480 }
+]
+function midlPreviewFor (display) {
+  const w = Number(display && display.width) || 480
+  const h = Number(display && display.height) || 480
+  const long = Math.max(w, h)
+  const short = Math.min(w, h)
+  const cls = MIDL_CLASSES.find((c) => c.w === long && c.h === short) ||
+    (long > short ? MIDL_CLASSES.find((c) => c.w >= long) || MIDL_CLASSES[1] : MIDL_CLASSES[2])
+  let manifest = null
+  try { manifest = require('./lib/midl').manifestForClass(cls.id) } catch (e) { manifest = null }
+  return {
+    className: cls.id,
+    viewport: { x: 0, y: 0, w: cls.w, h: cls.h },
+    manifest,
+    types: midlAdapter.V2_TO_MIDL
+  }
+}
+
 function renderDevicePage (manager, id, live = {}, opts = {}) {
   const device = manager.getDevice(id)
   const config = manager.generateConfig(id)
@@ -2138,7 +2163,8 @@ function renderDevicePage (manager, id, live = {}, opts = {}) {
   // layout when managed, else the screen-presets catalogue that mirrors the
   // firmware's built-in screens — so built-in screens still render live
   // objects. Tiles are flattened to {widgetId,widget,title,path,unit,precision}
-  // and bound to live SignalK data by public/live-preview.js.
+  // and drawn with live SignalK data by the shared MIDL device bundle
+  // (public/midl-device.global.js) through public/device-preview.js.
   const previewData = (() => {
     const prof = manager.store.profiles.profiles[assigned] || {}
     const pcfg = prof.config || {}
@@ -2233,7 +2259,7 @@ function renderDevicePage (manager, id, live = {}, opts = {}) {
     // which KINDs the kind-picker offers; COLOR_ELEMENTS tells the editor which
     // color swatches each kind exposes; quantityForPath lets the client filter
     // the path picker to paths COMPATIBLE with the chosen kind. We ship the
-    // pure manifest data + the element map so live-preview.js (standalone, no
+    // pure manifest data + the element map so device-preview.js (standalone, no
     // bundler) can gate the UI exactly like lib/field-schema.js does server-side.
     let manifest = fieldSchema.DEFAULT_MANIFEST
     try { manifest = manager.effectiveManifest(id) || fieldSchema.DEFAULT_MANIFEST } catch (e) { manifest = fieldSchema.DEFAULT_MANIFEST }
@@ -2283,6 +2309,7 @@ function renderDevicePage (manager, id, live = {}, opts = {}) {
   // that backs the <datalist>), so the picker can offer candidates even before
   // the live stream has delivered a value for every path.
   previewData.previewPaths = previewPaths
+  previewData.midl = midlPreviewFor(manager.resolveDisplay(device))
   const previewJson = JSON.stringify(previewData).replace(/</g, '\\u003c')
   const otaSection = renderDeviceFirmwareSection(manager, device)
   return `
@@ -2369,6 +2396,10 @@ function renderDevicePage (manager, id, live = {}, opts = {}) {
            drop the min-width so a 390px phone can't be forced wider. */
         .lp-stage{box-sizing:border-box;background:radial-gradient(120% 120% at 50% 0%,#0c151f,#070b11);border:1px solid #16242f;border-radius:10px;aspect-ratio:1/1;width:min(360px,100%);max-width:100%;min-width:0;margin:0;padding:10px;display:flex;align-items:center;justify-content:center;flex:0 0 auto}
         .lp-hud{width:100%;height:100%;display:flex;align-items:center;justify-content:center}
+        .lp-midl{width:100%;display:flex;align-items:center;justify-content:center}
+        .lp-midl svg{width:100%;height:auto;max-height:480px;display:block}
+        .lp-edit-list{display:grid;grid-template-columns:minmax(0,1fr);gap:8px;margin-top:10px}
+        .lp-edit-item{border:1px solid #1c2f42;border-radius:8px;padding:6px 8px;background:#0b1622}
         .lp-hud .hud-svg{width:100%;height:100%;display:block}
         /* HUD field editor: when editing a fullscreen HUD the stage drops its
            square aspect, the dial caps to a square at the top, and the field
@@ -2377,43 +2408,10 @@ function renderDevicePage (manager, id, live = {}, opts = {}) {
         .lp-stage.lp-editing .lp-hud .hud-svg{height:auto;aspect-ratio:1/1}
         .lp-hud-edit{margin-top:10px}
         .lp-hud-note{font-size:11px;line-height:1.4;color:#d4b483;background:#1c1606;border:1px solid #3a2f12;border-radius:6px;padding:6px 8px;text-transform:none;letter-spacing:0;margin-bottom:4px}
-        .lp-compass{width:100%;height:100%;display:flex;align-items:center;justify-content:center}
-        /* SVG dial: square via aspect-ratio, sized by the smaller dimension so
-           it stays a circle in any tile shape (height:auto, never stretched). */
-        .lp-compass .hud-tile-svg{width:100%;height:auto;max-width:100%;max-height:100%;aspect-ratio:1/1}
-        /* CSS-circle ring: force a square box (aspect-ratio) and cap by the
-           tile width so it renders as a perfect circle on a phone, never an
-           ellipse. */
-        .lp-ring{position:relative;width:130px;max-width:100%;aspect-ratio:1/1;height:auto;border-radius:50%;border:2px solid #4fc3f7;display:flex;align-items:center;justify-content:center;margin:0 auto}
-        .lp-ring.lp-rose{border-color:#ffb84d}
-        .lp-ring .lp-card{position:absolute;color:#8fa7bd;font-size:12px;font-weight:700}
-        .lp-card-n{top:6px;left:50%;transform:translateX(-50%);color:#eef4fa}
-        .lp-card-e{right:8px;top:50%;transform:translateY(-50%)}
-        .lp-card-s{bottom:6px;left:50%;transform:translateX(-50%)}
-        .lp-card-w{left:8px;top:50%;transform:translateY(-50%)}
-        .lp-ring .lp-rmark{position:absolute;font-size:13px;line-height:1;font-weight:700}
-        /* DMS position: two lines that shrink-to-fit the tile. clamp() scales
-           the font with the tile width (cqw via the tile container query, with
-           a vw fallback) so "36°23.868'N" / "16°4.434'E" never spill out or
-           clip at 390px or desktop. No ellipsis — both full lines must show. */
-        .lp-val.lp-val-pos{font-size:clamp(11px,9cqw,17px);line-height:1.15;white-space:pre-line;font-weight:600;width:100%;max-width:100%;overflow-wrap:anywhere;word-break:break-word}
-        .lp-grid{display:grid;grid-template-columns:minmax(0,1fr) minmax(0,1fr);grid-auto-rows:1fr;gap:10px;width:100%;height:100%}
-        /* Edit mode: the rich per-tile editor makes tiles tall, so the stage
-           drops its square aspect and lets the grid grow + scroll. Tiles keep
-           their own min-height but stop clipping the editor (overflow visible). */
+        /* Edit mode: the stage drops its square aspect so the drawn screen and
+           the per-tile editors below it can grow + scroll. */
         .lp-stage.lp-editing{aspect-ratio:auto;height:auto;max-width:100%;width:min(420px,100%);align-items:stretch;overflow:visible;flex-direction:column}
-        .lp-grid-edit{grid-auto-rows:auto;height:auto}
-        .lp-grid-edit .lp-tile{overflow:visible;min-height:0}
-        /* min-width:0 lets the grid tracks actually share the width equally —
-           without it a tile's big value text sets an auto min-width that pushes
-           the column (and the whole grid) past the square stage. */
-        .lp-tile{min-width:0;overflow:hidden;background:#11202f;border:1px solid #1c2f42;border-radius:9px;padding:10px;display:flex;flex-direction:column;justify-content:center;align-items:flex-start;min-height:80px;container-type:inline-size}
         .lp-cap{font-size:11px;letter-spacing:.1em;color:#6f97ba;text-transform:uppercase}
-        .lp-val{font-size:34px;font-weight:650;color:#eaf2fb;line-height:1.05;align-self:flex-start;max-width:100%;overflow:hidden;text-overflow:ellipsis}
-        .lp-val-sm{font-size:18px}
-        .lp-unit{font-size:14px;color:#9bb6d0;margin-left:5px;font-weight:400}
-        .lp-bar{width:20px;flex:1;background:#0a1420;border-radius:5px;display:flex;align-items:flex-end;margin:8px 0;min-height:40px;align-self:center}
-        .lp-bar-fill{width:100%;background:linear-gradient(180deg,#52e0a8,#2bb47e);border-radius:5px;transition:height .25s ease}
         .lp-empty{color:#6f97ba;font-size:13px;text-align:center;line-height:1.5}
         .lp-edit-path{width:100%;margin-top:0;font-size:11px;background:#0a1420;color:#cfe0f0;border:1px solid #2a4156;border-radius:5px;padding:4px 5px;box-sizing:border-box}
         .lp-edit-path:focus{outline:none;border-color:#36d399}
@@ -2462,7 +2460,8 @@ function renderDevicePage (manager, id, live = {}, opts = {}) {
       </style>
       <script>window.__yeyboatsPreview=${previewJson};window.__yeyboatsDeviceId=${JSON.stringify(id)};</script>
       <script src="/yey-boats-display-manager/device-hud.js"></script>
-      <script src="/yey-boats-display-manager/live-preview.js"></script>
+      <script src="/yey-boats-display-manager/midl-device.global.js"></script>
+      <script src="/yey-boats-display-manager/device-preview.js"></script>
       <div class="config-grid">
         ${renderLiveSectionPlaceholder('status', 'Live status', 'Loading status…')}
         ${renderLiveSectionPlaceholder('logs', 'Live logs', 'Loading logs…')}
