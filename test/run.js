@@ -104,7 +104,8 @@ const ASYNC_BATCH = [
   ['manager-reclaim', './manager-reclaim.test'],
   ['manager-reclaim-race', './manager-reclaim-race.test'],
   ['manager-reclaim-hardening', './manager-reclaim-hardening.test'],
-  ['firmware-change-repush', './firmware-change-repush.test']
+  ['firmware-change-repush', './firmware-change-repush.test'],
+  ['discovery-sighting-per-address', './discovery-sighting-per-address.test']
 ]
 
 async function main () {

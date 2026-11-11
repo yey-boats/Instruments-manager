@@ -262,7 +262,7 @@ module.exports = function yeyBoatsDisplayManagerPlugin (app) {
           post: { summary: 'Scan IP or BLE transports for ESP display devices' }
         },
         '/plugins/yey-boats-display-manager/discovery/devices/{deviceId}/claim': {
-          post: { summary: 'Claim a discovered ESP display device into the registry' }
+          post: { summary: 'Claim a discovered ESP display device into the registry (an unauthenticated sighting needs `address`: one of the addresses seen for it)' }
         },
         '/plugins/yey-boats-display-manager/capabilities': {
           get: { summary: 'Describe manager protocol capabilities' }
@@ -3828,9 +3828,42 @@ function renderDiscoveryClaimControl (device, profiles) {
       <input type="hidden" name="role" value="${escapeHtml(device.role || 'display')}">
       <input type="hidden" name="location" value="${escapeHtml(device.location || '')}">
       <input type="hidden" name="sendReload" value="1">
+      ${renderSightingChoice(device)}
       ${profileSelect(profiles, 'default')}
       <button type="submit" class="btn-sm">Claim</button>
     </form>`
+}
+
+// #29 (interim, until instruments#33): an anonymous register can come from
+// anyone. List every address seen for the id and make the operator pick the
+// display's; the token is pushed only to the address chosen.
+function renderSightingChoice (device) {
+  if (device.source !== 'register-rejected') return ''
+  const sightings = Array.isArray(device.sightings) && device.sightings.length
+    ? device.sightings
+    : [{ address: device.address, port: device.port, firstSeen: device.firstSeen, lastSeen: device.lastSeen, seenCount: device.seenCount }]
+  const rows = sightings.map((s) => `
+        <label class="sighting-choice">
+          <input type="radio" name="address" value="${escapeHtml(s.address)}" required>
+          <code>${escapeHtml(s.address)}${s.port ? ':' + escapeHtml(s.port) : ''}</code>
+          · first seen <time datetime="${escapeHtml(s.firstSeen || '')}">${escapeHtml(s.firstSeen || '?')}</time>
+          · last seen <time datetime="${escapeHtml(s.lastSeen || '')}">${escapeHtml(s.lastSeen || '?')}</time>
+          · ${escapeHtml(s.seenCount != null ? s.seenCount : '?')}×
+        </label>`).join('')
+  return `
+      <fieldset class="sighting-choices">
+        <legend>Which address is this display? ${sightings.length > 1 ? `<span class="status bad">${escapeHtml(sightings.length)} addresses claim this id</span>` : ''}</legend>
+        ${refusedNote(device)}
+        <p class="muted">Unpaired registrations are not authenticated. Pick the address your display actually has (check your router or the display itself); the token is sent only there.</p>${rows}
+      </fieldset>`
+}
+
+// PR #30 review: addresses are never evicted, so once the per-id cap is full
+// further ones (possibly the real display's) are refused. Say so.
+function refusedNote (device) {
+  const n = Number(device.refusedAddresses || 0)
+  if (!n) return ''
+  return `<p class="status bad">Too many addresses seen for this id \u2014 possible spoofing. ${escapeHtml(n)} more address${n === 1 ? ' was' : 'es were'} refused (last ${escapeHtml(device.lastRefusedAt || '?')}). If your display's address is not listed below, do not claim this id.</p>`
 }
 
 function renderProfilesPage (profiles, devices) {
@@ -4327,3 +4360,4 @@ module.exports.__renderHomePage = renderHomePage
 module.exports.__nav = nav
 module.exports.__renderSettingsPage = renderSettingsPage
 module.exports.__renderDevicePage = renderDevicePage
+module.exports.__renderDiscoveryClaimControl = renderDiscoveryClaimControl
