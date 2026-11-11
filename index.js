@@ -1236,6 +1236,12 @@ function registerRoutes (baseRouter, getManager) {
     res.json(manager.cancelReclaim(req.params.id))
   }))
 
+  // PR #28 review: the pairing-code requirement is sticky once a display has
+  // advertised it; only an operator clears it (e.g. after a downgrade).
+  router.delete('/devices/:id/pairing-code', wrap(getManager, (manager, req, res) => {
+    res.json(manager.clearPairingCodeRequirement(req.params.id))
+  }))
+
   router.post('/ui/devices/:id/reclaim/cancel', wrap(getManager, (manager, req, res) => {
     const id = req.params.id
     let status = 'reclaim-cancelled'
