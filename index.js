@@ -3853,8 +3853,17 @@ function renderSightingChoice (device) {
   return `
       <fieldset class="sighting-choices">
         <legend>Which address is this display? ${sightings.length > 1 ? `<span class="status bad">${escapeHtml(sightings.length)} addresses claim this id</span>` : ''}</legend>
+        ${refusedNote(device)}
         <p class="muted">Unpaired registrations are not authenticated. Pick the address your display actually has (check your router or the display itself); the token is sent only there.</p>${rows}
       </fieldset>`
+}
+
+// PR #30 review: addresses are never evicted, so once the per-id cap is full
+// further ones (possibly the real display's) are refused. Say so.
+function refusedNote (device) {
+  const n = Number(device.refusedAddresses || 0)
+  if (!n) return ''
+  return `<p class="status bad">Too many addresses seen for this id \u2014 possible spoofing. ${escapeHtml(n)} more address${n === 1 ? ' was' : 'es were'} refused (last ${escapeHtml(device.lastRefusedAt || '?')}). If your display's address is not listed below, do not claim this id.</p>`
 }
 
 function renderProfilesPage (profiles, devices) {

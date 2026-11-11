@@ -52,6 +52,9 @@ module.exports = (async () => {
       // No address chosen: refused.
       assert.throws(() => manager.claimDiscoveredDevice('yey-real', {}),
         (e) => e.status === 409 && e.payload.error.code === 'address_choice_required')
+      // A non-string address is not an address.
+      assert.throws(() => manager.claimDiscoveredDevice('yey-real', { address: ['10.0.0.10'] }),
+        (e) => e.status === 409 && e.payload.error.code === 'address_choice_required')
       // An address never seen for this id: refused.
       assert.throws(() => manager.claimDiscoveredDevice('yey-real', { address: '10.0.0.99' }),
         (e) => e.status === 400 && e.payload.error.code === 'address_not_seen')
@@ -116,6 +119,82 @@ module.exports = (async () => {
       Date.now = realNow
       manager.close()
     }
+  }
+
+  // PR #30 review: an attacker who registers the id first and refreshes from
+  // 8 addresses must not push the real display's address out. When the cap is
+  // reached, new addresses are refused (and flagged); none is ever evicted.
+  for (const attackers of [8, 9, 16]) {
+    const { manager } = makeSecureManager()
+    let t = 1e12
+    const realNow = Date.now
+    Date.now = () => t
+    try {
+      const evilAddr = (k) => attackers === 16 ? `2001:db8:${k.toString(16)}::1` : `10.0.0.${100 + k}`
+      const real = () => manager.noteRejectedRegistration({ device: { id: 'yey-real', capabilities: { pairingCode: true } } }, '10.0.0.10')
+      const evil = (k) => manager.noteRejectedRegistration({ device: { id: 'yey-real', name: 'x' } }, evilAddr(k))
+      evil(0)
+      let listed = 0
+      let samples = 0
+      for (let m = 0; m < 20; m++) {
+        real()
+        for (let s = 0; s < 12; s++) {
+          t += 5000
+          for (let k = 0; k < attackers; k++) evil(k)
+          const d = manager.store.discovery.devices['yey-real']
+          samples++
+          if (d.sightings.some((x) => x.address === '10.0.0.10')) listed++
+        }
+      }
+      assert.strictEqual(listed, samples, `${attackers} attacker addresses: real listed ${listed}/${samples}`)
+      const d = manager.store.discovery.devices['yey-real']
+      assert.ok(d.sightings.length <= 8)
+      assert.ok(d.refusedAddresses > 0, 'refused addresses are counted')
+      assert.ok(d.lastRefusedAt, 'and timestamped')
+    } finally {
+      Date.now = realNow
+      manager.close()
+    }
+  }
+
+  // Cap reached before the real display arrives: it is refused, never anything
+  // evicted, and the record says so.
+  {
+    const { manager } = makeSecureManager()
+    let t = 1e12
+    const realNow = Date.now
+    Date.now = () => t
+    try {
+      for (let k = 0; k < 8; k++) { t += 60000; manager.noteRejectedRegistration({ device: { id: 'yey-full' } }, `10.0.0.${100 + k}`) }
+      const before = manager.store.discovery.devices['yey-full'].sightings.map((s) => s.address)
+      t += 60000
+      assert.strictEqual(manager.noteRejectedRegistration({ device: { id: 'yey-full' } }, '10.0.0.10'), null, 'ninth address refused')
+      const d = manager.store.discovery.devices['yey-full']
+      assert.deepStrictEqual(d.sightings.map((s) => s.address), before, 'no sighting evicted')
+      assert.strictEqual(d.refusedAddresses, 1)
+      assert.ok(d.lastRefusedAt)
+      const listed = manager.listDiscoveredDevices().devices.find((x) => x.deviceId === 'yey-full')
+      assert.strictEqual(listed.refusedAddresses, 1, 'listing carries the refusal count')
+      const html = plugin.__renderDiscoveryClaimControl(d, [{ id: 'default', name: 'Default' }])
+      assert.ok(/too many addresses seen for this id/i.test(html), 'Claim control flags possible spoofing')
+      assert.ok(/possible spoofing/i.test(html))
+      assert.ok(/1 (more )?address(es)? (was |were )?refused/i.test(html), `Claim control says sightings were refused: ${html}`)
+    } finally {
+      Date.now = realNow
+      manager.close()
+    }
+  }
+
+  // A UDP/mDNS-discovered record is never touched by anonymous registers.
+  {
+    const { manager } = makeSecureManager()
+    manager.recordDiscoveredDevice({ id: 'yey-mdns', address: '10.0.0.30', source: 'mdns' })
+    for (let k = 0; k < 20; k++) manager.noteRejectedRegistration({ device: { id: 'yey-mdns' } }, `10.0.0.${100 + k}`)
+    const d = manager.store.discovery.devices['yey-mdns']
+    assert.strictEqual(d.address, '10.0.0.30', 'mDNS address kept')
+    assert.strictEqual(d.source, 'mdns')
+    assert.ok(!d.sightings, 'no anonymous sightings attached')
+    manager.close()
   }
 
   // ---- 3. Claim control -------------------------------------------------------
