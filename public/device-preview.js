@@ -100,7 +100,8 @@
       if (type !== 'compass' && type !== 'button' && type !== 'autopilot') el.format = formatFor(tile)
       const col = tile.color && typeof tile.color === 'object' ? tile.color : null
       const accent = col && safeColor(col.value || col.fill || col.needle || col.arc || col.line, null)
-      if (accent) el.color = accent
+      // The renderer reads the override from `style.color` (MIDL element style).
+      if (accent) el.style = { color: accent }
       if ((type === 'compass' || type === 'windrose') && Array.isArray(tile.markers) && tile.markers.length) {
         el.markers = tile.markers.filter((m) => m && typeof m.path === 'string').map((m) => ({
           glyph: GLYPHS.has(m.glyph) ? m.glyph : 'triangle',

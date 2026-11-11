@@ -237,3 +237,31 @@ test('hostile colours and glyphs never reach the SVG', () => {
   assert.deepStrictEqual(ok.screens[0].elements.t0.markers.map((m) => [m.glyph, m.color]),
     [['diamond', '#AbC'], ['triangle', '#36d39980'], ['triangle', 'warn'], ['triangle', 'danger']])
 })
+
+// PR #31 review: the glue set `el.color`, but the renderer reads
+// `style.color`, so a tile colour override never showed in the preview
+// (live-preview.js did show it). The allowlist above still applies.
+test('a tile colour override is drawn; a hostile one still is not', () => {
+  const cfg = previewPayload(devicePage())
+  const { DP, W } = loadGlue(cfg)
+  const values = { 'navigation.speedOverGround': 3.1, 'navigation.headingTrue': 1 }
+  const tiles = (c) => [
+    { widget: 'numeric', title: 'SOG', path: 'navigation.speedOverGround', color: { value: c } },
+    { widget: 'compass', title: 'HDG', path: 'navigation.headingTrue', color: { needle: c } }
+  ]
+  const base = draw(DP, W, cfg, { id: 's', tiles: tiles(undefined) }, values)
+  assert.ok(base.ok, JSON.stringify(base.issues))
+  assert.ok(!base.svg.includes('#123456'), 'no override colour without an override')
+  const r = draw(DP, W, cfg, { id: 's', tiles: tiles('#123456') }, values)
+  assert.ok(r.ok, JSON.stringify(r.issues))
+  const numeric = W.renderDashboardSvg(JSON.stringify(DP.midlDocFor({ id: 's', tiles: tiles('#123456').slice(0, 1) }, cfg.midl)),
+    cfg.midl.manifest, cfg.midl.className, cfg.midl.viewport, DP.makeProvider(values, {}))
+  assert.ok(numeric.svg.includes('fill="#123456"'), 'numeric tile value drawn in the override colour')
+  const warn = draw(DP, W, cfg, { id: 's', tiles: tiles('warn').slice(0, 1) }, values)
+  assert.ok(warn.svg.includes('#ffb84d'), 'theme-token override resolves to the palette colour')
+  const evil = '#fff"/><img src=x onerror=alert(1)>'
+  const h = draw(DP, W, cfg, { id: 's', tiles: tiles(evil) }, values)
+  assert.ok(h.ok, JSON.stringify(h.issues))
+  assert.ok(!h.svg.toLowerCase().includes('<img') && !/\son[a-z]+\s*=/i.test(h.svg), 'hostile override inert')
+  assert.strictEqual(h.svg, base.svg, 'hostile override is dropped, same as no override')
+})
