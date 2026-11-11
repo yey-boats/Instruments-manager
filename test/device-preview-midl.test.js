@@ -105,3 +105,85 @@ test('device-preview builds a MIDL doc per screen that the shared bundle renders
   assert.strictEqual(DP.liveValueFor(values, 'navigation.speedOverGround'), '6.0 kn')
   assert.strictEqual(DP.liveValueFor(values, 'nope'), '—')
 })
+
+function loadGlue (cfg) {
+  const ctx = { console, window: { __yeyboatsPreview: cfg } }
+  ctx.window.window = ctx.window
+  ctx.document = { getElementById: () => null }
+  vm.createContext(ctx)
+  vm.runInContext(fs.readFileSync(path.join(PUBLIC, 'midl-device.global.js'), 'utf8') + '\nwindow.MidlWeb = MidlWeb;', ctx)
+  vm.runInContext(fs.readFileSync(path.join(PUBLIC, 'device-preview.js'), 'utf8'), ctx)
+  return { DP: ctx.window.YeyDevicePreview, W: ctx.window.MidlWeb }
+}
+
+function draw (DP, W, cfg, scr, values) {
+  return W.renderDashboardSvg(JSON.stringify(DP.midlDocFor(scr, cfg.midl)), cfg.midl.manifest, cfg.midl.className,
+    cfg.midl.viewport, DP.makeProvider(values, {}))
+}
+
+// PR #31 review: odd tile counts padded the grid with { element: '' }, which
+// the schema rejects, so 3/5/7/8-tile screens drew an error SVG.
+test('screens with 1 to 9 tiles all render every tile', () => {
+  const cfg = previewPayload(devicePage())
+  const { DP, W } = loadGlue(cfg)
+  for (let n = 1; n <= 9; n++) {
+    const scr = { id: 's' + n, tiles: Array.from({ length: n }, (_, i) => ({ widget: 'numeric', title: 'T' + i, path: 'p.v' + i })) }
+    const r = draw(DP, W, cfg, scr, {})
+    assert.ok(r.ok, `${n} tiles: doc valid: ${JSON.stringify(r.issues)}`)
+    const drawn = (r.svg.match(/>T\d<\/text>|>T\d</g) || []).length
+    assert.strictEqual(drawn, n, `${n} tiles: all ${n} titles drawn`)
+  }
+})
+
+// PR #31 review: the Route screen's SI values were shown unconverted
+// (3704 m as "3704.0 nm", 5.144 m/s as "5.1 kn"), because the bundle's own
+// path inference reads every navigation.course* path as an angle.
+test('SignalK SI values convert to the display unit, as the old preview did', () => {
+  const cfg = previewPayload(devicePage())
+  const { DP, W } = loadGlue(cfg)
+  const one = (p, v, extra) => {
+    const tile = Object.assign({ widget: 'numeric', title: 'X', path: p }, extra || {})
+    const r = draw(DP, W, cfg, { id: 'u', tiles: [tile] }, { [p]: v })
+    assert.ok(r.ok, JSON.stringify(r.issues))
+    return (r.svg.match(/>([^<>]+)</g) || []).map((s) => s.slice(1, -1)).join('|')
+  }
+  const cases = [
+    ['navigation.courseRhumbline.nextPoint.distance', 3704, '2.0 nm'],
+    ['navigation.courseGreatCircle.nextPoint.distance', 3704, '2.0 nm'],
+    ['navigation.courseRhumbline.velocityMadeGood', 5.144, '10.0 kn'],
+    ['navigation.courseGreatCircle.nextPoint.velocityMadeGood', 5.144, '10.0 kn'],
+    ['navigation.courseGreatCircle.crossTrackError', 25, '25.0 m'],
+    ['navigation.courseRhumbline.nextPoint.bearingTrue', Math.PI / 2, '90 deg'],
+    ['navigation.speedThroughWater', 5.144, '10.0 kn'],
+    ['environment.current.drift', 5.144, '10.0 kn'],
+    ['environment.water.temperature', 293.15, '20.0 degC'],
+    ['environment.depth.belowTransducer', 12.34, '12.3 m'],
+    ['electrical.batteries.house.capacity.stateOfCharge', 0.78, '78.0 %']
+  ]
+  for (const [p, v, want] of cases) {
+    const got = one(p, v)
+    // Value and unit may be drawn as one text or as two.
+    const [num, unit] = want.split(' ')
+    assert.ok(got.includes(want) || (got.includes(num) && got.split('|').includes(unit)), `${p}=${v}: want ${want}, got ${got}`)
+    assert.strictEqual(DP.liveValueFor({ [p]: v }, p), want, `${p} live readout`)
+  }
+  // An explicit tile unit is honoured with the right conversion.
+  assert.ok(one('navigation.courseRhumbline.nextPoint.distance', 3704, { unit: 'nm' }).includes('2.0'), 'explicit nm')
+  assert.ok(one('environment.water.temperature', 293.15, { unit: '°C' }).includes('20.0'), 'explicit °C')
+
+  // The built-in Route screen, end to end.
+  const route = cfg.screens.find((s) => s.id === 'route')
+  assert.ok(route && route.tiles.length, 'route screen present')
+  const values = {}
+  for (const t of route.tiles) {
+    if (/distance/i.test(t.path)) values[t.path] = 3704
+    else if (/velocityMadeGood/i.test(t.path)) values[t.path] = 5.144
+    else if (/crossTrackError/i.test(t.path)) values[t.path] = 25
+    else values[t.path] = Math.PI / 2
+  }
+  const r = draw(DP, W, cfg, route, values)
+  assert.ok(r.ok, JSON.stringify(r.issues))
+  const text = (r.svg.match(/>([^<>]+)</g) || []).join('')
+  assert.ok(!/3704/.test(text), `no unconverted metres on the Route screen: ${text}`)
+  assert.ok(!/>5\.1</.test(text), `no unconverted m/s on the Route screen: ${text}`)
+})

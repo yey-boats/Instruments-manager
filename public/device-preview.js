@@ -39,6 +39,14 @@
     if (unit) f.unit = unit
     return f
   }
+  // SignalK carries SI values; the display unit's family names the SI source
+  // (as the old live-preview.js converted). The provider tags every value with
+  // it, so the bundle converts correctly: its own path inference reads every
+  // navigation.course* path (route DTW, VMG) as an angle (PR #31 review).
+  const SI_FOR = { kn: 'm/s', 'km/h': 'm/s', deg: 'rad', degC: 'K', degF: 'K', nm: 'm', km: 'm', ft: 'm', m: 'm', '%': 'ratio', rpm: 'Hz', hPa: 'Pa', kPa: 'Pa', bar: 'Pa' }
+  function sourceUnitFor (path) {
+    return SI_FOR[displayUnitFor({ path })]
+  }
   // MIDL DataProvider over the live SignalK value map.
   function makeProvider (values, stamps) {
     const none = { value: undefined, stale: false, present: false }
@@ -50,7 +58,10 @@
         if (b.kind === 'const') return { value: b.value, stale: false, present: true }
         if (b.kind !== 'signalk' || !Object.prototype.hasOwnProperty.call(values, b.path)) return none
         const at = stamps && stamps[b.path]
-        return { value: values[b.path], updatedAt: at, present: true, stale: !!at && Date.now() - at > STALE_MS }
+        const r = { value: values[b.path], updatedAt: at, present: true, stale: !!at && Date.now() - at > STALE_MS }
+        const su = sourceUnitFor(b.path)
+        if (su) r.sourceUnit = su
+        return r
       }
     }
   }
@@ -89,7 +100,8 @@
     const n = cells.length
     const cols = n <= 1 ? 1 : (n <= 4 ? 2 : 3)
     const rows = Math.max(1, Math.ceil(n / cols))
-    while (cells.length < rows * cols) cells.push({ element: '' })
+    // Pad with spacer cells ({} in the MIDL schema), never { element: '' }.
+    while (cells.length < rows * cols) cells.push({})
     return { midl: '1.0.0', screens: [{ id: String((scr && scr.id) || 'screen'), elements, layout: { rows, cols, cells } }] }
   }
   // A path's live value as the device would show it on a numeric tile.
@@ -103,7 +115,7 @@
     const m = W.resolveElement(el, makeProvider(values, stamps))
     return (m && m.text && m.text !== '--') ? m.text : '—'
   }
-  window.YeyDevicePreview = { displayUnitFor, formatFor, makeProvider, midlDocFor, liveValueFor }
+  window.YeyDevicePreview = { displayUnitFor, sourceUnitFor, formatFor, makeProvider, midlDocFor, liveValueFor }
 
   const cfg = window.__yeyboatsPreview || {}
   const root = document.getElementById('lp-root')
@@ -559,7 +571,7 @@
         r = { ok: false, issues: [{ message: String((e && e.message) || e) }] }
       }
       // The bundle escapes every string it puts into the SVG.
-      if (r && r.svg) stage.innerHTML = r.svg
+      if (r && r.ok && r.svg) stage.innerHTML = r.svg
       else stage.textContent = 'Preview error: ' + ((r && r.issues && r.issues[0] && r.issues[0].message) || 'unknown')
     }
     root.appendChild(stage)
