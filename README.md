@@ -105,6 +105,28 @@ SignalK Admin → Server → Plugin Config. Open it at:
 /yey-boats-display-manager/                   (webapp / app-dock tile)
 ```
 
+## Upgrading: manager auth (instruments-manager#23)
+
+Release note. The manager no longer accepts the public `yeyboats-dev` token.
+
+- Each install generates its own **manager API token**; displays get their own
+  per-device token. New displays join only when you press **Claim**.
+- **Changes need an operator**: a SignalK admin session, or (always, and the
+  only option when SignalK security is off) the manager API token, either as
+  `X-YeyBoats-Authorization: Bearer <token>` or via **Sign in** on the manager
+  UI. With SignalK security off the Settings page does not show the token;
+  read it on the server from `manager-api-token.json` in the plugin data dir.
+- **Displays paired before this release need re-claiming.** They stay online,
+  but the manager sends them nothing until you open **Settings → Displays to
+  re-claim**, check each display's address and last-seen time, and press
+  **Confirm & re-claim**. (The address on file may have been set by anyone who
+  had the old public token.)
+- Re-keying a paired display is **Re-claim** on its device page: the display
+  proves itself with its current token and collects a new one; the current
+  token keeps working until then.
+
+Details: [deploy/README.md](deploy/README.md#verify-yey-boats-display-manager).
+
 ## Upgrading from “ESP Display Manager”
 
 The rename changes the plugin id, so SignalK treats it as a new plugin and

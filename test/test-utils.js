@@ -3,13 +3,27 @@ const os = require('os')
 const path = require('path')
 const { YeyBoatsDisplayManager } = require('../lib/manager')
 
+// Legacy suites predate instruments-manager#23 and drive the manager with the
+// shared development token, so they opt in to the explicit dev auth mode
+// (`auth.devAuth`, which the plugin only sets from YEYBOATS_MANAGER_DEV_AUTH=1).
+// Suites that exercise the production auth model use makeSecureManager().
 function makeManager (options) {
+  return buildManager({ auth: { mode: 'dev-shared-token', devAuth: true } }, options)
+}
+
+// The production default: per-device tokens + a generated manager API token.
+function makeSecureManager (options) {
+  return buildManager({}, options)
+}
+
+function buildManager (authBase, options) {
   const dataDir = fs.mkdtempSync(path.join(os.tmpdir(), 'yey-boats-display-manager-'))
   const app = {
     getDataDirPath: () => dataDir,
     debug: () => {}
   }
   const merged = mergeTestOptions({
+    ...authBase,
     discoveryUdp: { enabled: false },
     deviceDiscoveryUdp: { enabled: false },
     firmware: { github: { enabled: false } },
@@ -44,4 +58,4 @@ function skip (name, reason) {
   console.log(`SKIP ${name}: ${reason}`)
 }
 
-module.exports = { makeManager, skip }
+module.exports = { makeManager, makeSecureManager, mergeTestOptions, skip }

@@ -76,6 +76,8 @@ module.exports = (async () => {
   // ---- 1. registered device enforcing auth: proxy authenticates ----------
   const mock = mockDisplay('127.0.0.1')
   const port = await mock.start()
+  // #23: credentials only go to the device's registered web API port.
+  manager.store.registry.devices['yey-d-shot'].httpPort = port
   try {
     mock.device.password = password
     const r = await call(route, { url: `http://127.0.0.1:${port}` })

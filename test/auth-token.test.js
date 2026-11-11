@@ -20,8 +20,14 @@ const heartbeat = manager.updateStatus('yey-d-token-test', {
 }, { bearer: reg.deviceToken })
 assert.strictEqual(heartbeat.status, 'ok')
 
-const rotated = manager.rotateDeviceToken('yey-d-token-test')
-assert.ok(rotated.deviceToken)
+// #23: rotation is a Re-claim. No plaintext token in the result; the display
+// collects the new one by re-registering with its current token.
+const rotation = manager.rotateDeviceToken('yey-d-token-test')
+assert.strictEqual(rotation.deviceToken, undefined)
+assert.strictEqual(rotation.status, 'pending')
+const rotated = manager.registerDevice({ device: { id: 'yey-d-token-test' } }, { bearer: reg.deviceToken })
+assert.ok(rotated.deviceToken && rotated.deviceToken !== reg.deviceToken)
+assert.strictEqual(manager.updateStatus('yey-d-token-test', {}, { bearer: rotated.deviceToken }).status, 'ok')
 device = manager.getDevice('yey-d-token-test')
 assert.strictEqual(device.deviceToken, undefined)
 assert.ok(device.deviceTokenHash.startsWith('sha256:'))
