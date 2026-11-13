@@ -366,3 +366,135 @@ test('#33 (review 2): grid shape, dir bindings, variants, double placement, malf
   const v2 = midlToV2(one({ ['__proto__']: sv('x.a') }, { rows: 1, cols: 1, cells: [{ element: '__proto__' }] }))
   assert.strictEqual(Object.getPrototypeOf(v2.widgets.items), Object.prototype)
 })
+
+// ---------------------------------------------------------------------------
+// #38: an editor save must not lose what the field editor stored (range,
+// zones, size, colour, markers, screen title, widget defaults).
+
+function richBench () {
+  const { manager, id } = benchManager()
+  manager.upsertProfile({
+    id: 'bench',
+    name: 'Bench',
+    config: {
+      widgets: { version: 1, defaults: { fontSize: 18 }, items: {} },
+      layout: { version: 1, screens: [] }
+    }
+  })
+  const sid = manager.addScreen(id, { title: 'Dash' }).screens[0].id
+  manager.addField(id, sid, {
+    type: 'gauge',
+    paths: { value: 'electrical.batteries.house.voltage' },
+    range: { min: 10, max: 15 },
+    zones: [{ lower: 10, upper: 11.5, state: 'alarm' }],
+    size: 28,
+    color: { value: '#ff0000', arc: '#00ff00' }
+  })
+  manager.addField(id, sid, {
+    type: 'compass',
+    paths: { value: 'navigation.headingTrue' },
+    markers: [{ path: 'navigation.courseOverGroundTrue', glyph: 'triangle', color: 'accent', filled: true }]
+  })
+  return { manager, id, sid }
+}
+
+async function roundTrip (manager, id, edit) {
+  const get = routes(manager)
+  const served = await call(get('GET', '/devices/:id/editor/midl'), { id })
+  const doc = JSON.parse(served.json.doc)
+  if (edit) edit(doc)
+  const r = await call(get('POST', '/devices/:id/editor/midl'), { id }, { doc })
+  assert.strictEqual(r.status, 200, JSON.stringify(r.json))
+  return { served, doc }
+}
+
+test('#38: GET carries range, size, colour, markers and the screen title, and validates', needsBuild, async () => {
+  const { manager, id } = richBench()
+  const r = await call(routes(manager)('GET', '/devices/:id/editor/midl'), { id })
+  assert.deepStrictEqual(r.json.validation, { ok: true, className: 'square-480', issues: [] })
+  const s = JSON.parse(r.json.doc).screens[0]
+  assert.strictEqual(s.title, 'Dash')
+  assert.deepStrictEqual(s.elements['dash-gauge'].style, { range: [10, 15], size: 28, color: '#ff0000' })
+  assert.deepStrictEqual(s.elements['dash-compass'].markers, [
+    { glyph: 'triangle', color: 'accent', dir: { kind: 'signalk', path: 'navigation.courseOverGroundTrue' } }
+  ])
+})
+
+test('#38: an unchanged editor save keeps every stored attribute', needsBuild, async () => {
+  const { manager, id } = richBench()
+  const before = manager.editorLayout(id)
+  const profileBefore = manager.editorProfile(id).config
+  await roundTrip(manager, id)
+  const after = manager.editorLayout(id)
+  assert.deepStrictEqual(after.items, before.items)
+  assert.strictEqual(after.screens[0].title, 'Dash')
+  assert.deepStrictEqual(manager.editorProfile(id).config.widgets.defaults, profileBefore.widgets.defaults)
+})
+
+test('#38: an edited attribute is taken from the doc; the rest is kept', needsBuild, async () => {
+  const { manager, id } = richBench()
+  await roundTrip(manager, id, (doc) => {
+    const g = doc.screens[0].elements['dash-gauge']
+    g.style.range = [11, 14]
+    g.style.color = '#0000ff'
+    g.name = 'BATT'
+    doc.screens[0].title = 'Power'
+  })
+  const after = manager.editorLayout(id)
+  const g = after.items['dash-gauge']
+  assert.deepStrictEqual(g.range, { min: 11, max: 14 })
+  assert.deepStrictEqual(g.color, { value: '#0000ff', arc: '#00ff00' })
+  assert.deepStrictEqual(g.zones, [{ lower: 10, upper: 11.5, state: 'alarm' }])
+  assert.strictEqual(g.size, 28)
+  assert.strictEqual(g.title, 'BATT')
+  assert.strictEqual(after.screens[0].title, 'Power')
+  // The untouched compass keeps its marker exactly (filled is not in MIDL).
+  assert.deepStrictEqual(after.items['dash-compass'].markers,
+    [{ path: 'navigation.courseOverGroundTrue', glyph: 'triangle', filled: true, color: 'accent' }])
+})
+
+test('#38: edited markers come from the doc; a type change drops what the new type cannot hold', needsBuild, async () => {
+  const { manager, id } = richBench()
+  await roundTrip(manager, id, (doc) => {
+    const els = doc.screens[0].elements
+    els['dash-compass'].markers = [{ glyph: 'diamond', color: '#00ff00', dir: { kind: 'signalk', path: 'navigation.courseRhumbline.nextPoint.bearingTrue' } }]
+    els['dash-gauge'].type = 'single-value'
+  })
+  const after = manager.editorLayout(id)
+  assert.deepStrictEqual(after.items['dash-compass'].markers,
+    [{ path: 'navigation.courseRhumbline.nextPoint.bearingTrue', glyph: 'diamond', color: '#00ff00' }])
+  const g = after.items['dash-gauge']
+  assert.strictEqual(g.type, 'numeric')
+  assert.strictEqual(g.range, undefined)
+  assert.strictEqual(g.zones, undefined)
+  assert.deepStrictEqual(g.color, { value: '#ff0000', arc: '#00ff00' })
+})
+
+test('#38: removing an attribute in the editor removes it', needsBuild, async () => {
+  const { manager, id } = richBench()
+  await roundTrip(manager, id, (doc) => {
+    const els = doc.screens[0].elements
+    delete els['dash-gauge'].style
+    delete els['dash-compass'].markers
+  })
+  const after = manager.editorLayout(id)
+  const g = after.items['dash-gauge']
+  assert.strictEqual(g.range, undefined)
+  assert.strictEqual(g.size, undefined)
+  assert.deepStrictEqual(g.color, { arc: '#00ff00' })
+  assert.deepStrictEqual(g.zones, [{ lower: 10, upper: 11.5, state: 'alarm' }])
+  assert.strictEqual(after.items['dash-compass'].markers, undefined)
+})
+
+test('#38: a doc without stored state still maps style and markers', () => {
+  const one = (elements, layout) => ({ midl: '1.0.0', screens: [{ id: 's', elements, layout }] })
+  const doc = one({
+    g: { type: 'gauge', bindings: { value: { kind: 'signalk', path: 'x.v' } }, style: { range: [0, 5], size: 'XL', color: '#123456' } },
+    c: { type: 'compass', bindings: { value: { kind: 'signalk', path: 'x.h' } }, markers: [{ glyph: 'bar', dir: { kind: 'signalk', path: 'x.m' } }, { glyph: 'bar', dir: { kind: 'const', value: 1 } }] }
+  }, { rows: 1, cols: 2, cells: [{ element: 'g' }, { element: 'c' }] })
+  const v2 = midlToV2(doc)
+  assert.deepStrictEqual(v2.widgets.items.g.range, { min: 0, max: 5 })
+  assert.strictEqual(v2.widgets.items.g.size, 'XL')
+  assert.deepStrictEqual(v2.widgets.items.g.color, { value: '#123456' })
+  assert.deepStrictEqual(v2.widgets.items.c.markers, [{ path: 'x.m', glyph: 'bar' }])
+})
