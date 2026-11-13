@@ -293,3 +293,37 @@ test('#41: a profile already over the 32-widget limit can still be shrunk', () =
   manager.renameScreen(id, 's1', 'Renamed')
   assert.throws(() => manager.addField(id, 's0', { type: 'numeric', paths: { value: 'x' } }), (e) => e.payload.error.code === 'max_widgets_exceeded')
 })
+
+// #47 follow-up: the per-class tile cap only refuses a screen whose tile count
+// grows past it. A layout already over the cap (stored for a bigger class,
+// or imported) can still be shrunk, renamed and edited; adding is refused.
+test('#47: edits that do not grow an over-capacity screen are not refused', () => {
+  const { manager, auth } = makeManager({ auth: { mode: 'dev-shared-token', devToken: 'test-token' } })
+  const id = 'yey-d-aaaaaaaaaaaa'
+  manager.registerDevice({ device: { id, name: 'Round', role: 'display', board: 'x', display: { width: 360, height: 360, shape: 'round' } } }, auth)
+  assert.strictEqual(manager.editorMaxTiles(id), 4)
+  const items = {}
+  const tiles = []
+  for (let i = 0; i < 6; i++) {
+    items['w' + i] = { type: 'numeric', path: 'navigation.speedOverGround' }
+    tiles.push({ widget: 'w' + i })
+  }
+  // Stored directly, as an older manager or an import leaves it: 6 > 4.
+  manager.store.profiles.profiles.over = { id: 'over', name: 'over', version: 1, config: { layout: { version: 1, screens: [{ id: 'dash', title: 'Dash', type: 'grid', tiles }] }, widgets: { version: 1, items } } }
+  manager.getDevice(id).assignedProfile = 'over'
+
+  const count = () => manager.editorLayout(id).screens.find((s) => s.id === 'dash').tiles.length
+  manager.renameScreen(id, 'dash', 'Renamed')
+  assert.strictEqual(count(), 6)
+  manager.updateField(id, 'dash', 'w0', { type: 'numeric', paths: { value: 'navigation.speedThroughWater' }, title: 'STW' })
+  assert.strictEqual(count(), 6)
+  manager.removeField(id, 'dash', 'w5')
+  assert.strictEqual(count(), 5)
+  assert.throws(() => manager.addField(id, 'dash', { type: 'numeric', paths: { value: 'navigation.speedOverGround' } }),
+    (e) => e.payload.error.code === 'max_tiles_exceeded')
+  assert.strictEqual(count(), 5)
+  // A new screen is still capped from zero.
+  assert.throws(() => manager.mutateEditorLayout(id, (cfg) => {
+    cfg.layout.screens.push({ id: 'big', type: 'grid', tiles: tiles.slice(0, 5) })
+  }), (e) => e.payload.error.code === 'max_tiles_exceeded')
+})

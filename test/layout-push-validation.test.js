@@ -416,3 +416,50 @@ test('without the validator built in, a tile-count fallback still runs and every
     console.warn = realWarn
   }
 })
+
+// Form routes carry a non-ok validation in the redirect (&validation=...) and
+// the device page shows it as a warning banner.
+function callForm (route, params, body, query) {
+  return new Promise((resolve, reject) => {
+    const headers = {}
+    const res = {
+      statusCode: 200,
+      setHeader (k, v) { headers[k.toLowerCase()] = v },
+      status (c) { this.statusCode = c; return this },
+      redirect (c, l) { this.statusCode = c; headers.location = l; resolve({ status: c, headers }) },
+      json (b) { resolve({ status: this.statusCode, json: b, headers }) },
+      end (b) { resolve({ status: this.statusCode, body: b, headers }) }
+    }
+    Promise.resolve(route.h({ method: 'POST', params, query: query || {}, headers: {}, body: body || {}, get: () => '' }, res)).catch(reject)
+  })
+}
+
+test('switch-view carries the validation in its redirect and the device page shows a banner', needsBuild, async () => {
+  const { manager, round } = bench()
+  manager.getDevice(round).assignedProfile = 'six' // over capacity on round-360, stored raw
+  const get = routes(manager)
+  const r = await callForm(get('POST', '/ui/devices/:id/switch-view'), { id: round }, { profileId: 'six' })
+  assert.strictEqual(r.status, 303, JSON.stringify(r))
+  assert.match(r.headers.location, /\?status=[^&]+&validation=issues$/)
+  // A clean switch adds nothing.
+  const clean = await callForm(get('POST', '/ui/devices/:id/switch-view'), { id: round }, { profileId: 'three' })
+  assert.doesNotMatch(clean.headers.location, /validation=/)
+
+  const page = (query) => callForm(get('GET', '/ui/devices/:id'), { id: round }, {}, query).then((x) => x.body)
+  assert.match(await page({ validation: 'issues' }), /class="panel validation-banner" role="alert"[^>]*><b>Layout warning\.<\/b> Saved, but this layout already fails MIDL validation/)
+  assert.match(await page({ validation: 'unavailable' }), /validation-banner[\s\S]*MIDL validator is not available/)
+  assert.doesNotMatch(await page({}), /validation-banner/)
+  assert.doesNotMatch(await page({ validation: '<b>x</b>' }), /validation-banner|<b>x<\/b>/)
+  for (const v of ['constructor', 'toString', '__proto__', 'hasOwnProperty']) {
+    assert.doesNotMatch(await page({ validation: v }), /validation-banner/, v)
+  }
+})
+
+test('applyProfile returns the layout validation at the top level', needsBuild, () => {
+  const { manager, round } = bench()
+  manager.getDevice(round).assignedProfile = 'six'
+  const out = manager.applyProfile('six', { deviceIds: [round] })
+  assert.strictEqual(out.count, 1)
+  assert.strictEqual(out.layoutValidation.validation, 'issues')
+  assert.strictEqual(manager.applyProfile('three', { deviceIds: [round] }).layoutValidation.validation, 'ok')
+})

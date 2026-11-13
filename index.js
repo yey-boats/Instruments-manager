@@ -842,7 +842,8 @@ function registerRoutes (baseRouter, getManager) {
     // live status + logs from the *-fragment endpoints after DOMContentLoaded so
     // a slow/offline device never blocks (or hangs) the page render.
     const selScreen = req.query && req.query.screen ? String(req.query.screen) : null
-    res.end(renderUiShell('Device detail', renderDevicePage(manager, req.params.id, {}, { selectScreen: selScreen }), dashboard, 'device'))
+    const validation = req.query && req.query.validation ? String(req.query.validation) : null
+    res.end(renderUiShell('Device detail', renderDevicePage(manager, req.params.id, {}, { selectScreen: selScreen, validation }), dashboard, 'device'))
   }))
 
   // The config page was merged into the device detail page as a collapsed
@@ -1004,7 +1005,7 @@ function registerRoutes (baseRouter, getManager) {
     res.statusCode = 303
     res.setHeader('location',
       `/plugins/yey-boats-display-manager/ui/devices/${encodeURIComponent(req.params.id)}` +
-      `?status=${encodeURIComponent(result.status)}`)
+      `?status=${encodeURIComponent(result.status)}${validationParam(result)}`)
     res.end()
   }))
 
@@ -1095,7 +1096,7 @@ function registerRoutes (baseRouter, getManager) {
     const scr = body.screenId ? `&screen=${encodeURIComponent(body.screenId)}` : ''
     res.statusCode = 303
     res.setHeader('location',
-      `/plugins/yey-boats-display-manager/ui/devices/${encodeURIComponent(id)}?status=${encodeURIComponent(status)}${scr}`)
+      `/plugins/yey-boats-display-manager/ui/devices/${encodeURIComponent(id)}?status=${encodeURIComponent(status)}${scr}${validationParam({ layoutValidation })}`)
     res.end()
   }))
 
@@ -2452,7 +2453,7 @@ function renderDevicePage (manager, id, live = {}, opts = {}) {
   previewData.midl = midlPreviewFor(manager.resolveDisplay(device))
   const previewJson = JSON.stringify(previewData).replace(/</g, '\\u003c')
   const otaSection = renderDeviceFirmwareSection(manager, device)
-  return `
+  return `${renderValidationBanner(opts && opts.validation)}
     <section class="panel">
       <h2>${escapeHtml(device.name || device.id)}</h2>
       <p class="muted">${escapeHtml(device.id)} · ${escapeHtml(device.role)} · ${escapeHtml(device.location || 'unassigned')}</p>
@@ -3143,6 +3144,19 @@ function screenKindLabel (id) {
 function validationParam (result) {
   const v = result && result.layoutValidation && result.layoutValidation.validation
   return v && v !== 'ok' ? `&validation=${encodeURIComponent(v)}` : ''
+}
+
+// The page side of validationParam: a visible warning after a save that went
+// through on a layout the validator could not pass (or could not run).
+const VALIDATION_BANNERS = {
+  issues: 'Saved, but this layout already fails MIDL validation for this display. The display may refuse it until it is fixed; open the editor to see the issues.',
+  unavailable: 'Saved without a layout check: the MIDL validator is not available in this install, so the display may refuse this layout.'
+}
+function renderValidationBanner (validation) {
+  const text = Object.hasOwn(VALIDATION_BANNERS, validation) ? VALIDATION_BANNERS[validation] : null
+  return text
+    ? `<p class="panel validation-banner" role="alert" style="border-left:4px solid #d97706;background:#fff7ed;color:#7c2d12;"><b>Layout warning.</b> ${escapeHtml(text)}</p>`
+    : ''
 }
 
 function saveDeviceConfigForm (manager, id, body) {

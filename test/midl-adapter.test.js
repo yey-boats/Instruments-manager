@@ -723,7 +723,8 @@ test('#38: a new element keeps only what its type can hold', () => {
 // writes them on every catalog pick / Span change).
 test('#53: colorRole, zones, sectors and marker extras are refused by name, not dropped', needsBuild, async () => {
   const cases = [
-    ['colorRole', (els) => { els['dash-gauge'].style.colorRole = 'warn' }, '/style/colorRole', /style\.colorRole/],
+    ['colorRole', (els) => { els['dash-gauge'].style.colorRole = 'warn' }, '/style/colorRole', /style\.colorRole.*choose Color 'default' or remove it in the Source view/],
+    ['size token', (els) => { els['dash-gauge'].style.size = 'L' }, '/style/size', /style\.size.*set Size to 'unset' or remove it in the Source view/],
     ['zones', (els) => { els['dash-gauge'].style.zones = [{ lt: 11, color: 'warn' }, { lt: 15, color: 'good' }] }, '/style/zones', /style\.zones/],
     ['sectors', (els) => { els['dash-compass'].style = { sectors: [{ from: -45, to: 45, color: 'warn' }] } }, '/style/sectors', /style\.sectors/],
     ['scale', (els) => { els['dash-gauge'].style.scale = 'metric' }, '/style/scale', /style\.scale/],
