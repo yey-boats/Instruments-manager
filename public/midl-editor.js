@@ -333,7 +333,9 @@
             try { vj = await r.json(); } catch (e) { vj = null; }
             var issues = (vj && vj.error && vj.error.details && vj.error.details.issues) || [];
             var vmsg = (vj && vj.error && vj.error.message) || "Device would reject this dashboard";
-            if (issues.length) {
+            // layout_invalid already lists the first issues in its message.
+            var listed = vj && vj.error && vj.error.code === "layout_invalid";
+            if (issues.length && !listed) {
               vmsg += ": " + issues.slice(0, 3).map(function (i) { return i.path + " " + i.message; }).join("; ");
             }
             throw new Error(vmsg);
