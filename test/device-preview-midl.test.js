@@ -91,7 +91,7 @@ test('device-preview builds a MIDL doc per screen that the shared bundle renders
   for (const t of ['SOG', 'SOC']) assert.ok(r.svg.includes(`>${t}<`), `${t} title drawn`)
   assert.ok(r.svg.includes('>6.0<') && r.svg.includes('>kn<'), 'SOG converted to knots')
   assert.ok(r.svg.includes('>90°<'), 'compass dial shows the heading in degrees')
-  assert.ok(r.svg.includes('>34 deg<'), 'wind rose shows the apparent angle')
+  assert.ok(r.svg.includes('>34 °<'), 'wind rose shows the apparent angle')
   assert.ok(r.svg.includes('>78.0 %<'), 'bar shows the ratio as percent')
   assert.deepStrictEqual(JSON.parse(JSON.stringify(doc.screens[0].elements.t1.markers)),
     [{ glyph: 'triangle', color: 'danger', dir: { kind: 'signalk', path: 'navigation.courseOverGroundTrue' } }], 'compass marker mapped')
@@ -147,16 +147,18 @@ test('SignalK SI values convert to the display unit, as the old preview did', ()
     assert.ok(r.ok, JSON.stringify(r.issues))
     return (r.svg.match(/>([^<>]+)</g) || []).map((s) => s.slice(1, -1)).join('|')
   }
+  // The midl bundle draws angle/temperature unit tokens as symbols
+  // ("deg" -> "°", "degC" -> "°C"; midl web/src/format.ts unitLabel).
   const cases = [
     ['navigation.courseRhumbline.nextPoint.distance', 3704, '2.0 nm'],
     ['navigation.courseGreatCircle.nextPoint.distance', 3704, '2.0 nm'],
     ['navigation.courseRhumbline.velocityMadeGood', 5.144, '10.0 kn'],
     ['navigation.courseGreatCircle.nextPoint.velocityMadeGood', 5.144, '10.0 kn'],
     ['navigation.courseGreatCircle.crossTrackError', 25, '25.0 m'],
-    ['navigation.courseRhumbline.nextPoint.bearingTrue', Math.PI / 2, '90 deg'],
+    ['navigation.courseRhumbline.nextPoint.bearingTrue', Math.PI / 2, '90 °'],
     ['navigation.speedThroughWater', 5.144, '10.0 kn'],
     ['environment.current.drift', 5.144, '10.0 kn'],
-    ['environment.water.temperature', 293.15, '20.0 degC'],
+    ['environment.water.temperature', 293.15, '20.0 °C'],
     ['environment.depth.belowTransducer', 12.34, '12.3 m'],
     ['electrical.batteries.house.capacity.stateOfCharge', 0.78, '78.0 %']
   ]

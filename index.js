@@ -2180,6 +2180,9 @@ function renderDevicePage (manager, id, live = {}, opts = {}) {
       ;(sp.getPresetsForClass(dc) || []).forEach((s) => { presetById[s.id] = s })
     } catch (e) { presetById = {} }
     const PRESET_ALIAS = { status: 'system' } // built-in id -> nearest preset id
+    // #32: the preview gets the same checked markers the device config does.
+    const markerManifest = manager.effectiveManifest(id)
+    const previewMarkers = (arr) => (Array.isArray(arr) ? fieldSchema.sanitizeMarkers(arr, markerManifest) : null)
     const presetTiles = (screenId) => {
       // exact id, alias, else a prefix match so built-in variants map to their
       // base (wind_classic / wind_steer -> "wind"); gives real SignalK bindings.
@@ -2194,7 +2197,7 @@ function renderDevicePage (manager, id, live = {}, opts = {}) {
         widget: t.widget || 'numeric', title: t.title || (t.primary ? String(t.primary).split('.').pop() : ''),
         path: t.primary || t.path || '', unit: t.unit || '', precision: t.precision != null ? t.precision : null,
         color: null,
-        markers: Array.isArray(t.markers) ? t.markers : null
+        markers: previewMarkers(t.markers)
       }))
     }
     const tilesFor = (screenId) => {
@@ -2230,8 +2233,8 @@ function renderDevicePage (manager, id, live = {}, opts = {}) {
             // Per-element color overrides (element -> #rrggbb). Only the managed
             // widget item carries them; preset/inline tiles default to theme.
             color: (w.color && typeof w.color === 'object') ? w.color : null,
-            markers: Array.isArray(w.markers) ? w.markers
-              : (Array.isArray(t && t.markers) ? t.markers : (Array.isArray(p.markers) ? p.markers : null))
+            markers: previewMarkers(Array.isArray(w.markers) ? w.markers
+              : (Array.isArray(t && t.markers) ? t.markers : p.markers))
           }
         })
         if (mapped.some((m) => m.path)) return mapped
