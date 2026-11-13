@@ -562,3 +562,24 @@ test('#38: a type change drops a zoom the new type does not allow', needsBuild, 
   assert.strictEqual(g.type, 'gauge')
   assert.strictEqual(g.zoom, undefined)
 })
+
+test('#38: an untouched doc never 422s, whatever size the store holds', needsBuild, async () => {
+  for (const size of [24, 'L', 0]) {
+    const { manager, id } = richBench()
+    const cfg = manager.editorProfile(id).config
+    cfg.widgets.items['dash-gauge'].size = size
+    manager.upsertProfile({ id: 'bench', name: 'Bench', config: cfg })
+    await roundTrip(manager, id)
+    assert.strictEqual(manager.editorLayout(id).items['dash-gauge'].size, size)
+  }
+})
+
+test('#38: a new element keeps only what its type can hold', () => {
+  const doc = { midl: '1.0.0', screens: [{ id: 's', elements: {
+    n: { type: 'single-value', bindings: { value: { kind: 'signalk', path: 'x' } }, style: { range: [0, 1] } },
+    g: { type: 'gauge', bindings: { value: { kind: 'signalk', path: 'y' } }, markers: [{ glyph: 'bar', dir: { kind: 'signalk', path: 'z' } }] }
+  }, layout: { rows: 1, cols: 2, cells: [{ element: 'n' }, { element: 'g' }] } }] }
+  const v2 = midlToV2(doc)
+  assert.strictEqual(v2.widgets.items.n.range, undefined)
+  assert.strictEqual(v2.widgets.items.g.markers, undefined)
+})
