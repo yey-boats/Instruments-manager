@@ -97,8 +97,15 @@ test('add / update / remove fields with maxTilesPerScreen cap + gating', () => {
   layout = manager.addField(id, sid, { type: 'numeric', paths: { value: 'environment.depth.belowTransducer' }, unit: 'm' })
   assert.strictEqual(layout.screens.find((s) => s.id === sid).tiles.length, 2)
 
-  // maxTilesPerScreen = 2 -> third add rejected.
-  assert.throws(() => manager.addField(id, sid, { type: 'numeric', paths: { value: 'x' } }), /max.*tile/i)
+  // The per-screen cap is the MIDL display class's (square-480: 9), not the
+  // device-reported legacy maxTilesPerScreen (#41): fill to 9, the 10th fails.
+  const extra = []
+  for (let n = 2; n < 9; n++) {
+    const tiles = manager.addField(id, sid, { type: 'numeric', paths: { value: 'x' } }).screens.find((s) => s.id === sid).tiles
+    extra.push(tiles[tiles.length - 1].widget)
+  }
+  assert.throws(() => manager.addField(id, sid, { type: 'numeric', paths: { value: 'x' } }), /max.*tile.*\(9\)/i)
+  for (const w of extra) manager.removeField(id, sid, w)
 
   // update gating: an out-of-family unit (deg on a speed path) is COERCED away
   // — the editor normalizes rather than erroring, so the persisted field drops
@@ -136,7 +143,7 @@ test('range/zones only persist on gauge/bar; save limits writes them', () => {
   layout = manager.addField(id, sid, { type: 'numeric', paths: { value: 'x' }, range: { min: 0, max: 1 } })
   const numWid = layout.screens.find((s) => s.id === sid).tiles[0].widget
   assert.strictEqual(layout.items[numWid].range, undefined, 'range stripped on numeric')
-  // clear it so the next gauge add fits the maxTilesPerScreen=2 budget headroom.
+  // clear it so the gauge below is the screen's first tile.
   layout = manager.removeField(id, sid, numWid)
 
   // gauge field accepts range + zones.
@@ -170,4 +177,60 @@ test('CRUD queues a config.reload so the device fetches the new layout', () => {
   const after = manager.store.commands.commands.filter((c) => c.deviceId === id && c.type === 'config.reload')
   assert.ok(after.length >= 1, 'a config.reload was queued')
   assert.ok(manager.store.commands.commands.length > before)
+})
+
+// #41: the tile cap comes from the device's MIDL display class.
+test('#41: the tile cap follows the MIDL display class, which mirrors the generated manifests', () => {
+  const fs = require('node:fs')
+  const path = require('node:path')
+  const midl = require('../lib/midl')
+  for (const c of midl.MIDL_CLASSES) {
+    const p = path.join(__dirname, '..', 'midl', 'schemas', 'gen', `yb-midl-capabilities.${c.id}.json`)
+    if (!fs.existsSync(p)) continue // submodule absent: nothing to compare against
+    const gen = JSON.parse(fs.readFileSync(p, 'utf8')).classes.find((k) => k.id === c.id)
+    assert.strictEqual(c.maxTiles, gen.maxTiles, `${c.id} maxTiles mirrors the generated manifest`)
+  }
+  // The browser-side square-480 manifests carry the same cap.
+  const square = midl.MIDL_CLASSES.find((c) => c.id === 'square-480').maxTiles
+  for (const f of ['midl-editor.js', 'midl-preview.js']) {
+    const src = fs.readFileSync(path.join(__dirname, '..', 'public', f), 'utf8')
+    assert.ok(src.includes(`id: "square-480", width: 480, height: 480, maxTiles: ${square},`), `${f} square-480 maxTiles is ${square}`)
+  }
+
+  const { manager, id, auth } = freshManager()
+  // A device reporting the legacy bound (4) still gets its class's cap.
+  manager.updateStatus(id, { time: new Date().toISOString(), ui: { capabilities: Object.assign({}, REPORTED_MANIFEST, { maxTilesPerScreen: 4, maxViews: 8 }) } }, auth)
+  assert.strictEqual(manager.editorMaxTiles(id), 9)
+  assert.strictEqual(manager.editorLayout(id).manifest.maxTilesPerScreen, 9)
+  const sid = manager.addScreen(id, { title: 'Five' }).screens[0].id
+  for (let n = 0; n < 5; n++) manager.addField(id, sid, { type: 'numeric', paths: { value: 'navigation.speedOverGround' } })
+  assert.strictEqual(manager.editorLayout(id).screens.find((s) => s.id === sid).tiles.length, 5)
+
+  // A wide (800x480) display is a landscape class: 6 tiles.
+  const { manager: m2, auth: a2 } = makeManager({ auth: { mode: 'dev-shared-token', devToken: 'test-token' } })
+  const wide = 'yey-d-dddddddddddd'
+  m2.registerDevice({ device: { id: wide, name: 'Wide', role: 'display', board: 'sunton_8048s050', display: { width: 800, height: 480, shape: 'wide' } } }, a2)
+  assert.strictEqual(m2.editorMaxTiles(wide), 6)
+})
+
+test('#41: a valid 5-tile MIDL doc saves through POST /editor/midl (was 409)', async () => {
+  const { manager, id } = freshManager()
+  const list = []
+  const add = (method) => (p, ...h) => list.push({ method, p, h: h[h.length - 1] })
+  require('../index')._test.registerRoutes({ use () {}, get: add('GET'), post: add('POST'), put: add('PUT'), patch: add('PATCH'), delete: add('DELETE') }, () => manager)
+  const route = list.find((r) => r.method === 'POST' && r.p === '/devices/:id/editor/midl')
+  const elements = {}
+  const cells = []
+  for (let i = 0; i < 5; i++) {
+    elements['v' + i] = { type: 'single-value', bindings: { value: { kind: 'signalk', path: 'navigation.speedOverGround' } } }
+    cells.push({ element: 'v' + i })
+  }
+  while (cells.length < 9) cells.push({})
+  const doc = { midl: '1.0.0', screens: [{ id: 'five', elements, layout: { rows: 3, cols: 3, cells } }] }
+  const r = await new Promise((resolve, reject) => {
+    const res = { statusCode: 200, setHeader () {}, status (c) { this.statusCode = c; return this }, json (b) { resolve({ status: this.statusCode, json: b }) }, end (b) { resolve({ status: this.statusCode, body: b }) } }
+    Promise.resolve(route.h({ method: 'POST', params: { id }, query: {}, headers: {}, body: { doc }, get: () => '' }, res)).catch(reject)
+  })
+  assert.strictEqual(r.status, 200, JSON.stringify(r.json))
+  assert.strictEqual(manager.editorLayout(id).screens[0].tiles.length, 5)
 })

@@ -15,7 +15,7 @@
   const MANIFEST = {
     midl: "1.0.0", board: "esp32-4848s040", maxMarkersPerDial: 12,
     classes: [{
-      id: "square-480", width: 480, height: 480, maxTiles: 4, maxDepth: 3,
+      id: "square-480", width: 480, height: 480, maxTiles: 9, maxDepth: 3,
       presets: ["full", "hero-split"],
       elements: ["single-value", "text", "gauge", "bar", "compass", "windrose", "trend", "autopilot", "button"],
     }],
