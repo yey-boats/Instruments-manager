@@ -2231,19 +2231,23 @@ function renderDevicePage (manager, id, live = {}, opts = {}) {
           const p = preset[i] || {}
           const inlineType = (t && t.widget && !refKey) ? t.widget : null
           const inlinePath = (t && (t.primary || t.path)) || ''
+          // #39: the preset at the same index only fills in for preset/inline
+          // tiles. A managed tile (editor-authored widget item) describes
+          // itself; borrowing the preset's title/unit/precision mislabels it.
+          const fb = refKey ? {} : p
           return {
             widgetId: refKey,
             editable: !!refKey,
-            widget: w.type || inlineType || p.widget || 'numeric',
-            title: w.title || (t && t.title) || p.title || inlineType || '',
-            path: w.path || inlinePath || p.path || '',
-            unit: w.unit || (t && t.unit) || p.unit || '',
-            precision: w.precision != null ? w.precision : (t && t.precision != null ? t.precision : (p.precision != null ? p.precision : null)),
+            widget: w.type || inlineType || fb.widget || 'numeric',
+            title: w.title || (t && t.title) || fb.title || inlineType || '',
+            path: w.path || (w.paths && w.paths.value) || inlinePath || fb.path || '',
+            unit: w.unit || (t && t.unit) || fb.unit || '',
+            precision: w.precision != null ? w.precision : (t && t.precision != null ? t.precision : (fb.precision != null ? fb.precision : null)),
             // Per-element color overrides (element -> #rrggbb). Only the managed
             // widget item carries them; preset/inline tiles default to theme.
             color: (w.color && typeof w.color === 'object') ? w.color : null,
             markers: previewMarkers(Array.isArray(w.markers) ? w.markers
-              : (Array.isArray(t && t.markers) ? t.markers : p.markers))
+              : (Array.isArray(t && t.markers) ? t.markers : fb.markers))
           }
         })
         if (mapped.some((m) => m.path)) return mapped

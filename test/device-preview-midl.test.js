@@ -267,3 +267,41 @@ test('a tile colour override is drawn; a hostile one still is not', () => {
   assert.ok(!h.svg.toLowerCase().includes('<img') && !/\son[a-z]+\s*=/i.test(h.svg), 'hostile override inert')
   assert.strictEqual(h.svg, base.svg, 'hostile override is dropped, same as no override')
 })
+
+// #39: a managed (editor-authored) tile on a screen whose id matches a preset
+// must not borrow the preset tile's title/unit/precision/markers by index.
+test('#39: managed tiles are labelled from their own widget item, not the preset at the same index', () => {
+  const { manager, auth } = makeManager({ auth: { mode: 'dev-shared-token', devToken: 'test-token' } })
+  try {
+    const id = 'yey-d-prev'
+    manager.registerDevice({ device: { id, board: 'esp32-4848s040', display: { width: 480, height: 480, shape: 'square' } } }, auth)
+    // The preset this screen id falls back to (screen-presets "nav").
+    const preset = require('../lib/screen-presets').getPresetsForClass('sunton-480').find((s) => s.id === 'nav')
+    assert.ok(preset && preset.tiles.length >= 2, 'nav preset exists')
+    manager.upsertProfile({
+      id: 'ed',
+      name: 'Ed',
+      config: {
+        widgets: {
+          version: 1,
+          items: {
+            sog: { type: 'numeric', path: 'navigation.speedOverGround', paths: { value: 'navigation.speedOverGround' }, unit: 'kn', title: 'SOG' },
+            hdg: { type: 'compass', path: 'navigation.headingTrue', paths: { value: 'navigation.headingTrue' } }
+          }
+        },
+        layout: { version: 1, screens: [{ id: 'nav', type: 'grid', tiles: [{ widget: 'sog', area: { col: 0, row: 0 } }, { widget: 'hdg', area: { col: 1, row: 0 } }] }] }
+      }
+    })
+    manager.assignProfile(id, { profileId: 'ed' })
+    const nav = previewPayload(indexPlugin.__renderDevicePage(manager, id)).screens.find((s) => s.id === 'nav')
+    assert.ok(nav, 'nav screen previewed')
+    assert.strictEqual(nav.tiles[0].title, 'SOG')
+    assert.strictEqual(nav.tiles[1].path, 'navigation.headingTrue')
+    assert.strictEqual(nav.tiles[1].title, '', `untitled compass is not labelled "${preset.tiles[1].title}"`)
+    assert.strictEqual(nav.tiles[1].unit, '')
+    assert.strictEqual(nav.tiles[1].precision, null)
+    assert.ok(nav.tiles[1].markers == null || nav.tiles[1].markers.length === 0, 'no preset markers borrowed')
+  } finally {
+    if (manager.close) manager.close()
+  }
+})
