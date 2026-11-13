@@ -489,12 +489,76 @@ test('#38: removing an attribute in the editor removes it', needsBuild, async ()
 test('#38: a doc without stored state still maps style and markers', () => {
   const one = (elements, layout) => ({ midl: '1.0.0', screens: [{ id: 's', elements, layout }] })
   const doc = one({
-    g: { type: 'gauge', bindings: { value: { kind: 'signalk', path: 'x.v' } }, style: { range: [0, 5], size: 'XL', color: '#123456' } },
+    g: { type: 'gauge', bindings: { value: { kind: 'signalk', path: 'x.v' } }, style: { range: [0, 5], size: 48, color: '#123' } },
     c: { type: 'compass', bindings: { value: { kind: 'signalk', path: 'x.h' } }, markers: [{ glyph: 'bar', dir: { kind: 'signalk', path: 'x.m' } }, { glyph: 'bar', dir: { kind: 'const', value: 1 } }] }
   }, { rows: 1, cols: 2, cells: [{ element: 'g' }, { element: 'c' }] })
   const v2 = midlToV2(doc)
   assert.deepStrictEqual(v2.widgets.items.g.range, { min: 0, max: 5 })
-  assert.strictEqual(v2.widgets.items.g.size, 'XL')
-  assert.deepStrictEqual(v2.widgets.items.g.color, { value: '#123456' })
+  assert.strictEqual(v2.widgets.items.g.size, 48)
+  assert.deepStrictEqual(v2.widgets.items.g.color, { value: '#112233' })
   assert.deepStrictEqual(v2.widgets.items.c.markers, [{ path: 'x.m', glyph: 'bar' }])
+})
+
+// #38 (review): what the v2 field model cannot hold is refused (422), never
+// stored broken or silently dropped.
+test('#38: size tokens, theme colours, bad markers and inverted ranges are refused, not stored', needsBuild, async () => {
+  const cases = [
+    ['size token', (els) => { els['dash-gauge'].style.size = 'L' }, '/style/size'],
+    ['theme colour', (els) => { els['dash-gauge'].style.color = 'warn' }, '/style/color'],
+    ['glyph-less marker', (els) => { els['dash-compass'].markers = [{ dir: { kind: 'signalk', path: 'a.b' } }] }, '/markers'],
+    ['unknown glyph', (els) => { els['dash-compass'].markers[0].glyph = 'star' }, '/markers'],
+    ['const marker', (els) => { els['dash-compass'].markers = [{ glyph: 'bar', dir: { kind: 'const', value: 1 } }] }, '/markers']
+  ]
+  for (const [name, edit, where] of cases) {
+    const { manager, id } = richBench()
+    const before = JSON.stringify(manager.editorLayout(id))
+    const get = routes(manager)
+    const doc = JSON.parse((await call(get('GET', '/devices/:id/editor/midl'), { id })).json.doc)
+    edit(doc.screens[0].elements)
+    const r = await call(get('POST', '/devices/:id/editor/midl'), { id }, { doc })
+    assert.strictEqual(r.status, 422, `${name}: ${JSON.stringify(r.json)}`)
+    assert.ok(r.json.error.details.issues.some((i) => i.path.endsWith(where)), `${name}: ${JSON.stringify(r.json.error.details.issues)}`)
+    assert.strictEqual(JSON.stringify(manager.editorLayout(id)), before, `${name}: nothing stored`)
+  }
+  // Without the validator, roundTripLoss alone still refuses an inverted range.
+  const { roundTripLoss } = require('../lib/midl')
+  const inv = { midl: '1.0.0', screens: [{ id: 's', elements: { g: { type: 'gauge', bindings: { value: { kind: 'signalk', path: 'x' } }, style: { range: [15, 10] } } }, layout: { rows: 1, cols: 1, cells: [{ element: 'g' }] } }] }
+  assert.ok(roundTripLoss(inv).some((i) => i.path.endsWith('/style/range')))
+})
+
+test('#38: a short-hex colour is saved expanded; editing one marker keeps filled on the others', needsBuild, async () => {
+  const { manager, id } = richBench()
+  manager.updateField(id, manager.editorLayout(id).screens[0].id, 'dash-compass', {
+    type: 'compass', paths: { value: 'navigation.headingTrue' },
+    markers: [
+      { path: 'navigation.courseOverGroundTrue', glyph: 'triangle', color: 'accent', filled: true },
+      { path: 'navigation.courseRhumbline.nextPoint.bearingTrue', glyph: 'diamond', filled: false }
+    ]
+  })
+  await roundTrip(manager, id, (doc) => {
+    const els = doc.screens[0].elements
+    els['dash-gauge'].style.color = '#0f0'
+    els['dash-compass'].markers[1].color = 'warn'
+  })
+  const after = manager.editorLayout(id)
+  assert.strictEqual(after.items['dash-gauge'].color.value, '#00ff00')
+  assert.deepStrictEqual(after.items['dash-compass'].markers, [
+    { path: 'navigation.courseOverGroundTrue', glyph: 'triangle', color: 'accent', filled: true },
+    { path: 'navigation.courseRhumbline.nextPoint.bearingTrue', glyph: 'diamond', color: 'warn', filled: false }
+  ])
+})
+
+test('#38: a type change drops a zoom the new type does not allow', needsBuild, async () => {
+  const { manager, id } = richBench()
+  const cfg = manager.editorProfile(id).config
+  cfg.widgets.items['dash-compass'].zoom = 'dash'
+  manager.upsertProfile({ id: 'bench', name: 'Bench', config: cfg })
+  await roundTrip(manager, id, (doc) => {
+    const c = doc.screens[0].elements['dash-compass']
+    c.type = 'gauge'
+    delete c.markers
+  })
+  const g = manager.editorLayout(id).items['dash-compass']
+  assert.strictEqual(g.type, 'gauge')
+  assert.strictEqual(g.zoom, undefined)
 })
