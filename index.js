@@ -1942,6 +1942,9 @@ function renderUiShell (title, body, dashboard, page = '') {
     if (sub && sub.name && !data.has(sub.name)) data.append(sub.name, sub.value || '')
     var multipart = String(form.getAttribute('enctype') || '').toLowerCase() === 'multipart/form-data'
     form.dataset.submitting = '1'
+    var old = form.querySelector('.form-error')
+    if (old) old.remove()
+    var leaving = false
     try {
       var resp = await fetch(action.href, { method: 'POST', body: multipart ? data : new URLSearchParams(data), redirect: 'follow', credentials: 'include', mode: 'same-origin' })
       var type = String((resp.headers && resp.headers.get('content-type')) || '').toLowerCase()
@@ -1955,16 +1958,27 @@ function renderUiShell (title, body, dashboard, page = '') {
         var text = await resp.text()
         if (isHtml) { document.open(); document.write(text); document.close(); return }
         var msg = text
-        try { var j = JSON.parse(text); msg = (j && j.error && (j.error.message || j.error.code)) || text } catch (err) {}
+        try {
+          var j = JSON.parse(text)
+          var er = j && j.error
+          msg = (typeof er === 'string' ? er : (er && (er.message || er.code))) || (j && j.message) || text
+        } catch (err) {}
         showError(form, 'Not saved (' + resp.status + '): ' + msg)
         return
       }
+      // Keep the guard while the follow-up page loads (no second post).
+      leaving = true
       window.location.assign(resp.url || window.location.href)
     } catch (err) {
       document.getElementById('relogin-modal').style.display = 'flex'
     } finally {
-      delete form.dataset.submitting
+      if (!leaving) delete form.dataset.submitting
     }
+  })
+  // Back/forward cache restores the page with the guard still set.
+  window.addEventListener('pageshow', function () {
+    var busy = document.querySelectorAll('form[data-submitting]')
+    for (var i = 0; i < busy.length; i++) delete busy[i].dataset.submitting
   })
 })();
 </script>
