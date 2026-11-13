@@ -617,8 +617,9 @@ function registerRoutes (baseRouter, getManager) {
     }
     // #33: refuse (422) a document the device's validator would reject, or
     // one the v2 dashboard model cannot hold (it would be silently changed on
-    // save). Element styling, format decimals, actions and markers are not
-    // part of the v2 dashboard model and are not carried (by design). Without
+    // save). Range, size, a #rrggbb colour, signalk dial markers and the
+    // screen title are carried (#38); other element styling (zones in MIDL
+    // form, sectors, ...), format decimals and actions are not. Without
     // the validator in this install the save proceeds, flagged `unavailable`.
     const device = manager.getDevice(req.params.id)
     const className = midlLib.classForDisplay(manager.resolveDisplay(device)).id
@@ -630,10 +631,13 @@ function registerRoutes (baseRouter, getManager) {
     if (lost.length) {
       throw midlLib.httpError(422, 'midl_unsupported', 'parts of this MIDL document cannot be saved to a device dashboard', { className, issues: lost })
     }
-    const v2 = midlAdapter.midlToV2(doc)
     // mutateEditorLayout persists and calls queueConfigReload internally.
     manager.mutateEditorLayout(req.params.id, (cfg) => {
-      cfg.widgets = v2.widgets
+      // #38: merge into the stored dashboard so what MIDL cannot express
+      // (zones, marker details, other colour elements, screen extras, widget
+      // defaults) survives the save.
+      const v2 = midlAdapter.midlToV2(doc, cfg)
+      cfg.widgets = Object.assign({}, cfg.widgets, { items: v2.widgets.items })
       cfg.layout = cfg.layout || {}
       cfg.layout.screens = v2.layout.screens
     })
