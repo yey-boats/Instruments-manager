@@ -297,7 +297,7 @@ test('#39: managed tiles are labelled from their own widget item, not the preset
     assert.ok(nav, 'nav screen previewed')
     assert.strictEqual(nav.tiles[0].title, 'SOG')
     assert.strictEqual(nav.tiles[1].path, 'navigation.headingTrue')
-    assert.strictEqual(nav.tiles[1].title, '', `untitled compass is not labelled "${preset.tiles[1].title}"`)
+    assert.strictEqual(nav.tiles[1].title, 'hdg', `untitled compass shows its widget id (as on the device), not "${preset.tiles[1].title}"`)
     assert.strictEqual(nav.tiles[1].unit, '')
     assert.strictEqual(nav.tiles[1].precision, null)
     assert.ok(nav.tiles[1].markers == null || nav.tiles[1].markers.length === 0, 'no preset markers borrowed')

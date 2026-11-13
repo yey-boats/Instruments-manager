@@ -2239,8 +2239,9 @@ function renderDevicePage (manager, id, live = {}, opts = {}) {
             widgetId: refKey,
             editable: !!refKey,
             widget: w.type || inlineType || fb.widget || 'numeric',
-            title: w.title || (t && t.title) || fb.title || inlineType || '',
-            path: w.path || (w.paths && w.paths.value) || inlinePath || fb.path || '',
+            // An untitled managed tile shows its widget id, as the firmware does.
+            title: w.title || (t && t.title) || fb.title || inlineType || refKey || '',
+            path: w.path || inlinePath || fb.path || '',
             unit: w.unit || (t && t.unit) || fb.unit || '',
             precision: w.precision != null ? w.precision : (t && t.precision != null ? t.precision : (fb.precision != null ? fb.precision : null)),
             // Per-element color overrides (element -> #rrggbb). Only the managed
