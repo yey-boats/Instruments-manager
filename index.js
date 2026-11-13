@@ -1914,18 +1914,39 @@ function renderUiShell (title, body, dashboard, page = '') {
   function looksLikeLogin (resp) {
     return resp.status === 401 || /\\/admin\\/?#?\\/?login|Please Login/i.test(resp.url || '')
   }
+  // #42: bubble phase, so a form's own onsubmit (the confirm() prompts on
+  // destructive actions) runs first and a cancel (defaultPrevented) stops it.
   document.addEventListener('submit', async function (e) {
     var form = e.target
-    if (!form || String(form.method).toLowerCase() !== 'post') return
+    if (e.defaultPrevented || !form || String(form.method).toLowerCase() !== 'post') return
     e.preventDefault()
+    // Send what a native submit would: urlencoded (the plugin's body parser
+    // does not read multipart), including the clicked submit button's value.
+    var data
+    try { data = e.submitter ? new FormData(form, e.submitter) : new FormData(form) } catch (err) { data = new FormData(form) }
+    var multipart = String(form.enctype || '').toLowerCase() === 'multipart/form-data'
     try {
-      var resp = await fetch(form.action, { method: 'POST', body: new FormData(form), redirect: 'follow', credentials: 'include' })
+      var resp = await fetch(form.action, { method: 'POST', body: multipart ? data : new URLSearchParams(data), redirect: 'follow', credentials: 'include' })
       if (looksLikeLogin(resp)) { document.getElementById('relogin-modal').style.display = 'flex'; return }
+      if (resp.status >= 400) {
+        // Show the server's answer, as a native submit would, rather than
+        // re-requesting the POST URL with a GET. Only HTML is rendered as
+        // HTML; a JSON/text error is shown as text.
+        var text = await resp.text()
+        if (String((resp.headers && resp.headers.get('content-type')) || '').toLowerCase().indexOf('text/html') !== -1) {
+          document.open(); document.write(text); document.close()
+        } else {
+          var pre = document.createElement('pre')
+          pre.textContent = text
+          document.body.replaceChildren(pre)
+        }
+        return
+      }
       window.location.assign(resp.url || window.location.href)
     } catch (err) {
       document.getElementById('relogin-modal').style.display = 'flex'
     }
-  }, true)
+  })
 })();
 </script>
 </body>

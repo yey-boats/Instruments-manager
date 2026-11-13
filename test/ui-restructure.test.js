@@ -34,3 +34,20 @@ assert.ok(!/>Layout editor</.test(navHtml), 'nav no longer has Layout editor')
 assert.ok(!/>Overview</.test(navHtml), 'nav no longer has Overview (merged into Devices)')
 assert.ok(/class="active"[^>]*>Devices</.test(navHtml), 'Devices nav link is active for the devices page')
 console.log('ui-restructure.test: nav trim OK')
+
+// #42: every inline <script> in the UI shell must compile (a template-literal
+// escape once turned a regex into a syntax error that silently disabled the
+// form-submit interceptor), and the interceptor sends urlencoded bodies in the
+// bubble phase so a form's own confirm() can cancel it.
+{
+  const shell = idx._test.renderUi(manager, 'devices', { params: {}, query: {} })
+  const scripts = [...shell.matchAll(/<script>([\s\S]*?)<\/script>/g)].map((m) => m[1])
+  assert.ok(scripts.length > 0, 'the UI shell has inline scripts')
+  // eslint-disable-next-line no-new-func
+  for (const src of scripts) assert.doesNotThrow(() => new Function(src), 'inline UI script compiles')
+  const intercept = scripts.find((s) => s.includes("addEventListener('submit'"))
+  assert.ok(intercept, 'submit interceptor present')
+  assert.ok(intercept.includes('new URLSearchParams(data)'), 'interceptor posts urlencoded')
+  assert.ok(intercept.includes('e.defaultPrevented'), 'interceptor honours a cancelled onsubmit')
+  assert.ok(!/\}, true\)\s*\n\s*\}\)\(\);?\s*$/.test(intercept), 'interceptor is not a capture-phase listener')
+}

@@ -65,3 +65,57 @@ test('relogin modal appears when a manager POST resolves to the login page', asy
     await harness.close()
   }
 })
+
+// #42: the intercept must send what a native submit sends (urlencoded, with
+// the clicked button's name/value), and must not fire when the form's own
+// onsubmit (the confirm() prompts on destructive actions) cancels it.
+test('form submits go out urlencoded with the submitter, and a cancelled confirm sends nothing', async ({ page }) => {
+  const harness = await startHarness()
+  try {
+    await page.addInitScript(() => {
+      window.__posts = []
+      window.fetch = async (url, init) => {
+        const b = init && init.body
+        window.__posts.push({
+          url: String(url),
+          type: b instanceof URLSearchParams ? 'urlencoded' : (b instanceof FormData ? 'multipart' : typeof b),
+          body: b instanceof URLSearchParams ? b.toString() : null
+        })
+        // a same-page #hash so the follow-up location.assign() does not reload
+        return { status: 200, url: location.href.split('#')[0] + '#done', headers: { get: () => 'text/html' }, text: async () => '' }
+      }
+    })
+    await page.goto(`${harness.baseUrl}/plugins/yey-boats-display-manager/ui/devices`)
+
+    await page.evaluate(() => {
+      const f = document.createElement('form')
+      f.method = 'post'
+      f.action = '/plugins/yey-boats-display-manager/profiles/import-dashboard'
+      f.innerHTML = '<input name="presetId" value="p1"><button name="mode" value="apply" id="go">Go</button>'
+      document.body.appendChild(f)
+    })
+    await page.click('#go')
+    await expect.poll(() => page.evaluate(() => window.__posts.length)).toBe(1)
+    const sent = await page.evaluate(() => window.__posts[0])
+    expect(sent.type).toBe('urlencoded')
+    expect(new URLSearchParams(sent.body).get('presetId')).toBe('p1')
+    expect(new URLSearchParams(sent.body).get('mode')).toBe('apply')
+
+    // A destructive form whose confirm() is dismissed must not POST.
+    await page.goto(`${harness.baseUrl}/plugins/yey-boats-display-manager/ui/devices`)
+    page.once('dialog', (d) => d.dismiss())
+    await page.evaluate(() => {
+      const f = document.createElement('form')
+      f.method = 'post'
+      f.action = '/plugins/yey-boats-display-manager/devices/x/delete'
+      f.setAttribute('onsubmit', "return confirm('Remove this device?')")
+      f.innerHTML = '<button id="rm">Remove</button>'
+      document.body.appendChild(f)
+    })
+    await page.click('#rm')
+    await page.waitForTimeout(300)
+    expect(await page.evaluate(() => window.__posts.length)).toBe(0)
+  } finally {
+    await harness.close()
+  }
+})
