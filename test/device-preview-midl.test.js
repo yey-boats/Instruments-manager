@@ -91,8 +91,8 @@ test('device-preview builds a MIDL doc per screen that the shared bundle renders
   for (const t of ['SOG', 'SOC']) assert.ok(r.svg.includes(`>${t}<`), `${t} title drawn`)
   assert.ok(r.svg.includes('>6.0<') && r.svg.includes('>kn<'), 'SOG converted to knots')
   assert.ok(r.svg.includes('>90°<'), 'compass dial shows the heading in degrees')
-  assert.ok(r.svg.includes('>34 °<'), 'wind rose shows the apparent angle')
-  assert.ok(r.svg.includes('>78.0 %<'), 'bar shows the ratio as percent')
+  assert.ok(r.svg.includes('>34°<'), 'wind rose shows the apparent angle')
+  assert.ok(r.svg.includes('>78.0%<'), 'bar shows the ratio as percent')
   assert.deepStrictEqual(JSON.parse(JSON.stringify(doc.screens[0].elements.t1.markers)),
     [{ glyph: 'triangle', color: 'danger', dir: { kind: 'signalk', path: 'navigation.courseOverGroundTrue' } }], 'compass marker mapped')
   const bare = JSON.parse(JSON.stringify(doc))
@@ -148,24 +148,25 @@ test('SignalK SI values convert to the display unit, as the old preview did', ()
     return (r.svg.match(/>([^<>]+)</g) || []).map((s) => s.slice(1, -1)).join('|')
   }
   // The midl bundle draws angle/temperature unit tokens as symbols
-  // ("deg" -> "°", "degC" -> "°C"; midl web/src/format.ts unitLabel).
+  // ("deg" -> "°", "degC" -> "°C"; midl web/src/format.ts unitLabel), attached
+  // to the number for °, °C and % (midl#37: "90°", "78.0%"), spaced otherwise.
   const cases = [
     ['navigation.courseRhumbline.nextPoint.distance', 3704, '2.0 nm'],
     ['navigation.courseGreatCircle.nextPoint.distance', 3704, '2.0 nm'],
     ['navigation.courseRhumbline.velocityMadeGood', 5.144, '10.0 kn'],
     ['navigation.courseGreatCircle.nextPoint.velocityMadeGood', 5.144, '10.0 kn'],
     ['navigation.courseGreatCircle.crossTrackError', 25, '25.0 m'],
-    ['navigation.courseRhumbline.nextPoint.bearingTrue', Math.PI / 2, '90 °'],
+    ['navigation.courseRhumbline.nextPoint.bearingTrue', Math.PI / 2, '90°'],
     ['navigation.speedThroughWater', 5.144, '10.0 kn'],
     ['environment.current.drift', 5.144, '10.0 kn'],
-    ['environment.water.temperature', 293.15, '20.0 °C'],
+    ['environment.water.temperature', 293.15, '20.0°C'],
     ['environment.depth.belowTransducer', 12.34, '12.3 m'],
-    ['electrical.batteries.house.capacity.stateOfCharge', 0.78, '78.0 %']
+    ['electrical.batteries.house.capacity.stateOfCharge', 0.78, '78.0%']
   ]
   for (const [p, v, want] of cases) {
     const got = one(p, v)
     // Value and unit may be drawn as one text or as two.
-    const [num, unit] = want.split(' ')
+    const [, num, unit] = want.match(/^([-\d.]+) ?(.*)$/)
     assert.ok(got.includes(want) || (got.includes(num) && got.split('|').includes(unit)), `${p}=${v}: want ${want}, got ${got}`)
     assert.strictEqual(DP.liveValueFor({ [p]: v }, p), want, `${p} live readout`)
   }
