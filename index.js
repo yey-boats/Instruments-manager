@@ -4,6 +4,7 @@ const { YeyBoatsDisplayManager, basicAuthHeaders } = require('./lib/manager')
 const presets = require('./lib/screen-presets')
 const fieldSchema = require('./lib/field-schema')
 const midlAdapter = require('./lib/midl-adapter')
+const midlLib = require('./lib/midl')
 const pluginPackage = require('./package.json')
 
 module.exports = function yeyBoatsDisplayManagerPlugin (app) {
@@ -579,10 +580,14 @@ function registerRoutes (baseRouter, getManager) {
       widgets: { items: layout.items },
       layout: { screens: layout.screens }
     }
-    const midlDoc = midlAdapter.v2ToMidl(v2)
+    // #33: the doc goes out validated against the device's class, with the
+    // result alongside (a draft that does not validate yet still loads, so
+    // the operator can fix it in the editor).
     const device = manager.getDevice(req.params.id)
+    const className = midlLib.classForDisplay(manager.resolveDisplay(device)).id
+    const { doc: midlDoc, ...validation } = midlLib.midlDocumentFor(v2, className)
     const revision = String(manager.configVersion(device))
-    res.json({ doc: JSON.stringify(midlDoc), revision })
+    res.json({ doc: JSON.stringify(midlDoc), revision, validation })
   }))
 
   router.post('/devices/:id/editor/midl', wrap(getManager, (manager, req, res) => {
@@ -610,6 +615,21 @@ function registerRoutes (baseRouter, getManager) {
         return
       }
     }
+    // #33: refuse (422) a document the device's validator would reject, or
+    // one the v2 dashboard model cannot hold (it would be silently changed on
+    // save). Element styling, format decimals, actions and markers are not
+    // part of the v2 dashboard model and are not carried (by design). Without
+    // the validator in this install the save proceeds, flagged `unavailable`.
+    const device = manager.getDevice(req.params.id)
+    const className = midlLib.classForDisplay(manager.resolveDisplay(device)).id
+    const validation = midlLib.checkMidlDoc(doc, className)
+    if (!validation.unavailable && !validation.ok) {
+      throw midlLib.httpError(422, 'midl_invalid', `MIDL document fails validation for ${className}`, { className, issues: validation.issues })
+    }
+    const lost = midlLib.roundTripLoss(doc)
+    if (lost.length) {
+      throw midlLib.httpError(422, 'midl_unsupported', 'parts of this MIDL document cannot be saved to a device dashboard', { className, issues: lost })
+    }
     const v2 = midlAdapter.midlToV2(doc)
     // mutateEditorLayout persists and calls queueConfigReload internally.
     manager.mutateEditorLayout(req.params.id, (cfg) => {
@@ -617,8 +637,7 @@ function registerRoutes (baseRouter, getManager) {
       cfg.layout = cfg.layout || {}
       cfg.layout.screens = v2.layout.screens
     })
-    const device = manager.getDevice(req.params.id)
-    res.json({ ok: true, revision: String(manager.configVersion(device)) })
+    res.json({ ok: true, revision: String(manager.configVersion(manager.getDevice(req.params.id))), validation })
   }))
 
   router.get('/discovery/devices', wrap(getManager, (manager, req, res) => {
@@ -2107,18 +2126,8 @@ function renderSignalKRegisterForm (managerUrl) {
 // #14 (roadmap S7): the device-page preview is drawn by the shared MIDL device
 // bundle. It needs the capability manifest of the display's resolution class
 // and the v2 -> MIDL element-type map (lib/midl-adapter).
-const MIDL_CLASSES = [
-  { id: 'landscape-1024x600', w: 1024, h: 600 },
-  { id: 'landscape-800x480', w: 800, h: 480 },
-  { id: 'square-480', w: 480, h: 480 }
-]
 function midlPreviewFor (display) {
-  const w = Number(display && display.width) || 480
-  const h = Number(display && display.height) || 480
-  const long = Math.max(w, h)
-  const short = Math.min(w, h)
-  const cls = MIDL_CLASSES.find((c) => c.w === long && c.h === short) ||
-    (long > short ? MIDL_CLASSES.find((c) => c.w >= long) || MIDL_CLASSES[1] : MIDL_CLASSES[2])
+  const cls = midlLib.classForDisplay(display)
   let manifest = null
   try { manifest = require('./lib/midl').manifestForClass(cls.id) } catch (e) { manifest = null }
   return {
