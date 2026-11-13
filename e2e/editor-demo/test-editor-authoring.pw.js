@@ -241,7 +241,9 @@ test("4. Font size select changes preview text size", async ({ browser }) => {
   const options = await page.locator('[data-testid="size-select"] option').evaluateAll((os) => os.map((o) => o.value));
   expect(options).toEqual(expect.arrayContaining(["S", "M", "L", "XL", "Fill"]));
   await page.selectOption('[data-testid="size-select"]', "XL");
-  await page.waitForTimeout(400); // wait for preview to re-render
+  // Wait for the preview to re-render with the larger hero.
+  await expect.poll(() => page.locator('[data-testid="preview-host"]').innerHTML()).toContain('font-size="' );
+  await expect.poll(async () => page.evaluate(() => Math.max(...Array.from(document.querySelectorAll('[data-testid="preview-host"] text')).map((t) => parseFloat(t.getAttribute("font-size")) || 0)))).toBeGreaterThan(parseFloat(textSizeBefore.maxFontSize));
 
   const sizeAfter = await page.locator('[data-testid="size-select"]').inputValue();
   console.log(`[4] size-select after: ${sizeAfter}`);
@@ -273,7 +275,13 @@ test("4. Font size select changes preview text size", async ({ browser }) => {
   // Assert preview content changed
   expect(previewAfter, "Preview SVG should change after font size update").not.toBe(previewBefore);
 
-  // The largest text (the hero value) must grow from L to XL.
+  // The largest text (the hero value) must grow from L to XL. The selected
+  // cell's hero is the largest text once it is XL; the size roles scale the
+  // auto-fit size by XL/L = 0.92/0.78, so check that ratio too, which ties the
+  // growth to this cell rather than to whatever text is tallest.
+  const fsBefore = parseFloat(textSizeBefore && textSizeBefore.maxFontSize);
+  const fsAfter = parseFloat(textSizeAfter && textSizeAfter.maxFontSize);
+  expect(fsAfter / fsBefore, `hero font-size ratio (${fsBefore} -> ${fsAfter})`).toBeCloseTo(0.92 / 0.78, 2);
   expect(textSizeBefore && textSizeBefore.maxHeight, "value text measured before").toBeGreaterThan(0);
   expect(textSizeAfter && textSizeAfter.maxHeight, "value text measured after").toBeGreaterThan(0);
   {
