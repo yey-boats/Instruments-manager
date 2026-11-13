@@ -168,7 +168,7 @@ module.exports = function yeyBoatsDisplayManagerPlugin (app) {
                 dir: {
                   type: 'string',
                   title: 'Firmware directory',
-                  description: 'Directory containing index.json (a GitHub-release-shaped {tag_name, prerelease, assets:[{name, size, sha256?}]} record, or an array of them) plus the <target>-merged_firmware.bin binaries it lists. Defaults to the FIRMWARE_DIR environment variable when left empty.',
+                  description: 'Directory containing index.json (a GitHub-release-shaped {tag_name, prerelease, assets:[{name, size, sha256?}]} record for ONE release; an array is accepted only with a single element, since the binaries carry no tag) plus the <target>-merged_firmware.bin binaries it lists. Defaults to the FIRMWARE_DIR environment variable when left empty.',
                   default: ''
                 }
               }
@@ -1113,8 +1113,10 @@ function registerRoutes (baseRouter, getManager) {
   }))
 
   router.post('/ui/firmware/catalog/refresh', wrap(getManager, async (manager, req, res) => {
-    manager.refreshFirmwareFromLocal()
-    await manager.refreshFirmwareFromGithub().catch(() => {})
+    // A broken local catalog must never block the GitHub refresh; a GitHub
+    // failure still surfaces as an error status (as before the local catalog).
+    refreshLocalFirmwareSafely(manager)
+    await manager.refreshFirmwareFromGithub()
     await manager.refreshTipFromArtifacts().catch(() => {})
     res.statusCode = 303
     res.setHeader('location', '/plugins/yey-boats-display-manager/ui/firmware')
@@ -1382,13 +1384,22 @@ function registerRoutes (baseRouter, getManager) {
 
   router.post('/firmware/catalog/refresh', wrap(getManager, async (manager, req, res) => {
     // Local catalog first (sync, no network — see refreshFirmwareFromLocal),
-    // then GitHub best-effort: offline, these two calls simply find nothing
-    // to do / fail to reach the network, and the local artifacts imported
-    // above are still returned rather than the whole refresh erroring out.
-    manager.refreshFirmwareFromLocal()
-    const result = await manager.refreshFirmwareFromGithub().catch((err) => ({ error: err.message }))
+    // isolated so a bad index.json / dir never blocks the GitHub refresh; its
+    // error (if any) is reported as `localError`. A GitHub failure keeps its
+    // error status (flash.html checks res.ok), with the catalog — including
+    // any local artifacts just imported — still attached to the error body.
+    const localError = refreshLocalFirmwareSafely(manager)
+    let result
+    try {
+      result = await manager.refreshFirmwareFromGithub()
+    } catch (err) {
+      const status = err.status || 502
+      const body = err.payload || { error: { code: status === 500 ? 'internal_error' : 'request_failed', message: err.message } }
+      res.status(status).json({ ...manager.listFirmware(), ...body, ...(localError ? { localError } : {}) })
+      return
+    }
     await manager.refreshTipFromArtifacts().catch(() => {})
-    res.json(manager.listFirmware ? { ...result, ...manager.listFirmware() } : result)
+    res.json({ ...result, ...manager.listFirmware(), ...(localError ? { localError } : {}) })
   }))
 
   router.post('/firmware/artifacts', wrap(getManager, (manager, req, res) => {
@@ -1649,6 +1660,18 @@ function csrfRejection (req) {
 function remoteAddressOf (req) {
   return (req && ((req.socket && req.socket.remoteAddress) ||
     (req.connection && req.connection.remoteAddress) || req.ip)) || null
+}
+
+// Run the offline-catalog refresh without letting it throw: returns null on
+// success, or `{ code, message }` describing why the local catalog failed.
+function refreshLocalFirmwareSafely (manager) {
+  try {
+    manager.refreshFirmwareFromLocal()
+    return null
+  } catch (err) {
+    const code = (err.payload && err.payload.error && err.payload.error.code) || 'local_firmware_refresh_failed'
+    return { code, message: err.message }
+  }
 }
 
 function wrap (getManager, handler) {
