@@ -49,5 +49,6 @@ console.log('ui-restructure.test: nav trim OK')
   assert.ok(intercept, 'submit interceptor present')
   assert.ok(intercept.includes('new URLSearchParams(data)'), 'interceptor posts urlencoded')
   assert.ok(intercept.includes('e.defaultPrevented'), 'interceptor honours a cancelled onsubmit')
-  assert.ok(!/\}, true\)\s*\n\s*\}\)\(\);?\s*$/.test(intercept), 'interceptor is not a capture-phase listener')
+  assert.ok(!intercept.includes('}, true)'), 'interceptor is not a capture-phase listener')
+  assert.ok(intercept.includes("form.getAttribute('action')"), 'a control named action cannot shadow the post URL')
 }

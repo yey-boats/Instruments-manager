@@ -119,3 +119,60 @@ test('form submits go out urlencoded with the submitter, and a cancelled confirm
     await harness.close()
   }
 })
+
+// #42 (review): a submit button named "action" must not change the URL the
+// form posts to, a JSON error is shown on the form (input kept), a second
+// click while the first post is in flight sends nothing, and a wrong token on
+// the manager's own /ui/login page shows that page, not the session modal.
+test('posts to the form action despite name="action" buttons; JSON errors stay on the form; no double post', async ({ page }) => {
+  const harness = await startHarness()
+  try {
+    await page.addInitScript(() => {
+      window.__posts = []
+      window.fetch = async (url, init) => {
+        window.__posts.push({ url: String(url), body: String(init && init.body) })
+        await new Promise((resolve) => setTimeout(resolve, 200))
+        return { status: 422, url: String(url), headers: { get: () => 'application/json' }, text: async () => JSON.stringify({ error: { code: 'field_invalid', message: 'range is inverted' } }) }
+      }
+    })
+    await page.goto(`${harness.baseUrl}/plugins/yey-boats-display-manager/ui/devices`)
+    await page.evaluate(() => {
+      const f = document.createElement('form')
+      f.method = 'post'
+      f.action = '/plugins/yey-boats-display-manager/ui/devices/d1/config'
+      f.innerHTML = '<input name="title" value="typed"><button name="action" value="save-send" id="save">Save</button><button name="action" value="save" id="save2">Save only</button>'
+      document.body.appendChild(f)
+    })
+    await page.click('#save')
+    await page.click('#save', { force: true })
+    await expect(page.locator('.form-error')).toContainText('range is inverted')
+    const posts = await page.evaluate(() => window.__posts)
+    expect(posts).toHaveLength(1)
+    expect(new URL(posts[0].url).pathname).toBe('/plugins/yey-boats-display-manager/ui/devices/d1/config')
+    expect(new URLSearchParams(posts[0].body).get('action')).toBe('save-send')
+    await expect(page.locator('input[name="title"]')).toHaveValue('typed')
+  } finally {
+    await harness.close()
+  }
+})
+
+test('a 401 HTML answer from the manager sign-in page is shown, not the session modal', async ({ page }) => {
+  const harness = await startHarness()
+  try {
+    await page.addInitScript(() => {
+      window.fetch = async (url) => ({ status: 401, url: String(url), headers: { get: () => 'text/html; charset=utf-8' }, text: async () => '<p id="msg">That is not this manager\'s API token.</p>' })
+    })
+    await page.goto(`${harness.baseUrl}/plugins/yey-boats-display-manager/ui/devices`)
+    await page.evaluate(() => {
+      const f = document.createElement('form')
+      f.method = 'post'
+      f.action = '/plugins/yey-boats-display-manager/ui/login'
+      f.innerHTML = '<input name="token" value="wrong"><button id="in">Sign in</button>'
+      document.body.appendChild(f)
+    })
+    await page.click('#in')
+    await expect(page.locator('#msg')).toHaveText("That is not this manager's API token.")
+  } finally {
+    await harness.close()
+  }
+})
