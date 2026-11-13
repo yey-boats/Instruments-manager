@@ -90,7 +90,17 @@
   function setStatus(k, t) { statusEl.className = "pill" + (k ? " " + k : ""); statusText.textContent = t; }
   function sampleFor(paths) { const s = {}; paths.forEach(function (p) { if (SAMPLES[p]) s[p] = SAMPLES[p]; }); return s; }
 
+  // The renderer only fills tile rectangles; the gutters between tiles and any
+  // part of the viewport a dashboard leaves empty keep whatever was drawn
+  // before. Start every frame from the page background so switching
+  // dashboards (or a dashboard with fewer tiles) leaves no ghost pixels (#37).
+  function clearCanvas() {
+    ctx.setTransform(1, 0, 0, 1, 0, 0);
+    ctx.clearRect(0, 0, canvas.width, canvas.height);
+    ctx.fillStyle = "#06090d"; ctx.fillRect(0, 0, canvas.width, canvas.height);
+  }
   function paint(provider) {
+    clearCanvas();
     const r = MidlWeb.renderDashboard(ctx, current.doc, MANIFEST, "square-480", VIEWPORT, provider, { trends: trends });
     if (!r.ok) {
       ctx.fillStyle = "#06090d"; ctx.fillRect(0, 0, 480, 480);
