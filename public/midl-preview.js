@@ -96,14 +96,12 @@
   // dashboards (or a dashboard with fewer tiles) leaves no ghost pixels (#37).
   function clearCanvas() {
     ctx.setTransform(1, 0, 0, 1, 0, 0);
-    ctx.clearRect(0, 0, canvas.width, canvas.height);
     ctx.fillStyle = "#06090d"; ctx.fillRect(0, 0, canvas.width, canvas.height);
   }
   function paint(provider) {
     clearCanvas();
     const r = MidlWeb.renderDashboard(ctx, current.doc, MANIFEST, "square-480", VIEWPORT, provider, { trends: trends });
     if (!r.ok) {
-      ctx.fillStyle = "#06090d"; ctx.fillRect(0, 0, 480, 480);
       ctx.fillStyle = "#f0c674"; ctx.font = "14px system-ui"; ctx.textAlign = "center";
       ctx.fillText("Invalid: " + (r.issues[0] && r.issues[0].message || "?"), 240, 240);
     }

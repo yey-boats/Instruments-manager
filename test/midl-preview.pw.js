@@ -29,7 +29,8 @@ test('switching dashboards repaints the whole canvas (no ghost pixels at tile se
   const srv = await startStatic()
   try {
     await page.goto(`${srv.url}/midl-preview.html`)
-    await expect(page.locator('#dash option')).not.toHaveCount(0)
+    // The page ships placeholder options; wait for the library's (value "0").
+    await expect(page.locator('#dash option[value="0"]')).toHaveCount(1)
     const count = await page.locator('#dash option').count()
     expect(count).toBeGreaterThan(1)
     // Paint a sentinel colour the renderer never uses over the whole canvas,
@@ -39,8 +40,8 @@ test('switching dashboards repaints the whole canvas (no ghost pixels at tile se
       ctx.fillStyle = 'rgb(255,0,255)'
       ctx.fillRect(0, 0, 480, 480)
     })
+    // The change handler repaints synchronously inside load().
     await page.selectOption('#dash', String(count - 1))
-    await page.waitForTimeout(300)
     const leftover = await page.evaluate(() => {
       const d = document.getElementById('cv').getContext('2d').getImageData(0, 0, 480, 480).data
       let n = 0
