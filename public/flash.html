@@ -378,7 +378,18 @@
     refreshBtn.textContent = 'Refreshing…'
     try {
       const res = await fetch(BASE + '/firmware/catalog/refresh', { method: 'POST', credentials: 'include' })
-      if (!res.ok) throw new Error('refresh HTTP ' + res.status)
+      if (!res.ok) {
+        // GitHub refresh failed (e.g. offline boat). The local firmware
+        // catalog may still have been refreshed, so reload the list before
+        // reporting the failure.
+        let msg = 'refresh HTTP ' + res.status
+        try {
+          const body = await res.json()
+          if (body && body.error && body.error.message) msg += ': ' + body.error.message
+        } catch (_) {}
+        await loadCatalog()
+        throw new Error(msg)
+      }
       await loadCatalog()
     } catch (err) {
       status.textContent = 'Refresh failed: ' + err.message
