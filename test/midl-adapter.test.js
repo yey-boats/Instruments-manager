@@ -563,6 +563,138 @@ test('#38: a type change drops a zoom the new type does not allow', needsBuild, 
   assert.strictEqual(g.zoom, undefined)
 })
 
+// ---------------------------------------------------------------------------
+// #40: preset-shaped (inline) tiles: `widget` is the widget type and the
+// bindings sit on the tile. GET used to serve them as an empty screen.
+
+const presets = require('../lib/screen-presets')
+
+function presetBench (screens) {
+  const { manager, id } = benchManager()
+  manager.upsertProfile({ id: 'bench', name: 'Bench', config: { widgets: { version: 1, items: {} }, layout: { version: 1, screens } } })
+  return { manager, id }
+}
+
+test('#40: every preset tile becomes a bound element (all classes, all presets)', () => {
+  for (const cls of presets.listDisplayClasses()) {
+    for (const screen of presets.getPresetsForClass(cls.id)) {
+      const doc = v2ToMidl({ widgets: { items: {} }, layout: { screens: [screen] } })
+      const els = Object.values(doc.screens[0].elements)
+      assert.strictEqual(els.length, screen.tiles.length, `${cls.id}/${screen.id}: one element per tile`)
+      for (const el of els) assert.ok(el.bindings && el.bindings.value && el.bindings.value.path, `${cls.id}/${screen.id}: bound`)
+      assertWellFormed(doc)
+    }
+  }
+})
+
+test('#40: a preset windRose binds speed as value and the angle as dir', () => {
+  const dash = presets.getPresetsForClass('sunton-480').find((s) => s.id === 'dashboard')
+  const el = Object.values(v2ToMidl({ widgets: { items: {} }, layout: { screens: [dash] } }).screens[0].elements)[0]
+  assert.strictEqual(el.type, 'windrose')
+  assert.strictEqual(el.bindings.value.path, 'environment.wind.speedApparent')
+  assert.strictEqual(el.bindings.dir.path, 'environment.wind.angleApparent')
+  assert.strictEqual(el.name, 'WIND')
+  assert.ok(el.markers.length > 0, 'preset markers carried')
+})
+
+test('#40: GET serves preset screens with their elements, validated', needsBuild, async () => {
+  // maxViews is 8; the first 8 presets include grid and fullscreen (HUD) ones.
+  const screens = presets.getPresetsForClass('sunton-480').slice(0, 8)
+  const { manager, id } = presetBench(screens)
+  const r = await call(routes(manager)('GET', '/devices/:id/editor/midl'), { id })
+  const doc = JSON.parse(r.json.doc)
+  const dash = doc.screens.find((s) => s.id === 'dashboard')
+  assert.strictEqual(Object.keys(dash.elements).length, 4)
+  assert.strictEqual(r.json.validation.ok, true, JSON.stringify(r.json.validation.issues))
+})
+
+test('#40: an unchanged save keeps preset screens exactly as stored', needsBuild, async () => {
+  // maxViews is 8; the first 8 presets include grid and fullscreen (HUD) ones.
+  const screens = presets.getPresetsForClass('sunton-480').slice(0, 8)
+  const { manager, id } = presetBench(screens)
+  const before = JSON.parse(JSON.stringify(manager.editorProfile(id).config.layout.screens))
+  const get = routes(manager)
+  const doc = JSON.parse((await call(get('GET', '/devices/:id/editor/midl'), { id })).json.doc)
+  const r = await call(get('POST', '/devices/:id/editor/midl'), { id }, { doc })
+  assert.strictEqual(r.status, 200, JSON.stringify(r.json))
+  assert.deepStrictEqual(manager.editorProfile(id).config.layout.screens, before)
+})
+
+test('#40: an edited preset screen is saved as managed widgets with its bindings; others stay as stored', needsBuild, async () => {
+  // maxViews is 8; the first 8 presets include grid and fullscreen (HUD) ones.
+  const screens = presets.getPresetsForClass('sunton-480').slice(0, 8)
+  const { manager, id } = presetBench(screens)
+  const before = JSON.parse(JSON.stringify(manager.editorProfile(id).config.layout.screens))
+  const get = routes(manager)
+  const doc = JSON.parse((await call(get('GET', '/devices/:id/editor/midl'), { id })).json.doc)
+  const dash = doc.screens.find((s) => s.id === 'dashboard')
+  dash.elements['dashboard-t2'].name = 'SPEED'
+  const r = await call(get('POST', '/devices/:id/editor/midl'), { id }, { doc })
+  assert.strictEqual(r.status, 200, JSON.stringify(r.json))
+  const cfg = manager.editorProfile(id).config
+  const saved = cfg.layout.screens.find((s) => s.id === 'dashboard')
+  assert.strictEqual(saved.tiles.length, 4)
+  const items = saved.tiles.map((t) => cfg.widgets.items[t.widget])
+  assert.ok(items.every(Boolean), 'every tile references a widget item')
+  assert.strictEqual(items[0].type, 'windCircle')
+  assert.deepStrictEqual(items[0].paths, { value: 'environment.wind.speedApparent', dir: 'environment.wind.angleApparent' })
+  assert.ok(items[0].markers.length > 0)
+  assert.strictEqual(items[1].title, 'SPEED')
+  assert.strictEqual(items[1].path, 'navigation.speedOverGround')
+  for (const s of before.filter((x) => x.id !== 'dashboard')) {
+    assert.deepStrictEqual(cfg.layout.screens.find((x) => x.id === s.id), s, `${s.id} untouched`)
+  }
+})
+
+// #40 (review)
+test('#40: duplicate stored screen ids survive an unchanged save', needsBuild, async () => {
+  const mk = (title, path) => ({ id: 'a', type: 'grid', title, tiles: [{ widget: 'numeric', title, primary: path }] })
+  const screens = [mk('one', 'navigation.speedOverGround'), mk('two', 'environment.depth.belowTransducer'), Object.assign(mk('three', 'navigation.headingTrue'), { id: 'a-2' })]
+  const { manager, id } = presetBench(screens)
+  const before = JSON.parse(JSON.stringify(manager.editorProfile(id).config.layout.screens))
+  await roundTrip(manager, id)
+  assert.deepStrictEqual(manager.editorProfile(id).config.layout.screens, before)
+})
+
+test('#40: a full-screen HUD can be retitled but not rebuilt as a grid; key order does not matter', needsBuild, async () => {
+  const screens = presets.getPresetsForClass('sunton-480').slice(0, 8)
+  const { manager, id } = presetBench(screens)
+  const wind = () => manager.editorProfile(id).config.layout.screens.find((s) => s.id === 'wind')
+  const before = JSON.parse(JSON.stringify(wind()))
+  // Reverse every object's key order: still "unchanged".
+  const rev = (v) => Array.isArray(v) ? v.map(rev) : (v && typeof v === 'object' ? Object.fromEntries(Object.keys(v).reverse().map((k) => [k, rev(v[k])])) : v)
+  await roundTrip(manager, id, (doc) => { doc.screens = rev(doc.screens) })
+  assert.deepStrictEqual(manager.editorProfile(id).config.layout.screens, JSON.parse(JSON.stringify(screens)))
+  await roundTrip(manager, id, (doc) => { doc.screens.find((s) => s.id === 'wind').title = 'Breeze' })
+  assert.deepStrictEqual(wind(), Object.assign({}, before, { title: 'Breeze' }))
+  const get = routes(manager)
+  const doc = JSON.parse((await call(get('GET', '/devices/:id/editor/midl'), { id })).json.doc)
+  doc.screens.find((s) => s.id === 'wind').elements['wind-t1'].name = 'X'
+  const r = await call(get('POST', '/devices/:id/editor/midl'), { id }, { doc })
+  assert.strictEqual(r.status, 422, JSON.stringify(r.json))
+  assert.strictEqual(wind().type, 'fullscreen')
+})
+
+test('#40: converting an edited preset screen keeps sibling tile details (marker filled, precision)', needsBuild, async () => {
+  const dash = presets.getPresetsForClass('sunton-480').find((s) => s.id === 'dashboard')
+  dash.tiles[0].markers[0].filled = true
+  dash.tiles[2].precision = 2
+  const { manager, id } = presetBench([dash])
+  await roundTrip(manager, id, (doc) => { doc.screens[0].elements['dashboard-t2'].name = 'SPEED' })
+  const cfg = manager.editorProfile(id).config
+  const items = cfg.layout.screens[0].tiles.map((t) => cfg.widgets.items[t.widget])
+  assert.strictEqual(items[0].markers[0].filled, true)
+  assert.strictEqual(items[2].precision, 2)
+  assert.strictEqual(items[0].type, 'windCircle')
+})
+
+test('#40: prototype names as inline widget types are ignored', () => {
+  for (const w of ['constructor', 'toString', '__proto__']) {
+    const doc = v2ToMidl({ widgets: { items: {} }, layout: { screens: [{ id: 's', tiles: [{ widget: w, primary: 'a.b' }] }] } })
+    assert.deepStrictEqual(doc.screens[0].elements, {})
+  }
+})
+
 test('#38: an untouched doc never 422s, whatever size the store holds', needsBuild, async () => {
   for (const size of [24, 'L', 0]) {
     const { manager, id } = richBench()
