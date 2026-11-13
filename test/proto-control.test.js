@@ -40,14 +40,14 @@ function startMockTarget (opts) {
         // The mock asserts the controller sent a schema-valid Attach.
         if (!validate.Attach(msg)) return send({ error: 'bad attach' }, 400)
         return send({
-          v: '1.0', t: 'attachAck', accepted: true,
+          v: '2.0', t: 'attachAck', accepted: true,
           sessionId: 's-mock-1', ttlMs: 10000,
           device: opts.deviceRecord || DEVICE_RECORD
         })
       }
       if (req.method === 'POST' && req.url === '/api/p2p/switch') {
         if (!validate.Switch(msg)) return send({ error: 'bad switch' }, 400)
-        return send({ v: '1.0', t: 'switchAck', ok: true, currentView: msg.viewId })
+        return send({ v: '2.0', t: 'switchAck', ok: true, currentView: msg.viewId })
       }
       if (req.method === 'POST' && req.url === '/api/p2p/detach') {
         if (!validate.Detach(msg)) return send({ error: 'bad detach' }, 400)
@@ -65,7 +65,7 @@ function startMockTarget (opts) {
 }
 
 const DEVICE_RECORD = {
-  v: '1.0',
+  v: '2.0',
   deviceId: 'mfd-helm',
   name: 'Helm MFD',
   role: 'both',
@@ -99,9 +99,9 @@ module.exports = (async () => {
     assert.strictEqual(attach.color, '#ff9800')
     assert.strictEqual(attach.key, 'hunter2', 'shared key carried when configured')
 
-    const sw = { v: '1.0', t: 'switch', sessionId: 's-1', viewId: 'nav' }
+    const sw = { v: '2.0', t: 'switch', sessionId: 's-1', viewId: 'nav' }
     assert.ok(validate.Switch(sw), 'outbound Switch validates against schema')
-    const det = { v: '1.0', t: 'detach', sessionId: 's-1' }
+    const det = { v: '2.0', t: 'detach', sessionId: 's-1' }
     assert.ok(validate.Detach(det), 'outbound Detach validates against schema')
   }
 
@@ -152,15 +152,15 @@ module.exports = (async () => {
     const desc = await pc.describeDevice({ base: target.base })
     target.server.close()
     assert.strictEqual(desc.ok, true, 'describeDevice ok for a compatible target')
-    assert.strictEqual(desc.pv, '1.0')
+    assert.strictEqual(desc.pv, '2.0')
     assert.deepStrictEqual(desc.transports, ['ip', 'ble'])
     assert.strictEqual(desc.record.deviceId, 'mfd-helm')
   }
 
-  // (c) A version-incompatible DeviceRecord (major 2) is filtered out by
+  // (c) A version-incompatible DeviceRecord (major 3) is filtered out by
   //     discover(): describeDevice flags it and discover() drops it.
   {
-    const incompatible = { ...DEVICE_RECORD, v: '2.0' }
+    const incompatible = { ...DEVICE_RECORD, v: '3.0' }
     const target = await startMockTarget({ deviceRecord: incompatible })
     const pc = new ProtoControl({})
 
@@ -170,7 +170,7 @@ module.exports = (async () => {
 
     const found = await pc.discover([{ base: target.base, deviceId: 'mfd-helm' }])
     target.server.close()
-    assert.strictEqual(found.length, 0, 'discover() filters out the v2 device')
+    assert.strictEqual(found.length, 0, 'discover() filters out the v3 device')
   }
 
   // (c2) A compatible device IS surfaced by discover().
@@ -179,16 +179,26 @@ module.exports = (async () => {
     const pc = new ProtoControl({})
     const found = await pc.discover([{ base: target.base, deviceId: 'mfd-helm' }])
     target.server.close()
-    assert.strictEqual(found.length, 1, 'discover() keeps the v1 device')
-    assert.strictEqual(found[0].pv, '1.0')
+    assert.strictEqual(found.length, 1, 'discover() keeps the v2 device')
+    assert.strictEqual(found[0].pv, '2.0')
+  }
+
+  // (c3) Firmware v0.4.x stamps its DeviceRecord "1.0" while requiring major 2
+  //      inbound: the record is accepted (mislabelled v2 device).
+  {
+    const target = await startMockTarget({ deviceRecord: { ...DEVICE_RECORD, v: '1.0' } })
+    const pc = new ProtoControl({})
+    const desc = await pc.describeDevice({ base: target.base })
+    target.server.close()
+    assert.strictEqual(desc.ok, true, 'v0.4.x record labelled 1.0 is accepted')
   }
 
   // speaksProtocol: registry annotation gating.
   assert.strictEqual(
-    ProtoControl.speaksProtocol({ proto: { pv: '1.0', transports: ['ip'] } }), true,
+    ProtoControl.speaksProtocol({ proto: { pv: '2.0', transports: ['ip'] } }), true,
     'device with proto.pv + ip transport speaks the protocol')
   assert.strictEqual(
-    ProtoControl.speaksProtocol({ proto: { pv: '1.0', transports: ['ble'] } }), false,
+    ProtoControl.speaksProtocol({ proto: { pv: '2.0', transports: ['ble'] } }), false,
     'ble-only device does not speak the IP protocol path')
   assert.strictEqual(ProtoControl.speaksProtocol({}), false, 'plain registry device does not')
 

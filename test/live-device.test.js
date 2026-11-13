@@ -26,8 +26,10 @@ function registerLiveDevice (manager, auth, port, id = 'yey-d-live') {
 }
 
 module.exports = (async () => {
+  // #19: each device has its own password; the fake device enforces it.
+  let devicePassword = null
   await withServer((req, res) => {
-    const expectedAuth = `Basic ${Buffer.from('yeyboats:secret').toString('base64')}`
+    const expectedAuth = `Basic ${Buffer.from(`yeyboats:${devicePassword}`).toString('base64')}`
     assert.strictEqual(req.headers.authorization, expectedAuth)
     res.setHeader('content-type', 'application/json')
     if (req.url === '/api/state') {
@@ -43,9 +45,10 @@ module.exports = (async () => {
   }, async (port) => {
     const { manager, auth } = makeManager({
       auth: { mode: 'dev-shared-token', devToken: 'test-token' },
-      deviceWebAuth: { enabled: true, username: 'yeyboats', password: 'secret' }
+      deviceWebAuth: { enabled: true, username: 'yeyboats' }
     })
     const id = registerLiveDevice(manager, auth, port)
+    devicePassword = manager.generateConfig(id).webAuth.password
 
     const status = await manager.getLiveStatus(id)
     assert.strictEqual(status.sk.state, 'live')
@@ -60,7 +63,7 @@ module.exports = (async () => {
   }, async (port) => {
     const { manager, auth } = makeManager({
       auth: { mode: 'dev-shared-token', devToken: 'test-token' },
-      deviceWebAuth: { enabled: false, username: 'yeyboats', password: 'secret' }
+      deviceWebAuth: { enabled: false, username: 'yeyboats' }
     })
     const id = registerLiveDevice(manager, auth, port, 'yey-d-open')
 
@@ -75,7 +78,7 @@ module.exports = (async () => {
   }, async (port) => {
     const { manager, auth } = makeManager({
       auth: { mode: 'dev-shared-token', devToken: 'test-token' },
-      deviceWebAuth: { enabled: true, username: 'yeyboats', password: 'wrong' }
+      deviceWebAuth: { enabled: true, username: 'yeyboats' }
     })
     const id = registerLiveDevice(manager, auth, port, 'yey-d-unauthorized')
 

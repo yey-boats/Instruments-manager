@@ -15,7 +15,7 @@
   const MANIFEST = {
     midl: "1.0.0", board: "esp32-4848s040", maxMarkersPerDial: 12,
     classes: [{
-      id: "square-480", width: 480, height: 480, maxTiles: 4, maxDepth: 3,
+      id: "square-480", width: 480, height: 480, maxTiles: 9, maxDepth: 3,
       presets: ["full", "hero-split"],
       elements: ["single-value", "text", "gauge", "bar", "compass", "windrose", "trend", "autopilot", "button"],
     }],
@@ -90,10 +90,18 @@
   function setStatus(k, t) { statusEl.className = "pill" + (k ? " " + k : ""); statusText.textContent = t; }
   function sampleFor(paths) { const s = {}; paths.forEach(function (p) { if (SAMPLES[p]) s[p] = SAMPLES[p]; }); return s; }
 
+  // The renderer only fills tile rectangles; the gutters between tiles and any
+  // part of the viewport a dashboard leaves empty keep whatever was drawn
+  // before. Start every frame from the page background so switching
+  // dashboards (or a dashboard with fewer tiles) leaves no ghost pixels (#37).
+  function clearCanvas() {
+    ctx.setTransform(1, 0, 0, 1, 0, 0);
+    ctx.fillStyle = "#06090d"; ctx.fillRect(0, 0, canvas.width, canvas.height);
+  }
   function paint(provider) {
+    clearCanvas();
     const r = MidlWeb.renderDashboard(ctx, current.doc, MANIFEST, "square-480", VIEWPORT, provider, { trends: trends });
     if (!r.ok) {
-      ctx.fillStyle = "#06090d"; ctx.fillRect(0, 0, 480, 480);
       ctx.fillStyle = "#f0c674"; ctx.font = "14px system-ui"; ctx.textAlign = "center";
       ctx.fillText("Invalid: " + (r.issues[0] && r.issues[0].message || "?"), 240, 240);
     }

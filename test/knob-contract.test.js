@@ -292,8 +292,7 @@ const routeTest = (async () => {
   const plugin = makePlugin({
     getDataDirPath: () => manager.store.dataDir,
     debug: () => {},
-    handleMessage: () => {},
-    registerPutHandler: () => {}
+    handleMessage: () => {}
   })
 
   const router = makeRouterShim()

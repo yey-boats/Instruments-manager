@@ -1,9 +1,10 @@
 const fs = require('fs')
 const path = require('path')
-const { YeyBoatsDisplayManager } = require('./lib/manager')
+const { YeyBoatsDisplayManager, basicAuthHeaders } = require('./lib/manager')
 const presets = require('./lib/screen-presets')
 const fieldSchema = require('./lib/field-schema')
 const midlAdapter = require('./lib/midl-adapter')
+const midlLib = require('./lib/midl')
 const pluginPackage = require('./package.json')
 
 module.exports = function yeyBoatsDisplayManagerPlugin (app) {
@@ -69,22 +70,23 @@ module.exports = function yeyBoatsDisplayManagerPlugin (app) {
         auth: {
           type: 'object',
           title: 'Authentication',
+          description: 'Displays authenticate with their own per-device token. This install generates its own manager API token on first start (shown once on the manager Settings page) for pairing displays and tooling. The shared development token and "disabled" only take effect when SignalK runs with YEYBOATS_MANAGER_DEV_AUTH=1.',
           properties: {
             mode: {
               type: 'string',
               title: 'Mode',
-              enum: ['dev-shared-token', 'provision-token', 'disabled'],
-              default: 'dev-shared-token'
+              enum: ['device-token', 'provision-token', 'dev-shared-token', 'disabled'],
+              default: 'device-token'
             },
             devToken: {
               type: 'string',
-              title: 'Development shared token',
-              default: 'yeyboats-dev'
+              title: 'Development shared token (dev auth only)',
+              description: 'Only used with YEYBOATS_MANAGER_DEV_AUTH=1 and mode dev-shared-token. Defaults to the public firmware bootstrap token.'
             },
             provisionToken: {
               type: 'string',
-              title: 'Provisioning token',
-              default: 'yeyboats-provision'
+              title: 'Static provisioning token (optional)',
+              description: 'Extra secret displays may present to pair, e.g. one baked into a firmware build. Leave empty to pair with the manager API token or one-time provisioning tokens.'
             }
           }
         },
@@ -99,11 +101,10 @@ module.exports = function yeyBoatsDisplayManagerPlugin (app) {
         deviceWebAuth: {
           type: 'object',
           title: 'Device Web API Basic Auth',
-          description: 'Credentials pushed to devices and used by this plugin to read live status and logs.',
+          description: 'Basic Auth pushed to devices and used by this plugin for device HTTP calls. Each device gets its own random password at pairing (stored 0600 in the plugin data dir); rotate it from the device page.',
           properties: {
             enabled: { type: 'boolean', title: 'Enabled', default: true },
-            username: { type: 'string', title: 'Username', default: 'yeyboats' },
-            password: { type: 'string', title: 'Password', default: 'yeyboats-dev' }
+            username: { type: 'string', title: 'Username', default: 'yeyboats' }
           }
         },
         discoveryUdp: {
@@ -221,17 +222,36 @@ module.exports = function yeyBoatsDisplayManagerPlugin (app) {
       }
     }),
     start: (options) => {
-      manager = new YeyBoatsDisplayManager(app, options || {})
-      registerAutopilotBridge(app)
+      options = options || {}
+      // #23: dev auth (shared token / disabled) only from the environment,
+      // never from the saved plugin config.
+      const devAuth = process.env.YEYBOATS_MANAGER_DEV_AUTH === '1'
+      options = { ...options, auth: { ...(options.auth || {}), devAuth } }
+      manager = new YeyBoatsDisplayManager(app, options)
+      const a = manager.options.auth
+      if (a.requestedMode !== a.mode && a.requestedMode !== 'provision-token') {
+        app.debug(`yey-boats-display-manager: auth.mode "${a.requestedMode}" needs YEYBOATS_MANAGER_DEV_AUTH=1; using per-device tokens`)
+      }
+      if (manager.apiToken.pendingReveal()) {
+        app.debug('yey-boats-display-manager: a manager API token is waiting to be viewed on the Settings page')
+      }
+      // Autopilot PUTs (steering.autopilot.*) are NOT handled here. On the demo
+      // boat they are translated for the simulator by the simulator repo's
+      // `signalk-yey-sim-autopilot` plugin; real boats use their own autopilot
+      // plugin (e.g. signalk-autopilot).
       app.debug('yey-boats-display-manager started')
     },
+    _manager: () => manager,
     stop: () => {
       if (manager && manager.close) manager.close()
       manager = undefined
     },
     statusMessage: () => {
       if (!manager) return 'stopped'
-      return `${Object.keys(manager.store.registry.devices).length} device(s)`
+      const parts = [`${Object.keys(manager.store.registry.devices).length} device(s)`]
+      if (manager.apiToken && manager.apiToken.pendingReveal()) parts.push('new manager API token: view it on the manager Settings page')
+      if (manager.isDevAuthMode()) parts.push(`DEV auth mode ${manager.options.auth.mode}`)
+      return parts.join(' · ')
     },
     registerWithRouter: (router) => {
       registerRoutes(router, () => manager)
@@ -257,7 +277,7 @@ module.exports = function yeyBoatsDisplayManagerPlugin (app) {
           post: { summary: 'Scan IP or BLE transports for ESP display devices' }
         },
         '/plugins/yey-boats-display-manager/discovery/devices/{deviceId}/claim': {
-          post: { summary: 'Claim a discovered ESP display device into the registry' }
+          post: { summary: 'Claim a discovered ESP display device into the registry (an unauthenticated sighting needs `address`: one of the addresses seen for it)' }
         },
         '/plugins/yey-boats-display-manager/capabilities': {
           get: { summary: 'Describe manager protocol capabilities' }
@@ -321,56 +341,6 @@ module.exports = function yeyBoatsDisplayManagerPlugin (app) {
   }
 
   return plugin
-}
-
-// Autopilot bridge: the yey-display firmware drives the autopilot the
-// signalk-autopilot / spec-16 way (PUT steering.autopilot.state =
-// "<mode>", PUT steering.autopilot.actions.adjustHeading = <deg>, PUT
-// steering.autopilot.target.headingTrue = <rad>). The KDCube simulator's
-// autopilot instead listens for a `steering.autopilot.command` delta
-// {action, value, nonce}. This bridge registers PUT handlers for the
-// firmware's paths and re-emits them as the sim's command deltas, so the
-// device's steering controls drive the modeled boat end-to-end.
-function registerAutopilotBridge (app) {
-  if (!app || typeof app.registerPutHandler !== 'function') return
-  const CMD = 'steering.autopilot.command'
-  let seq = 0
-  const emit = (action, value) => {
-    app.handleMessage('yeyboats-autopilot-bridge', {
-      updates: [{
-        values: [{ path: CMD, value: { action, value, nonce: `b${++seq}` } }]
-      }]
-    })
-  }
-  const done = (cb) => {
-    const r = { state: 'COMPLETED', statusCode: 200 }
-    if (typeof cb === 'function') cb(r)
-    return r
-  }
-  const reg = (path, fn) => {
-    try { app.registerPutHandler('vessels.self', path, fn, 'yeyboats-autopilot-bridge') } catch (e) {
-      if (app.debug) app.debug(`autopilot bridge: could not register ${path}: ${e.message}`)
-    }
-  }
-  // Mode: "auto"|"wind"|"route"|"standby" (firmware "track"/"pretrack" -> "route").
-  reg('steering.autopilot.state', (ctx, path, value, cb) => {
-    let mode = String(value == null ? '' : value).replace(/^"|"$/g, '')
-    if (mode === 'track' || mode === 'pretrack') mode = 'route'
-    emit('set_mode', mode)
-    return done(cb)
-  })
-  // Heading nudge: firmware sends DEGREES; the sim's "adjust" action expects
-  // radians (it converts back to degrees), so scale here.
-  reg('steering.autopilot.actions.adjustHeading', (ctx, path, value, cb) => {
-    const deg = Number(value) || 0
-    emit('adjust', (deg * Math.PI) / 180)
-    return done(cb)
-  })
-  // Absolute target heading (radians, passed through).
-  reg('steering.autopilot.target.headingTrue', (ctx, path, value, cb) => {
-    emit('set_heading', Number(value) || 0)
-    return done(cb)
-  })
 }
 
 // Apply a list of live-preview field edits onto a profile config, in place.
@@ -487,8 +457,40 @@ function applyScreenEdits (cfg, edits) {
   return cfg
 }
 
-function registerRoutes (router, getManager) {
+function registerRoutes (baseRouter, getManager) {
+  // #23: every state-changing route is an operator route unless it is one of
+  // the few the displays themselves call (those authenticate the device).
+  const router = operatorGuardedRouter(baseRouter, getManager)
   router.use(jsonBody)
+
+  // #23: UI sign-in with the manager API token (needed when SignalK security
+  // is off; with it on, a SignalK admin session is enough).
+  router.get('/ui/login', wrap(getManager, (manager, req, res) => {
+    res.setHeader('content-type', 'text/html; charset=utf-8')
+    res.end(renderUiShell('Sign in', renderLoginPage(manager, req), manager.dashboard(), 'login'))
+  }))
+
+  router.post('/ui/login', wrap(getManager, (manager, req, res) => {
+    const token = String((req.body && req.body.token) || '').trim()
+    if (!token || !manager.apiToken.verify(token)) {
+      manager.auditFailedLogin()
+      res.statusCode = 401
+      res.setHeader('content-type', 'text/html; charset=utf-8')
+      res.end(renderUiShell('Sign in', renderLoginPage(manager, req, 'That is not this manager\'s API token.'), manager.dashboard(), 'login'))
+      return
+    }
+    res.setHeader('set-cookie', operatorCookie(req, token))
+    res.statusCode = 303
+    res.setHeader('location', safeNext(req.body && req.body.next))
+    res.end()
+  }))
+
+  router.post('/ui/logout', wrap(getManager, (manager, req, res) => {
+    res.setHeader('set-cookie', operatorCookie(req, '', true))
+    res.statusCode = 303
+    res.setHeader('location', `${PLUGIN_BASE}/ui/login`)
+    res.end()
+  }))
 
   router.get('/.well-known/yeyboats-management', wrap(getManager, (manager, req, res) => {
     res.json(manager.discovery())
@@ -592,10 +594,14 @@ function registerRoutes (router, getManager) {
       widgets: { items: layout.items },
       layout: { screens: layout.screens }
     }
-    const midlDoc = midlAdapter.v2ToMidl(v2)
+    // #33: the doc goes out validated against the device's class, with the
+    // result alongside (a draft that does not validate yet still loads, so
+    // the operator can fix it in the editor).
     const device = manager.getDevice(req.params.id)
+    const className = midlLib.classForDisplay(manager.resolveDisplay(device)).id
+    const { doc: midlDoc, ...validation } = midlLib.midlDocumentFor(v2, className)
     const revision = String(manager.configVersion(device))
-    res.json({ doc: JSON.stringify(midlDoc), revision })
+    res.json({ doc: JSON.stringify(midlDoc), revision, validation })
   }))
 
   router.post('/devices/:id/editor/midl', wrap(getManager, (manager, req, res) => {
@@ -623,15 +629,33 @@ function registerRoutes (router, getManager) {
         return
       }
     }
-    const v2 = midlAdapter.midlToV2(doc)
+    // #33: refuse (422) a document the device's validator would reject, or
+    // one the v2 dashboard model cannot hold (it would be silently changed on
+    // save). Range, size, a #rrggbb colour, signalk dial markers and the
+    // screen title are carried (#38); other element styling (zones in MIDL
+    // form, sectors, ...), format decimals and actions are not. Without
+    // the validator in this install the save proceeds, flagged `unavailable`.
+    const device = manager.getDevice(req.params.id)
+    const className = midlLib.classForDisplay(manager.resolveDisplay(device)).id
+    const validation = midlLib.checkMidlDoc(doc, className)
+    if (!validation.unavailable && !validation.ok) {
+      throw midlLib.httpError(422, 'midl_invalid', `MIDL document fails validation for ${className}`, { className, issues: validation.issues })
+    }
+    const lost = midlLib.roundTripLoss(doc)
+    if (lost.length) {
+      throw midlLib.httpError(422, 'midl_unsupported', 'parts of this MIDL document cannot be saved to a device dashboard', { className, issues: lost })
+    }
     // mutateEditorLayout persists and calls queueConfigReload internally.
     manager.mutateEditorLayout(req.params.id, (cfg) => {
-      cfg.widgets = v2.widgets
+      // #38: merge into the stored dashboard so what MIDL cannot express
+      // (zones, marker details, other colour elements, screen extras, widget
+      // defaults) survives the save.
+      const v2 = midlAdapter.midlToV2(doc, cfg)
+      cfg.widgets = Object.assign({}, cfg.widgets, { items: v2.widgets.items })
       cfg.layout = cfg.layout || {}
       cfg.layout.screens = v2.layout.screens
     })
-    const device = manager.getDevice(req.params.id)
-    res.json({ ok: true, revision: String(manager.configVersion(device)) })
+    res.json({ ok: true, revision: String(manager.configVersion(manager.getDevice(req.params.id))), validation })
   }))
 
   router.get('/discovery/devices', wrap(getManager, (manager, req, res) => {
@@ -676,6 +700,11 @@ function registerRoutes (router, getManager) {
       sendReload: checkboxValue(body.sendReload),
       issueToken: checkboxValue(body.issueToken)
     })
+    // #23: deliver the new per-device token over the display's web API.
+    if (manager.secrets.pendingManagerToken(req.params.id)) {
+      manager.pushDeviceManagerToken(req.params.id).catch(() => {})
+      result.tokenDelivery = { state: 'pending' }
+    }
     if (String(req.headers['content-type'] || '').includes('application/x-www-form-urlencoded')) {
       res.statusCode = 303
       res.setHeader('location', `/plugins/yey-boats-display-manager/ui/devices/${encodeURIComponent(req.params.id)}`)
@@ -745,15 +774,29 @@ function registerRoutes (router, getManager) {
         res.status(403).json({ error: 'only private-network hosts allowed' })
         return
       }
+      // #20: displays enforce Basic Auth once a web password is set
+      // (instruments#28). Send the device's own credentials, but only when
+      // the host is a registered device; any other host gets none. A 401
+      // moves on to a fallback password the device may still hold (#19).
+      const manager = getManager()
+      // #23: and only on the device's registered web API port.
+      const port = u.port ? Number(u.port) : (u.protocol === 'https:' ? 443 : 80)
+      const auths = manager ? manager.deviceWebAuthCandidatesForProxy(u.hostname, port) : [null]
       // node 18+ has global fetch; SignalK ships node 20.
       // redirect: 'manual' prevents an attacker-controlled device from
       // 302'ing this server-side fetch to an arbitrary host (the
       // private-host check above only validates the URL we typed,
       // not what the device might redirect us to).
-      const upstream = await fetch(u.origin + '/api/screenshot.png', {
-        signal: AbortSignal.timeout(10000),
-        redirect: 'manual'
-      })
+      let upstream
+      for (const auth of auths) {
+        upstream = await fetch(u.origin + '/api/screenshot.png', {
+          headers: basicAuthHeaders(auth),
+          signal: AbortSignal.timeout(10000),
+          redirect: 'manual'
+        })
+        if (upstream.status !== 401) break
+        await upstream.arrayBuffer().catch(() => {}) // release the socket
+      }
       if (upstream.status >= 300 && upstream.status < 400) {
         res.status(502).json({ error: 'device tried to redirect; refusing' })
         return
@@ -879,6 +922,12 @@ function registerRoutes (router, getManager) {
     res.end()
   }))
   // Bulk cleanup of the registered-devices list.
+  router.post('/ui/devices/:id/web-auth/rotate', wrap(getManager, (manager, req, res) => {
+    manager.rotateDeviceWebPassword(req.params.id)
+    res.statusCode = 303
+    res.setHeader('location', `/plugins/yey-boats-display-manager/ui/devices/${encodeURIComponent(req.params.id)}?status=web-password-rotated#config`)
+    res.end()
+  }))
   router.post('/ui/devices/clear-offline', wrap(getManager, (manager, req, res) => {
     const r = manager.deleteOfflineDevices()
     res.statusCode = 303
@@ -1099,7 +1148,13 @@ function registerRoutes (router, getManager) {
   }))
 
   router.post('/devices/register', wrap(getManager, (manager, req, res) => {
-    res.json(manager.registerDevice(req.body || {}, authFrom(req)))
+    try {
+      res.json(manager.registerDevice(req.body || {}, authFrom(req)))
+    } catch (err) {
+      // #23: list an unauthenticated display in Discovery so it can be claimed.
+      if (err.status === 401) manager.noteRejectedRegistration(req.body || {}, remoteAddressOf(req))
+      throw err
+    }
   }))
 
   router.get('/devices/:id', wrap(getManager, (manager, req, res) => {
@@ -1130,9 +1185,9 @@ function registerRoutes (router, getManager) {
     res.json(await manager.getLiveLogs(req.params.id, req.query.since))
   }))
 
+  // #23: secrets in the config only reach the device's own token.
   router.get('/devices/:id/config', wrap(getManager, (manager, req, res) => {
-    manager.requireDeviceAuth(req.params.id, authFrom(req))
-    res.json(manager.generateConfig(req.params.id))
+    res.json(manager.deviceConfigFor(req.params.id, authFrom(req)))
   }))
 
   router.get('/profiles', wrap(getManager, (manager, req, res) => {
@@ -1196,8 +1251,109 @@ function registerRoutes (router, getManager) {
     res.json(manager.ackCommand(req.params.id, req.params.commandId, req.body || {}, authFrom(req)))
   }))
 
+  // #23: rotation is a Re-claim; the new token is never in the response.
   router.post('/devices/:id/tokens/rotate', wrap(getManager, (manager, req, res) => {
-    res.json(manager.rotateDeviceToken(req.params.id))
+    const result = manager.rotateDeviceToken(req.params.id)
+    res.json(startReclaimDelivery(manager, req.params.id, result))
+  }))
+
+  // #23: Re-claim a paired display (operator). With its own token it
+  // collects the new one itself; otherwise `confirmAddress` (host[:port]) is
+  // where the operator confirmed it is, and the only place credentials go.
+  router.get('/reclaim/candidates', wrap(getManager, (manager, req, res) => {
+    res.json({ devices: manager.reclaimCandidates() })
+  }))
+
+  router.post('/devices/:id/reclaim', wrap(getManager, (manager, req, res) => {
+    const result = manager.reclaimDevice(req.params.id, req.body || {})
+    res.json(startReclaimDelivery(manager, req.params.id, result))
+  }))
+
+  // #25: cancel a pending Re-claim (its new token never becomes valid).
+  router.delete('/devices/:id/reclaim', wrap(getManager, (manager, req, res) => {
+    res.json(manager.cancelReclaim(req.params.id))
+  }))
+
+  // PR #28 review: the pairing-code requirement is sticky once a display has
+  // advertised it; only an operator clears it (e.g. after a downgrade).
+  router.delete('/devices/:id/pairing-code', wrap(getManager, (manager, req, res) => {
+    res.json(manager.clearPairingCodeRequirement(req.params.id))
+  }))
+
+  router.post('/ui/devices/:id/reclaim/cancel', wrap(getManager, (manager, req, res) => {
+    const id = req.params.id
+    let status = 'reclaim-cancelled'
+    try {
+      manager.cancelReclaim(id)
+    } catch (err) {
+      if (!err.status || err.status >= 500) throw err
+      status = `reclaim-cancel-failed:${(err.payload && err.payload.error && err.payload.error.code) || 'error'}`
+    }
+    res.statusCode = 303
+    res.setHeader('location', `${PLUGIN_BASE}/ui/devices/${encodeURIComponent(id)}?status=${encodeURIComponent(status)}#manager-token`)
+    res.end()
+  }))
+
+  // #25: Revoke from the device page (a possibly stolen token): the display
+  // then needs a confirm-address Re-claim.
+  router.post('/ui/devices/:id/tokens/revoke', wrap(getManager, (manager, req, res) => {
+    const id = req.params.id
+    manager.revokeDeviceToken(id)
+    res.statusCode = 303
+    res.setHeader('location', `${PLUGIN_BASE}/ui/devices/${encodeURIComponent(id)}?status=token-revoked#manager-token`)
+    res.end()
+  }))
+
+  router.post('/ui/devices/:id/reclaim', wrap(getManager, (manager, req, res) => {
+    const id = req.params.id
+    let status = 'reclaim-pending'
+    try {
+      startReclaimDelivery(manager, id, manager.reclaimDevice(id, req.body || {}))
+    } catch (err) {
+      if (!err.status || (err.status >= 500 && err.status !== 501)) throw err
+      status = `reclaim-failed:${(err.payload && err.payload.error && err.payload.error.code) || 'error'}`
+    }
+    res.statusCode = 303
+    res.setHeader('location', `${PLUGIN_BASE}/ui/devices/${encodeURIComponent(id)}?status=${encodeURIComponent(status)}#manager-token`)
+    res.end()
+  }))
+
+  // instruments-manager#19: per-device web API password. Status never
+  // includes the password; rotation queues a config.reload so the device
+  // pulls the new one (the old one stays a fallback until verified).
+  // #23: per-device manager token delivery (claim / migration) — retry now.
+  router.post('/devices/:id/tokens/deliver', wrap(getManager, async (manager, req, res) => {
+    res.json(await manager.pushDeviceManagerToken(req.params.id))
+  }))
+
+  // #23: the manager API token. Status only; the plaintext is shown once on
+  // the Settings page.
+  router.get('/manager-token', wrap(getManager, (manager, req, res) => {
+    res.json(manager.apiToken.status())
+  }))
+
+  router.post('/ui/manager-token/ack', wrap(getManager, (manager, req, res) => {
+    manager.apiToken.acknowledge()
+    manager.store.audit('manager.apiToken.acknowledged', 'system')
+    res.statusCode = 303
+    res.setHeader('location', '/plugins/yey-boats-display-manager/ui/settings')
+    res.end()
+  }))
+
+  router.post('/ui/manager-token/rotate', wrap(getManager, (manager, req, res) => {
+    manager.apiToken.rotate()
+    manager.store.audit('manager.apiToken.rotated', 'system')
+    res.statusCode = 303
+    res.setHeader('location', '/plugins/yey-boats-display-manager/ui/settings#manager-token')
+    res.end()
+  }))
+
+  router.get('/devices/:id/web-auth', wrap(getManager, (manager, req, res) => {
+    res.json(manager.webAuthStatus(req.params.id))
+  }))
+
+  router.post('/devices/:id/web-auth/rotate', wrap(getManager, (manager, req, res) => {
+    res.json(manager.rotateDeviceWebPassword(req.params.id))
   }))
 
   router.post('/devices/:id/tokens/revoke', wrap(getManager, (manager, req, res) => {
@@ -1215,12 +1371,14 @@ function registerRoutes (router, getManager) {
   //     config-push, Slice 7, once the device registers).
   //   - Device number is assigned server-side at registration, not on payload
   //     fetch (a plain GET/prefetch/reload must not burn device numbers).
-  // Every /plugins/yey-boats-display-manager route is behind the SignalK session.
+  // It carries the boat WiFi password, so it needs an operator (manager API
+  // token or UI sign-in, or a SignalK admin when security is on) even though
+  // it is a GET -- with SignalK security off nothing else protects it (#23).
   // Do not add CORS; do not log the secrets.
-  router.get('/provisioning/payload', wrap(getManager, (manager, req, res) => {
+  router.get('/provisioning/payload', operatorGuard(getManager, wrap(getManager, (manager, req, res) => {
     const s = manager.getSettings()
     res.json({ wifi: { ssid: s.network.ssid, password: s.network.password, mdnsDomain: s.network.mdnsDomain } })
-  }))
+  })))
 
   router.post('/firmware/catalog/refresh', wrap(getManager, async (manager, req, res) => {
     // Local catalog first (sync, no network — see refreshFirmwareFromLocal),
@@ -1337,9 +1495,170 @@ function registerRoutes (router, getManager) {
   }))
 }
 
+const PLUGIN_BASE = '/plugins/yey-boats-display-manager'
+const OPERATOR_COOKIE = 'yeyboats_manager'
+
+// #23: state-changing routes the displays call themselves; each one
+// authenticates the device (or, for announce/register, a provisioning
+// credential) in the manager. Plus the UI sign-in itself.
+const DEVICE_FACING_ROUTES = new Set([
+  'POST /devices/register',
+  'POST /devices/:id/status',
+  'POST /devices/:id/commands/:commandId/ack',
+  'POST /devices/:id/firmware/jobs/:jobId/progress',
+  'POST /devices/:id/firmware/confirm',
+  'POST /discovery/devices',
+  'POST /ui/login',
+  'POST /ui/logout'
+])
+
+// Wraps the router so every non-GET route (except the device-facing ones)
+// requires an operator credential before its handler runs.
+function operatorGuardedRouter (router, getManager) {
+  const guarded = (method) => (p, ...handlers) => {
+    if (DEVICE_FACING_ROUTES.has(`${method.toUpperCase()} ${p}`) || !handlers.length) {
+      return router[method](p, ...handlers)
+    }
+    const last = handlers.pop()
+    return router[method](p, ...handlers, operatorGuard(getManager, last))
+  }
+  return {
+    use: (...a) => router.use(...a),
+    get: (...a) => router.get(...a),
+    post: guarded('post'),
+    put: guarded('put'),
+    patch: guarded('patch'),
+    delete: guarded('delete')
+  }
+}
+
+function operatorGuard (getManager, handler) {
+  return (req, res, next) => {
+    const manager = getManager()
+    // Stopped plugin / CSRF: the route's wrap() answers those.
+    if (!manager || csrfRejection(req) || operatorAllowed(manager, req)) return handler(req, res, next)
+    const formPost = String((req.headers && req.headers['content-type']) || '').includes('application/x-www-form-urlencoded')
+    if (formPost) {
+      res.statusCode = 303
+      res.setHeader('location', `${PLUGIN_BASE}/ui/login?next=${encodeURIComponent(refererPath(req))}`)
+      res.end()
+      return
+    }
+    res.status(401).json({
+      error: {
+        code: 'operator_auth_required',
+        message: manager.signalkSecurityEnabled()
+          ? 'this needs a SignalK admin session or the manager API token (X-YeyBoats-Authorization: Bearer <token>)'
+          : 'SignalK security is off: this needs the manager API token (X-YeyBoats-Authorization: Bearer <token>, or sign in on the manager UI)'
+      }
+    })
+  }
+}
+
+// #23: an operator is the manager API token holder (header, or the UI
+// sign-in cookie), or -- with SignalK security on -- a SignalK admin. With
+// SignalK security off (dummy strategy) there is no SignalK session to trust.
+// The explicit dev auth modes keep the old open behaviour.
+function operatorAllowed (manager, req) {
+  if (manager.isDevAuthMode()) return true
+  const a = authFrom(req)
+  if (a.bearer && manager.apiToken.verify(a.bearer)) return true
+  if (a.provision && manager.apiToken.verify(a.provision)) return true
+  const cookie = readCookie(req, OPERATOR_COOKIE)
+  if (cookie && manager.apiToken.verify(cookie)) return true
+  return manager.signalkAdmin(req)
+}
+
+function readCookie (req, name) {
+  const header = String((req && req.headers && req.headers.cookie) || '')
+  for (const part of header.split(';')) {
+    const i = part.indexOf('=')
+    if (i < 0) continue
+    if (part.slice(0, i).trim() === name) {
+      try { return decodeURIComponent(part.slice(i + 1).trim()) } catch (e) { return null }
+    }
+  }
+  return null
+}
+
+function operatorCookie (req, token, clear) {
+  const h = (req && req.headers) || {}
+  const https = (req && req.secure) || String(h['x-forwarded-proto'] || '').split(',')[0].trim() === 'https'
+  return [
+    `${OPERATOR_COOKIE}=${clear ? '' : encodeURIComponent(token)}`,
+    `Path=${PLUGIN_BASE}`,
+    'HttpOnly',
+    'SameSite=Strict',
+    clear ? 'Max-Age=0' : 'Max-Age=2592000',
+    https ? 'Secure' : null
+  ].filter(Boolean).join('; ')
+}
+
+// Only redirect back inside the plugin.
+function safeNext (next) {
+  const n = String(next || '')
+  return n.startsWith(`${PLUGIN_BASE}/`) && !n.startsWith('//') && !/[\r\n]/.test(n) ? n : `${PLUGIN_BASE}/ui`
+}
+
+function refererPath (req) {
+  try {
+    const u = new URL(String((req.headers && req.headers.referer) || ''))
+    return u.pathname + u.search
+  } catch (e) {
+    return `${PLUGIN_BASE}/ui`
+  }
+}
+
+// A confirmed-address Re-claim: push the token there now (the operator just
+// confirmed it). A device-token Re-claim is collected by the display.
+function startReclaimDelivery (manager, id, result) {
+  if (result && (result.method === 'confirmed-address' || result.method === 'pairing-code') && manager.secrets.pendingManagerToken(id)) {
+    manager.pushDeviceManagerToken(id).catch(() => {})
+    return { ...result, tokenDelivery: { state: 'pending' } }
+  }
+  return result
+}
+
+// #23: CSRF guard for state-changing routes. The operator UI posts forms and
+// fetches same-origin; SignalK's session cookie would ride along on a
+// cross-site request too (and with SignalK security off there is no session at
+// all). Browsers always say where a request comes from (Sec-Fetch-Site /
+// Origin / Referer), so refuse anything cross-site. Non-browser clients
+// (displays, curl, tooling) send none of these and are unaffected.
+const SAFE_METHODS = ['GET', 'HEAD', 'OPTIONS']
+function csrfRejection (req) {
+  const method = String((req && req.method) || 'GET').toUpperCase()
+  if (SAFE_METHODS.includes(method)) return null
+  const h = (req && req.headers) || {}
+  const site = String(h['sec-fetch-site'] || '').toLowerCase()
+  if (site && site !== 'same-origin' && site !== 'none') return `cross-site request (${site})`
+  let origin = h.origin ? String(h.origin) : ''
+  if (!origin && h.referer) {
+    try { origin = new URL(String(h.referer)).origin } catch (e) { return 'unparseable referer' }
+  }
+  if (!origin) return null
+  if (origin === 'null') return 'opaque origin'
+  let host
+  try { host = new URL(origin).host.toLowerCase() } catch (e) { return 'unparseable origin' }
+  const allowed = [h['x-forwarded-host'], h.host]
+    .filter(Boolean)
+    .map((v) => String(v).split(',')[0].trim().toLowerCase())
+  return allowed.includes(host) ? null : 'cross-origin request'
+}
+
+function remoteAddressOf (req) {
+  return (req && ((req.socket && req.socket.remoteAddress) ||
+    (req.connection && req.connection.remoteAddress) || req.ip)) || null
+}
+
 function wrap (getManager, handler) {
   return (req, res) => {
     try {
+      const csrf = csrfRejection(req)
+      if (csrf) {
+        res.status(403).json({ error: { code: 'csrf_rejected', message: `refused ${csrf}` } })
+        return
+      }
       const manager = getManager()
       if (!manager) {
         res.status(503).json({ error: { code: 'plugin_stopped', message: 'plugin is not running' } })
@@ -1595,6 +1914,15 @@ function renderUiShell (title, body, dashboard, page = '') {
     ${nav(page)}
   </header>
   <main>
+    ${dashboard.auth && !dashboard.auth.devAuth && dashboard.auth.signalkSecurity === 'off' && page !== 'login'
+      ? `<p class="panel" role="status"><b>SignalK security is off.</b> Changes here need the manager API token: <a href="${PLUGIN_BASE}/ui/login">sign in</a>.</p>`
+      : ''}
+    ${dashboard.auth && dashboard.auth.reclaimNeeded && page !== 'settings'
+      ? `<p class="panel" role="status"><b>${escapeHtml(dashboard.auth.reclaimNeeded)} display(s) need re-claiming.</b> <a href="${PLUGIN_BASE}/ui/settings#reclaim">Confirm their addresses</a> before the manager sends them credentials.</p>`
+      : ''}
+    ${dashboard.managerApiToken && dashboard.managerApiToken.revealPending && page !== 'settings'
+      ? '<p class="panel" role="status"><b>New manager API token.</b> This install generated its own manager API token. <a href="/plugins/yey-boats-display-manager/ui/settings#manager-token">View and save it on the Settings page</a>; it is shown only until you confirm.</p>'
+      : ''}
     ${body}
   </main>
 <div id="relogin-modal" style="display:none;position:fixed;inset:0;background:rgba(0,0,0,.5);z-index:9999;align-items:center;justify-content:center;">
@@ -1610,18 +1938,72 @@ function renderUiShell (title, body, dashboard, page = '') {
   function looksLikeLogin (resp) {
     return resp.status === 401 || /\\/admin\\/?#?\\/?login|Please Login/i.test(resp.url || '')
   }
+  // #42: bubble phase, so a form's own onsubmit (the confirm() prompts on
+  // destructive actions) runs first and a cancel (defaultPrevented) stops it.
+  function showError (form, message) {
+    var box = form.querySelector('.form-error')
+    if (!box) {
+      box = document.createElement('p')
+      box.className = 'form-error'
+      box.setAttribute('role', 'alert')
+      box.style.cssText = 'color:#b42318;font-weight:600'
+      form.insertBefore(box, form.firstChild)
+    }
+    box.textContent = message
+  }
   document.addEventListener('submit', async function (e) {
     var form = e.target
-    if (!form || String(form.method).toLowerCase() !== 'post') return
+    // getAttribute: a control named "action"/"method" shadows form.action.
+    var method = String((form && form.getAttribute && form.getAttribute('method')) || '').toLowerCase()
+    if (e.defaultPrevented || !form || method !== 'post') return
     e.preventDefault()
+    if (form.dataset.submitting === '1') return // one request per submit, like a native post
+    var action = new URL(form.getAttribute('action') || location.href, location.href)
+    // Send what a native submit would: urlencoded (the plugin's body parser
+    // does not read multipart), including the clicked submit button's value.
+    var data = new FormData(form)
+    var sub = e.submitter
+    if (sub && sub.name && !data.has(sub.name)) data.append(sub.name, sub.value || '')
+    var multipart = String(form.getAttribute('enctype') || '').toLowerCase() === 'multipart/form-data'
+    form.dataset.submitting = '1'
+    var old = form.querySelector('.form-error')
+    if (old) old.remove()
+    var leaving = false
     try {
-      var resp = await fetch(form.action, { method: 'POST', body: new FormData(form), redirect: 'follow', credentials: 'include' })
-      if (looksLikeLogin(resp)) { document.getElementById('relogin-modal').style.display = 'flex'; return }
+      var resp = await fetch(action.href, { method: 'POST', body: multipart ? data : new URLSearchParams(data), redirect: 'follow', credentials: 'include', mode: 'same-origin' })
+      var type = String((resp.headers && resp.headers.get('content-type')) || '').toLowerCase()
+      var isHtml = type.indexOf('text/html') !== -1
+      var ownLogin = action.pathname.slice(-9) === '/ui/login'
+      if (looksLikeLogin(resp) && !(ownLogin && isHtml)) { document.getElementById('relogin-modal').style.display = 'flex'; return }
+      if (resp.status >= 400) {
+        // Show the server's answer instead of re-requesting the POST URL
+        // with a GET: an HTML page replaces the document (as a native submit
+        // would); a JSON/text error is shown on the form, keeping its input.
+        var text = await resp.text()
+        if (isHtml) { document.open(); document.write(text); document.close(); return }
+        var msg = text
+        try {
+          var j = JSON.parse(text)
+          var er = j && j.error
+          msg = (typeof er === 'string' ? er : (er && (er.message || er.code))) || (j && j.message) || text
+        } catch (err) {}
+        showError(form, 'Not saved (' + resp.status + '): ' + msg)
+        return
+      }
+      // Keep the guard while the follow-up page loads (no second post).
+      leaving = true
       window.location.assign(resp.url || window.location.href)
     } catch (err) {
       document.getElementById('relogin-modal').style.display = 'flex'
+    } finally {
+      if (!leaving) delete form.dataset.submitting
     }
-  }, true)
+  })
+  // Back/forward cache restores the page with the guard still set.
+  window.addEventListener('pageshow', function () {
+    var busy = document.querySelectorAll('form[data-submitting]')
+    for (var i = 0; i < busy.length; i++) delete busy[i].dataset.submitting
+  })
 })();
 </script>
 </body>
@@ -1819,6 +2201,21 @@ function renderSignalKRegisterForm (managerUrl) {
       </form>`
 }
 
+// #14 (roadmap S7): the device-page preview is drawn by the shared MIDL device
+// bundle. It needs the capability manifest of the display's resolution class
+// and the v2 -> MIDL element-type map (lib/midl-adapter).
+function midlPreviewFor (display) {
+  const cls = midlLib.classForDisplay(display)
+  let manifest = null
+  try { manifest = require('./lib/midl').manifestForClass(cls.id) } catch (e) { manifest = null }
+  return {
+    className: cls.id,
+    viewport: { x: 0, y: 0, w: cls.w, h: cls.h },
+    manifest,
+    types: midlAdapter.V2_TO_MIDL
+  }
+}
+
 function renderDevicePage (manager, id, live = {}, opts = {}) {
   const device = manager.getDevice(id)
   const config = manager.generateConfig(id)
@@ -1853,7 +2250,8 @@ function renderDevicePage (manager, id, live = {}, opts = {}) {
   // layout when managed, else the screen-presets catalogue that mirrors the
   // firmware's built-in screens — so built-in screens still render live
   // objects. Tiles are flattened to {widgetId,widget,title,path,unit,precision}
-  // and bound to live SignalK data by public/live-preview.js.
+  // and drawn with live SignalK data by the shared MIDL device bundle
+  // (public/midl-device.global.js) through public/device-preview.js.
   const previewData = (() => {
     const prof = manager.store.profiles.profiles[assigned] || {}
     const pcfg = prof.config || {}
@@ -1869,6 +2267,9 @@ function renderDevicePage (manager, id, live = {}, opts = {}) {
       ;(sp.getPresetsForClass(dc) || []).forEach((s) => { presetById[s.id] = s })
     } catch (e) { presetById = {} }
     const PRESET_ALIAS = { status: 'system' } // built-in id -> nearest preset id
+    // #32: the preview gets the same checked markers the device config does.
+    const markerManifest = manager.effectiveManifest(id)
+    const previewMarkers = (arr) => (Array.isArray(arr) ? fieldSchema.sanitizeMarkers(arr, markerManifest) : null)
     const presetTiles = (screenId) => {
       // exact id, alias, else a prefix match so built-in variants map to their
       // base (wind_classic / wind_steer -> "wind"); gives real SignalK bindings.
@@ -1883,7 +2284,7 @@ function renderDevicePage (manager, id, live = {}, opts = {}) {
         widget: t.widget || 'numeric', title: t.title || (t.primary ? String(t.primary).split('.').pop() : ''),
         path: t.primary || t.path || '', unit: t.unit || '', precision: t.precision != null ? t.precision : null,
         color: null,
-        markers: Array.isArray(t.markers) ? t.markers : null
+        markers: previewMarkers(t.markers)
       }))
     }
     const tilesFor = (screenId) => {
@@ -1908,19 +2309,24 @@ function renderDevicePage (manager, id, live = {}, opts = {}) {
           const p = preset[i] || {}
           const inlineType = (t && t.widget && !refKey) ? t.widget : null
           const inlinePath = (t && (t.primary || t.path)) || ''
+          // #39: the preset at the same index only fills in for preset/inline
+          // tiles. A managed tile (editor-authored widget item) describes
+          // itself; borrowing the preset's title/unit/precision mislabels it.
+          const fb = refKey ? {} : p
           return {
             widgetId: refKey,
             editable: !!refKey,
-            widget: w.type || inlineType || p.widget || 'numeric',
-            title: w.title || (t && t.title) || p.title || inlineType || '',
-            path: w.path || inlinePath || p.path || '',
-            unit: w.unit || (t && t.unit) || p.unit || '',
-            precision: w.precision != null ? w.precision : (t && t.precision != null ? t.precision : (p.precision != null ? p.precision : null)),
+            widget: w.type || inlineType || fb.widget || 'numeric',
+            // An untitled managed tile shows its widget id, as the firmware does.
+            title: w.title || (t && t.title) || fb.title || inlineType || refKey || '',
+            path: w.path || inlinePath || fb.path || '',
+            unit: w.unit || (t && t.unit) || fb.unit || '',
+            precision: w.precision != null ? w.precision : (t && t.precision != null ? t.precision : (fb.precision != null ? fb.precision : null)),
             // Per-element color overrides (element -> #rrggbb). Only the managed
             // widget item carries them; preset/inline tiles default to theme.
             color: (w.color && typeof w.color === 'object') ? w.color : null,
-            markers: Array.isArray(w.markers) ? w.markers
-              : (Array.isArray(t && t.markers) ? t.markers : (Array.isArray(p.markers) ? p.markers : null))
+            markers: previewMarkers(Array.isArray(w.markers) ? w.markers
+              : (Array.isArray(t && t.markers) ? t.markers : fb.markers))
           }
         })
         if (mapped.some((m) => m.path)) return mapped
@@ -1948,7 +2354,7 @@ function renderDevicePage (manager, id, live = {}, opts = {}) {
     // which KINDs the kind-picker offers; COLOR_ELEMENTS tells the editor which
     // color swatches each kind exposes; quantityForPath lets the client filter
     // the path picker to paths COMPATIBLE with the chosen kind. We ship the
-    // pure manifest data + the element map so live-preview.js (standalone, no
+    // pure manifest data + the element map so device-preview.js (standalone, no
     // bundler) can gate the UI exactly like lib/field-schema.js does server-side.
     let manifest = fieldSchema.DEFAULT_MANIFEST
     try { manifest = manager.effectiveManifest(id) || fieldSchema.DEFAULT_MANIFEST } catch (e) { manifest = fieldSchema.DEFAULT_MANIFEST }
@@ -1998,6 +2404,7 @@ function renderDevicePage (manager, id, live = {}, opts = {}) {
   // that backs the <datalist>), so the picker can offer candidates even before
   // the live stream has delivered a value for every path.
   previewData.previewPaths = previewPaths
+  previewData.midl = midlPreviewFor(manager.resolveDisplay(device))
   const previewJson = JSON.stringify(previewData).replace(/</g, '\\u003c')
   const otaSection = renderDeviceFirmwareSection(manager, device)
   return `
@@ -2084,6 +2491,10 @@ function renderDevicePage (manager, id, live = {}, opts = {}) {
            drop the min-width so a 390px phone can't be forced wider. */
         .lp-stage{box-sizing:border-box;background:radial-gradient(120% 120% at 50% 0%,#0c151f,#070b11);border:1px solid #16242f;border-radius:10px;aspect-ratio:1/1;width:min(360px,100%);max-width:100%;min-width:0;margin:0;padding:10px;display:flex;align-items:center;justify-content:center;flex:0 0 auto}
         .lp-hud{width:100%;height:100%;display:flex;align-items:center;justify-content:center}
+        .lp-midl{width:100%;display:flex;align-items:center;justify-content:center}
+        .lp-midl svg{width:100%;height:auto;max-height:480px;display:block}
+        .lp-edit-list{display:grid;grid-template-columns:minmax(0,1fr);gap:8px;margin-top:10px}
+        .lp-edit-item{border:1px solid #1c2f42;border-radius:8px;padding:6px 8px;background:#0b1622}
         .lp-hud .hud-svg{width:100%;height:100%;display:block}
         /* HUD field editor: when editing a fullscreen HUD the stage drops its
            square aspect, the dial caps to a square at the top, and the field
@@ -2092,43 +2503,10 @@ function renderDevicePage (manager, id, live = {}, opts = {}) {
         .lp-stage.lp-editing .lp-hud .hud-svg{height:auto;aspect-ratio:1/1}
         .lp-hud-edit{margin-top:10px}
         .lp-hud-note{font-size:11px;line-height:1.4;color:#d4b483;background:#1c1606;border:1px solid #3a2f12;border-radius:6px;padding:6px 8px;text-transform:none;letter-spacing:0;margin-bottom:4px}
-        .lp-compass{width:100%;height:100%;display:flex;align-items:center;justify-content:center}
-        /* SVG dial: square via aspect-ratio, sized by the smaller dimension so
-           it stays a circle in any tile shape (height:auto, never stretched). */
-        .lp-compass .hud-tile-svg{width:100%;height:auto;max-width:100%;max-height:100%;aspect-ratio:1/1}
-        /* CSS-circle ring: force a square box (aspect-ratio) and cap by the
-           tile width so it renders as a perfect circle on a phone, never an
-           ellipse. */
-        .lp-ring{position:relative;width:130px;max-width:100%;aspect-ratio:1/1;height:auto;border-radius:50%;border:2px solid #4fc3f7;display:flex;align-items:center;justify-content:center;margin:0 auto}
-        .lp-ring.lp-rose{border-color:#ffb84d}
-        .lp-ring .lp-card{position:absolute;color:#8fa7bd;font-size:12px;font-weight:700}
-        .lp-card-n{top:6px;left:50%;transform:translateX(-50%);color:#eef4fa}
-        .lp-card-e{right:8px;top:50%;transform:translateY(-50%)}
-        .lp-card-s{bottom:6px;left:50%;transform:translateX(-50%)}
-        .lp-card-w{left:8px;top:50%;transform:translateY(-50%)}
-        .lp-ring .lp-rmark{position:absolute;font-size:13px;line-height:1;font-weight:700}
-        /* DMS position: two lines that shrink-to-fit the tile. clamp() scales
-           the font with the tile width (cqw via the tile container query, with
-           a vw fallback) so "36°23.868'N" / "16°4.434'E" never spill out or
-           clip at 390px or desktop. No ellipsis — both full lines must show. */
-        .lp-val.lp-val-pos{font-size:clamp(11px,9cqw,17px);line-height:1.15;white-space:pre-line;font-weight:600;width:100%;max-width:100%;overflow-wrap:anywhere;word-break:break-word}
-        .lp-grid{display:grid;grid-template-columns:minmax(0,1fr) minmax(0,1fr);grid-auto-rows:1fr;gap:10px;width:100%;height:100%}
-        /* Edit mode: the rich per-tile editor makes tiles tall, so the stage
-           drops its square aspect and lets the grid grow + scroll. Tiles keep
-           their own min-height but stop clipping the editor (overflow visible). */
+        /* Edit mode: the stage drops its square aspect so the drawn screen and
+           the per-tile editors below it can grow + scroll. */
         .lp-stage.lp-editing{aspect-ratio:auto;height:auto;max-width:100%;width:min(420px,100%);align-items:stretch;overflow:visible;flex-direction:column}
-        .lp-grid-edit{grid-auto-rows:auto;height:auto}
-        .lp-grid-edit .lp-tile{overflow:visible;min-height:0}
-        /* min-width:0 lets the grid tracks actually share the width equally —
-           without it a tile's big value text sets an auto min-width that pushes
-           the column (and the whole grid) past the square stage. */
-        .lp-tile{min-width:0;overflow:hidden;background:#11202f;border:1px solid #1c2f42;border-radius:9px;padding:10px;display:flex;flex-direction:column;justify-content:center;align-items:flex-start;min-height:80px;container-type:inline-size}
         .lp-cap{font-size:11px;letter-spacing:.1em;color:#6f97ba;text-transform:uppercase}
-        .lp-val{font-size:34px;font-weight:650;color:#eaf2fb;line-height:1.05;align-self:flex-start;max-width:100%;overflow:hidden;text-overflow:ellipsis}
-        .lp-val-sm{font-size:18px}
-        .lp-unit{font-size:14px;color:#9bb6d0;margin-left:5px;font-weight:400}
-        .lp-bar{width:20px;flex:1;background:#0a1420;border-radius:5px;display:flex;align-items:flex-end;margin:8px 0;min-height:40px;align-self:center}
-        .lp-bar-fill{width:100%;background:linear-gradient(180deg,#52e0a8,#2bb47e);border-radius:5px;transition:height .25s ease}
         .lp-empty{color:#6f97ba;font-size:13px;text-align:center;line-height:1.5}
         .lp-edit-path{width:100%;margin-top:0;font-size:11px;background:#0a1420;color:#cfe0f0;border:1px solid #2a4156;border-radius:5px;padding:4px 5px;box-sizing:border-box}
         .lp-edit-path:focus{outline:none;border-color:#36d399}
@@ -2177,7 +2555,8 @@ function renderDevicePage (manager, id, live = {}, opts = {}) {
       </style>
       <script>window.__yeyboatsPreview=${previewJson};window.__yeyboatsDeviceId=${JSON.stringify(id)};</script>
       <script src="/yey-boats-display-manager/device-hud.js"></script>
-      <script src="/yey-boats-display-manager/live-preview.js"></script>
+      <script src="/yey-boats-display-manager/midl-device.global.js"></script>
+      <script src="/yey-boats-display-manager/device-preview.js"></script>
       <div class="config-grid">
         ${renderLiveSectionPlaceholder('status', 'Live status', 'Loading status…')}
         ${renderLiveSectionPlaceholder('logs', 'Live logs', 'Loading logs…')}
@@ -2198,7 +2577,7 @@ function renderDevicePage (manager, id, live = {}, opts = {}) {
       ${otaSection}
       <h2>Firmware jobs</h2>
       ${firmwareJobTable(jobs)}
-      ${renderDeviceConfigDetails(device, config, profilesList, configViews, opts.openConfig)}
+      ${renderDeviceConfigDetails(device, config, profilesList, configViews, opts.openConfig, safeWebAuthStatus(manager, id), manager)}
     </section>`
 }
 
@@ -2210,7 +2589,35 @@ function renderDevicePage (manager, id, live = {}, opts = {}) {
 // settings + the consolidated widget/path editor + screen/tile editor, all in
 // one form) and the read-only renderDeviceConfigWidget preview live here so the
 // PATHS and FIELDS are editable on the same screen as everything else.
-function renderDeviceConfigDetails (device, config, profiles, views, open) {
+function safeWebAuthStatus (manager, id) {
+  try { return manager.webAuthStatus(id) } catch (e) { return null }
+}
+
+// Device web API password (instruments-manager#19): state only, never the
+// password itself, plus the rotate action.
+function renderWebPasswordSection (id, web) {
+  if (!web) return ''
+  const stateLabel = web.state === 'verified'
+    ? 'verified on device'
+    : 'pending: device has not confirmed it yet'
+  return `
+          <section class="config-section" id="web-password">
+            <h3>Device web password</h3>
+            ${keyValueTable([
+              ['Basic auth', web.enabled ? 'yes' : 'no'],
+              ['Username', web.username],
+              ['Password', `per-device, ${stateLabel}`],
+              ['Last issued', web.rotatedAt || ''],
+              ['Verified', web.verifiedAt || '']
+            ])}
+            <form method="post" action="/plugins/yey-boats-display-manager/ui/devices/${encodeURIComponent(id)}/web-auth/rotate"
+                  onsubmit="return confirm('Rotate the web password for this device? It is pushed with the next config pull.')">
+              <div class="actions"><button type="submit">Rotate web password</button></div>
+            </form>
+          </section>`
+}
+
+function renderDeviceConfigDetails (device, config, profiles, views, open, webAuth, manager) {
   const id = device.id
   return `
       <details class="dev-config" id="config"${open ? ' open' : ''}>
@@ -2222,6 +2629,8 @@ function renderDeviceConfigDetails (device, config, profiles, views, open) {
           </p>
           ${renderDeviceConfigForm(device, config, profiles, views)}
           ${renderDeviceConfigWidget(config, views)}
+          ${renderWebPasswordSection(id, webAuth)}
+          ${manager ? renderDeviceTokenSection(manager, id) : ''}
         </div>
       </details>
       <style>
@@ -3513,9 +3922,42 @@ function renderDiscoveryClaimControl (device, profiles) {
       <input type="hidden" name="role" value="${escapeHtml(device.role || 'display')}">
       <input type="hidden" name="location" value="${escapeHtml(device.location || '')}">
       <input type="hidden" name="sendReload" value="1">
+      ${renderSightingChoice(device)}
       ${profileSelect(profiles, 'default')}
       <button type="submit" class="btn-sm">Claim</button>
     </form>`
+}
+
+// #29 (interim, until instruments#33): an anonymous register can come from
+// anyone. List every address seen for the id and make the operator pick the
+// display's; the token is pushed only to the address chosen.
+function renderSightingChoice (device) {
+  if (device.source !== 'register-rejected') return ''
+  const sightings = Array.isArray(device.sightings) && device.sightings.length
+    ? device.sightings
+    : [{ address: device.address, port: device.port, firstSeen: device.firstSeen, lastSeen: device.lastSeen, seenCount: device.seenCount }]
+  const rows = sightings.map((s) => `
+        <label class="sighting-choice">
+          <input type="radio" name="address" value="${escapeHtml(s.address)}" required>
+          <code>${escapeHtml(s.address)}${s.port ? ':' + escapeHtml(s.port) : ''}</code>
+          · first seen <time datetime="${escapeHtml(s.firstSeen || '')}">${escapeHtml(s.firstSeen || '?')}</time>
+          · last seen <time datetime="${escapeHtml(s.lastSeen || '')}">${escapeHtml(s.lastSeen || '?')}</time>
+          · ${escapeHtml(s.seenCount != null ? s.seenCount : '?')}×
+        </label>`).join('')
+  return `
+      <fieldset class="sighting-choices">
+        <legend>Which address is this display? ${sightings.length > 1 ? `<span class="status bad">${escapeHtml(sightings.length)} addresses claim this id</span>` : ''}</legend>
+        ${refusedNote(device)}
+        <p class="muted">Unpaired registrations are not authenticated. Pick the address your display actually has (check your router or the display itself); the token is sent only there.</p>${rows}
+      </fieldset>`
+}
+
+// PR #30 review: addresses are never evicted, so once the per-id cap is full
+// further ones (possibly the real display's) are refused. Say so.
+function refusedNote (device) {
+  const n = Number(device.refusedAddresses || 0)
+  if (!n) return ''
+  return `<p class="status bad">Too many addresses seen for this id \u2014 possible spoofing. ${escapeHtml(n)} more address${n === 1 ? ' was' : 'es were'} refused (last ${escapeHtml(device.lastRefusedAt || '?')}). If your display's address is not listed below, do not claim this id.</p>`
 }
 
 function renderProfilesPage (profiles, devices) {
@@ -3714,6 +4156,7 @@ function renderSettingsPage (manager, req) {
   const passwordInput = (name, isSet) =>
     `<input type="password" name="${escapeHtml(name)}" value=""${isSet ? ' placeholder="(unchanged)"' : ''}>`
   return `
+    ${renderManagerTokenSection(manager, req)}
     <form class="config-form" method="post" action="/plugins/yey-boats-display-manager/ui/settings">
       <h2>System settings</h2>
       ${saved ? '<p class="muted">Saved.</p>' : ''}
@@ -3744,6 +4187,159 @@ function renderSettingsPage (manager, req) {
         <button type="submit">Save settings</button>
       </div>
     </form>`
+}
+
+// #23: the manager API token, shown in full only until the admin confirms
+// they have saved it -- and only to an operator (SignalK admin, or signed in
+// with the token). With SignalK security off nobody else may see it.
+function renderManagerTokenSection (manager, req) {
+  const operator = operatorAllowed(manager, req || {})
+  const token = operator && manager.apiToken ? manager.apiToken.pendingReveal() : null
+  const st = manager.apiToken ? manager.apiToken.status() : {}
+  const base = `${PLUGIN_BASE}/ui/manager-token`
+  const file = manager.apiToken ? manager.apiToken.file : 'manager-api-token.json'
+  let body
+  if (token) {
+    body = `<p><b>Copy this token now.</b> It is shown only until you confirm below.</p>
+           <p><code style="user-select:all;word-break:break-all;">${escapeHtml(token)}</code></p>
+           <form method="post" action="${base}/ack" style="display:inline"><button type="submit">I have saved it</button></form>`
+  } else if (!operator && st.revealPending) {
+    body = `<p><b>A new token is waiting.</b> ${manager.signalkSecurityEnabled()
+      ? 'Log in to SignalK as an admin to view it.'
+      : `SignalK security is off, so it is not shown here: read it on the server from <code>${escapeHtml(file)}</code> (field <code>reveal</code>) and <a href="${PLUGIN_BASE}/ui/login">sign in</a> with it.`}</p>`
+  } else {
+    body = `<p class="muted">Token set ${escapeHtml(st.createdAt || '')}. It is not shown again; rotate to get a new one.</p>`
+  }
+  return `
+    <section class="panel" id="manager-token">
+      <h2>Manager API token</h2>
+      <p class="muted">Pairs displays and authenticates tooling (<code>X-YeyBoats-Authorization: Bearer &lt;token&gt;</code>), and signs you in to make changes here when SignalK security is off.
+        Displays use their own per-device token; the old shared <code>yeyboats-dev</code> token is no longer accepted.</p>
+      ${body}
+      ${operator ? `<form method="post" action="${base}/rotate" style="display:inline"
+            onsubmit="return confirm('Rotate the manager API token? Tooling using the old one stops working.')">
+        <button type="submit">Rotate token</button>
+      </form>` : ''}
+    </section>
+    ${renderReclaimSection(manager)}`
+}
+
+// #23: displays that need an operator Re-claim (paired with the old shared
+// token, or with no usable token). Nothing is sent to them until the
+// operator confirms the address here.
+function renderReclaimSection (manager) {
+  const list = manager.reclaimCandidates()
+  if (!list.length) return ''
+  const rows = list.map((c) => `
+        <tr>
+          <td><a href="${PLUGIN_BASE}/ui/devices/${encodeURIComponent(c.id)}#manager-token">${escapeHtml(c.name)}</a><br><span class="muted">${escapeHtml(c.id)}</span></td>
+          <td>${escapeHtml(c.reason === 'shared-dev-token' ? 'paired with the old shared token' : 'no device token')}<br><span class="muted">${escapeHtml(c.state)}${c.delivery ? ` · delivery ${escapeHtml(c.delivery.state)}${c.delivery.lastError ? `: ${escapeHtml(c.delivery.lastError)}` : ''}` : ''}</span></td>
+          <td>${escapeHtml(c.lastSeen || 'never')}<br><span class="muted">${escapeHtml(c.hostnames.join(', '))}</span></td>
+          <td>${renderReclaimForm(c.id, c.address, { pairingCode: c.pairingCode })}</td>
+        </tr>`).join('')
+  return `
+    <section class="panel" id="reclaim">
+      <h2>Displays to re-claim</h2>
+      <p>These displays are not sent any credentials until you confirm where they are. The address on file may have been
+        reported by anyone holding the old public token, so check it (e.g. on the display's own network screen) before confirming;
+        the manager then sends the display its web password and own token at that address only.</p>
+      <table><thead><tr><th>Display</th><th>State</th><th>Last seen</th><th>Confirm address</th></tr></thead><tbody>${rows}</tbody></table>
+    </section>`
+}
+
+function renderReclaimForm (id, address, opts = {}) {
+  const codeField = opts.pairingCode
+    ? `<input name="pairingCode" placeholder="code on the display's screen" autocomplete="off" required>`
+    : ''
+  return `<form method="post" action="${PLUGIN_BASE}/ui/devices/${encodeURIComponent(id)}/reclaim"
+              onsubmit="return confirm('Send this display its credentials at ' + this.confirmAddress.value + '?')">
+            ${codeField}
+            <input name="confirmAddress" value="${escapeHtml(address || '')}" placeholder="host:port" required>
+            <button type="submit">Confirm &amp; re-claim</button>
+          </form>`
+}
+
+// Device page: manager token state and the Re-claim action.
+// #25: a current-token Re-claim proves only that the caller holds the current
+// token -- a thief holding it could collect the new one. So the page says
+// what to do for a stolen token (Revoke, then confirm the address), lets the
+// operator cancel a pending Re-claim, and asks for the on-screen pairing code
+// when the display can show one.
+function renderDeviceTokenSection (manager, id) {
+  let st
+  try { st = manager.authStatus(id) } catch (e) { return '' }
+  if (manager.isDevAuthMode()) return ''
+  const device = manager.getDevice(id)
+  const candidate = manager.reclaimCandidates().find((c) => c.id === id)
+  const rc = st.reclaim
+  const pairingCode = manager.deviceSupportsPairingCode(device)
+  const rows = [
+    ['Device token', st.provisioned ? 'per-device' : (candidate && candidate.reason === 'shared-dev-token' ? 'old shared token (restricted)' : 'none')],
+    ['Re-claim', rc ? `${rc.state}${rc.method ? ` (${rc.method})` : ''}${rc.address ? ` at ${rc.address}` : ''}` : ''],
+    ['Token delivery', st.tokenDelivery ? `${st.tokenDelivery.state}${st.tokenDelivery.lastError ? `: ${st.tokenDelivery.lastError}` : ''}` : '']
+  ]
+  const pending = rc && (rc.state === 'pending' || rc.state === 'issued') && (device.pendingTokenHash ||
+    (device.tokenDelivery && device.tokenDelivery.state !== 'delivered'))
+  const cancel = pending
+    ? `<form method="post" action="${PLUGIN_BASE}/ui/devices/${encodeURIComponent(id)}/reclaim/cancel"
+            onsubmit="return confirm('Cancel this Re-claim? Its new token will never work.')">
+        <p>${rc.state === 'issued'
+          ? 'The new token was collected with the current token and has not been used yet. If that was not this display, cancel and Revoke.'
+          : 'A Re-claim is pending; no other new token is issued until it completes or you cancel it.'}</p>
+        <div class="actions"><button type="submit">Cancel Re-claim</button></div>
+      </form>`
+    : ''
+  const revoke = st.provisioned
+    ? `<form method="post" action="${PLUGIN_BASE}/ui/devices/${encodeURIComponent(id)}/tokens/revoke"
+            onsubmit="return confirm('Revoke this display\'s token? It goes offline until you re-claim it at a confirmed address.')">
+        <div class="actions"><button type="submit" class="danger">Revoke token</button></div>
+      </form>`
+    : ''
+  const stolen = '<p class="muted"><b>Token may be stolen or leaked?</b> Do not use Re-claim (whoever holds the current token could collect the new one). ' +
+    'Revoke the token, then confirm the display\'s address (check it on the display\'s own network screen) to send it a new one.</p>'
+  let action
+  if (candidate) {
+    action = `<p>Confirm the display's address before the manager sends it credentials (last seen ${escapeHtml(candidate.lastSeen || 'never')}).</p>${renderReclaimForm(id, candidate.address, { pairingCode })}`
+  } else if (pending) {
+    action = ''
+  } else if (pairingCode) {
+    const known = manager.reclaimTarget(device)
+    action = `<p>Enter the pairing code shown on the display's screen and confirm its address.</p>${renderReclaimForm(id, known ? `${known.host}:${known.port}` : '', { pairingCode })}`
+  } else {
+    action = `<form method="post" action="${PLUGIN_BASE}/ui/devices/${encodeURIComponent(id)}/reclaim"
+            onsubmit="return confirm('Re-key this display? It collects a new token (once) with its current one on its next heartbeat.')">
+        <div class="actions"><button type="submit">Re-claim (new device token)</button></div>
+      </form>`
+  }
+  return `
+          <section class="config-section" id="manager-token">
+            <h3>Manager token</h3>
+            ${keyValueTable(rows)}
+            ${cancel}
+            ${action}
+            ${st.provisioned ? stolen : ''}
+            ${revoke}
+          </section>`
+}
+
+function renderLoginPage (manager, req, error) {
+  const next = safeNext(req && req.query && req.query.next)
+  const file = manager.apiToken ? manager.apiToken.file : 'manager-api-token.json'
+  return `
+    <section class="panel">
+      <h2>Sign in to make changes</h2>
+      ${error ? `<p role="alert"><b>${escapeHtml(error)}</b></p>` : ''}
+      <p>${manager.signalkSecurityEnabled()
+        ? 'SignalK admins can make changes without signing in here. Tooling and other users can sign in with the manager API token.'
+        : 'SignalK security is off, so the manager asks for its own API token before it changes anything.'}
+        The token is on the Settings page the first time (for a SignalK admin) and, on the server, in <code>${escapeHtml(file)}</code> while it has not been confirmed.</p>
+      <form method="post" action="${PLUGIN_BASE}/ui/login">
+        <input type="hidden" name="next" value="${escapeHtml(next)}">
+        <label>Manager API token <input type="password" name="token" autocomplete="current-password" required></label>
+        <button type="submit">Sign in</button>
+      </form>
+      <form method="post" action="${PLUGIN_BASE}/ui/logout" style="margin-top:1em"><button type="submit">Sign out</button></form>
+    </section>`
 }
 
 function nav (active) {
@@ -3858,3 +4454,4 @@ module.exports.__renderHomePage = renderHomePage
 module.exports.__nav = nav
 module.exports.__renderSettingsPage = renderSettingsPage
 module.exports.__renderDevicePage = renderDevicePage
+module.exports.__renderDiscoveryClaimControl = renderDiscoveryClaimControl

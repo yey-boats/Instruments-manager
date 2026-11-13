@@ -9,7 +9,9 @@ const DEFAULTS = {
   durationSec: 120,
   heartbeatMs: 30000,
   commandPollMs: 15000,
-  deviceToken: process.env.YEYBOATS_MANAGER_TOKEN || 'yeyboats-dev',
+  // #23: the manager API token (Settings page). Pairs the simulated devices;
+  // each then uses the per-device token the manager issues it.
+  deviceToken: process.env.YEYBOATS_MANAGER_TOKEN || '',
   signalkToken: process.env.SIGNALK_TOKEN || '',
   username: process.env.SIGNALK_USERNAME || 'admin',
   password: process.env.SIGNALK_PASSWORD || 'admin',
@@ -74,7 +76,7 @@ Options:
   --heartbeat-ms <n>          Status POST interval per device (default: ${DEFAULTS.heartbeatMs})
   --command-poll-ms <n>       Command poll GET interval per device (default: ${DEFAULTS.commandPollMs})
   --config-every <n>          Fetch config every n heartbeats; 0 disables periodic config GET
-  --device-token <token>      ESP manager device/dev token (default: $YEYBOATS_MANAGER_TOKEN or yeyboats-dev)
+  --device-token <token>      Manager API token used to pair the simulated devices (default: $YEYBOATS_MANAGER_TOKEN; required)
   --token <token>             Alias for --device-token
   --signalk-token <token>     Existing SignalK bearer token (default: $SIGNALK_TOKEN)
   --username <name>           SignalK login username when no --signalk-token (default: $SIGNALK_USERNAME or admin)
@@ -147,7 +149,7 @@ class Metrics {
   }
 }
 
-async function requestJson (opts, metrics, name, method, path, body) {
+async function requestJson (opts, metrics, name, method, path, body, token) {
   const controller = new AbortController()
   const timeout = setTimeout(() => controller.abort(), opts.timeoutMs)
   const started = performance.now()
@@ -158,7 +160,7 @@ async function requestJson (opts, metrics, name, method, path, body) {
       signal: controller.signal,
       headers: {
         ...(opts.signalkToken ? { Authorization: `Bearer ${opts.signalkToken}` } : {}),
-        'X-YeyBoats-Authorization': `Bearer ${opts.deviceToken}`,
+        'X-YeyBoats-Authorization': `Bearer ${token || opts.deviceToken}`,
         ...(body ? { 'Content-Type': 'application/json' } : {})
       },
       body: body ? JSON.stringify(body) : undefined
@@ -316,10 +318,11 @@ async function registerDevices (opts, metrics) {
   const devices = []
   for (let i = 0; i < opts.devices; i++) {
     const identity = deviceIdentity(opts, i)
-    await requestJson(opts, metrics, 'register', 'POST', '/plugins/yey-boats-display-manager/devices/register', {
+    const reg = await requestJson(opts, metrics, 'register', 'POST', '/plugins/yey-boats-display-manager/devices/register', {
       device: identity
     })
-    devices.push(identity.id)
+    if (!reg || !reg.deviceToken) throw new Error(`register ${identity.id}: no deviceToken returned`)
+    devices.push({ id: identity.id, token: reg.deviceToken })
     if ((i + 1) % 10 === 0 || i + 1 === opts.devices) {
       process.stdout.write(`\rregistered ${i + 1}/${opts.devices}`)
     }
@@ -342,7 +345,9 @@ async function periodicLoop (opts, metrics, endAt, intervalMs, fn, initialJitter
   }
 }
 
-async function runDevice (opts, metrics, id, deviceIndex, endAt) {
+async function runDevice (opts, metrics, device, deviceIndex, endAt) {
+  const id = device.id
+  const tok = device.token
   let heartbeats = 0
   const jitterBase = opts.devices > 1 ? (opts.jitterMs * deviceIndex) / (opts.devices - 1) : 0
   const heartbeat = periodicLoop(opts, metrics, endAt, opts.heartbeatMs, async () => {
@@ -353,17 +358,18 @@ async function runDevice (opts, metrics, id, deviceIndex, endAt) {
       'heartbeat',
       'POST',
       `/plugins/yey-boats-display-manager/devices/${encodeURIComponent(id)}/status`,
-      statusBody(id, heartbeats)
+      statusBody(id, heartbeats),
+      tok
     )
     if (opts.configEvery > 0 && heartbeats % opts.configEvery === 0) {
-      await requestJson(opts, metrics, 'config', 'GET', `/plugins/yey-boats-display-manager/devices/${encodeURIComponent(id)}/config`)
+      await requestJson(opts, metrics, 'config', 'GET', `/plugins/yey-boats-display-manager/devices/${encodeURIComponent(id)}/config`, null, tok)
     } else if (result && result.desiredConfig && result.desiredConfig.reload) {
-      await requestJson(opts, metrics, 'config', 'GET', `/plugins/yey-boats-display-manager/devices/${encodeURIComponent(id)}/config`)
+      await requestJson(opts, metrics, 'config', 'GET', `/plugins/yey-boats-display-manager/devices/${encodeURIComponent(id)}/config`, null, tok)
     }
   }, jitterBase)
 
   const commands = periodicLoop(opts, metrics, endAt, opts.commandPollMs, async () => {
-    await requestJson(opts, metrics, 'commands', 'GET', `/plugins/yey-boats-display-manager/devices/${encodeURIComponent(id)}/commands`)
+    await requestJson(opts, metrics, 'commands', 'GET', `/plugins/yey-boats-display-manager/devices/${encodeURIComponent(id)}/commands`, null, tok)
   }, Math.min(opts.jitterMs, jitterBase + opts.commandPollMs / 2))
 
   await Promise.all([heartbeat, commands])
@@ -371,6 +377,7 @@ async function runDevice (opts, metrics, id, deviceIndex, endAt) {
 
 async function main () {
   const opts = parseArgs(process.argv)
+  if (!opts.deviceToken) throw new Error('set --device-token or YEYBOATS_MANAGER_TOKEN to the manager API token (manager Settings page)')
   const metrics = new Metrics()
 
   console.log(`SignalK YEY Boats Display Manager load test
@@ -385,7 +392,7 @@ config every: ${opts.configEvery || 'on drift only'}
   await login(opts, metrics)
   const devices = await registerDevices(opts, metrics)
   const endAt = performance.now() + opts.durationSec * 1000
-  await Promise.all(devices.map((id, index) => runDevice(opts, metrics, id, index, endAt)))
+  await Promise.all(devices.map((device, index) => runDevice(opts, metrics, device, index, endAt)))
   metrics.print()
 }
 

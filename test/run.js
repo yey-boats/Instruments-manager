@@ -61,7 +61,9 @@ const NODE_TEST_FILES = [
   'field-schema.test.js',
   'editor-crud.test.js',
   'midl-adapter.test.js',
-  'midl-diff.test.js'
+  'midl-diff.test.js',
+  'device-preview-midl.test.js',
+  'marker-validation.test.js'
 ]
 function runNodeTestSuites () {
   if (!NODE_TEST_FILES.length) return
@@ -98,11 +100,20 @@ const ASYNC_BATCH = [
   ['discovery-scan', './discovery-scan.test'],
   ['signalk-register-device', './signalk-register-device.test'],
   ['live-device', './live-device.test'],
-  ['device-resolution', './device-resolution.test']
+  ['device-resolution', './device-resolution.test'],
+  ['device-web-password', './device-web-password.test'],
+  ['screenshot-proxy-auth', './screenshot-proxy-auth.test'],
+  ['manager-auth', './manager-auth.test'],
+  ['manager-reclaim', './manager-reclaim.test'],
+  ['manager-reclaim-race', './manager-reclaim-race.test'],
+  ['manager-reclaim-hardening', './manager-reclaim-hardening.test'],
+  ['firmware-change-repush', './firmware-change-repush.test'],
+  ['discovery-sighting-per-address', './discovery-sighting-per-address.test']
 ]
 
 async function main () {
   await runAsync('proto-control', () => require('./proto-control.test'))
+  await runAsync('proto-contract', () => require('./proto-contract.test'))
   await Promise.all(ASYNC_BATCH.map(([name, mod]) => runAsync(name, () => require(mod))))
   runNodeTestSuites()
 

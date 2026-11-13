@@ -17,7 +17,9 @@
         justify-content: center; gap: 18px; padding: 24px; box-sizing: border-box; }
       h1 { margin: 0; font-size: 18px; font-weight: 600; letter-spacing: .02em; color: #e7eef5; }
       .sub { margin: 0; color: #7f8c99; font-size: 13px; }
-      canvas { display: block; border-radius: 12px; box-shadow: 0 8px 40px rgba(0,0,0,.5);
+      /* The canvas draws at 480x480 device pixels; on a phone it scales down to
+         the column instead of overflowing it (horizontal scroll, tiles cut off). */
+      canvas { display: block; max-width: 100%; height: auto; border-radius: 12px; box-shadow: 0 8px 40px rgba(0,0,0,.5);
         background: #0a0e13; }
       .bar { display: flex; align-items: center; gap: 10px; }
       .pill { display: inline-flex; align-items: center; gap: 7px; padding: 5px 12px;

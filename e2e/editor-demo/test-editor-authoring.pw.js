@@ -235,13 +235,19 @@ test("4. Font size select changes preview text size", async ({ browser }) => {
   });
   console.log(`[4] text metrics before font change: ${JSON.stringify(textSizeBefore)}`);
 
-  // Change font size to 48
-  await page.selectOption('[data-testid="size-select"]', "48");
-  await page.waitForTimeout(400); // wait for preview to re-render
+  // The midl Inspector offers role tokens (S / M / L / XL / Fill; schema
+  // style.size), not pixel sizes. It defaults to L; step up to XL (#43).
+  expect(sizeBefore, "size-select defaults to the L role").toBe("L");
+  const options = await page.locator('[data-testid="size-select"] option').evaluateAll((os) => os.map((o) => o.value));
+  expect(options).toEqual(expect.arrayContaining(["S", "M", "L", "XL", "Fill"]));
+  await page.selectOption('[data-testid="size-select"]', "XL");
+  // Wait for the preview to re-render with the larger hero.
+  await expect.poll(() => page.locator('[data-testid="preview-host"]').innerHTML()).toContain('font-size="' );
+  await expect.poll(async () => page.evaluate(() => Math.max(...Array.from(document.querySelectorAll('[data-testid="preview-host"] text')).map((t) => parseFloat(t.getAttribute("font-size")) || 0)))).toBeGreaterThan(parseFloat(textSizeBefore.maxFontSize));
 
   const sizeAfter = await page.locator('[data-testid="size-select"]').inputValue();
   console.log(`[4] size-select after: ${sizeAfter}`);
-  expect(sizeAfter, "size-select should reflect 48").toBe("48");
+  expect(sizeAfter, "size-select should reflect XL").toBe("XL");
 
   // Capture preview after
   const previewAfter = await page.locator('[data-testid="preview-host"]').innerHTML();
@@ -267,10 +273,18 @@ test("4. Font size select changes preview text size", async ({ browser }) => {
   console.log(`[4] text metrics after font change: ${JSON.stringify(textSizeAfter)}`);
 
   // Assert preview content changed
-  expect(previewBefore !== previewAfter || previewAfter.length > 10, "Preview SVG should change after font size update").toBe(true);
+  expect(previewAfter, "Preview SVG should change after font size update").not.toBe(previewBefore);
 
-  // If we measured text sizes, assert they increased
-  if (textSizeBefore && textSizeAfter && textSizeBefore.maxHeight > 0 && textSizeAfter.maxHeight > 0) {
+  // The largest text (the hero value) must grow from L to XL. The selected
+  // cell's hero is the largest text once it is XL; the size roles scale the
+  // auto-fit size by XL/L = 0.92/0.78, so check that ratio too, which ties the
+  // growth to this cell rather than to whatever text is tallest.
+  const fsBefore = parseFloat(textSizeBefore && textSizeBefore.maxFontSize);
+  const fsAfter = parseFloat(textSizeAfter && textSizeAfter.maxFontSize);
+  expect(fsAfter / fsBefore, `hero font-size ratio (${fsBefore} -> ${fsAfter})`).toBeCloseTo(0.92 / 0.78, 2);
+  expect(textSizeBefore && textSizeBefore.maxHeight, "value text measured before").toBeGreaterThan(0);
+  expect(textSizeAfter && textSizeAfter.maxHeight, "value text measured after").toBeGreaterThan(0);
+  {
     console.log(`[4] text height before: ${textSizeBefore.maxHeight.toFixed(1)}px → after: ${textSizeAfter.maxHeight.toFixed(1)}px`);
     expect(textSizeAfter.maxHeight, `Text height should increase after font size change (before: ${textSizeBefore.maxHeight.toFixed(1)}, after: ${textSizeAfter.maxHeight.toFixed(1)})`).toBeGreaterThan(textSizeBefore.maxHeight);
   }
@@ -284,11 +298,7 @@ test("4. Font size select changes preview text size", async ({ browser }) => {
   });
   console.log(`[4] SVG text font-size attributes after: ${JSON.stringify(fontSizeInSvg)}`);
 
-  // At least verify the SVG changed after setting size 48
-  const svgHas48 = previewAfter.includes("48") || fontSizeInSvg.some((fs) => fs.includes("48"));
-  console.log(`[4] SVG contains '48': ${svgHas48}`);
-
-  // Screenshot at 48px
+  // Screenshot at XL
   await page.screenshot({ path: path.join(SHOT_DIR, "shot-fontsize.png"), fullPage: false });
   console.log(`[4] Screenshot saved: shot-fontsize.png`);
 

@@ -70,6 +70,17 @@ number and pushes the OTA password + settings via config-push; the firmware
 applies them to NVS and the device becomes controllable and OTA-ready.
 Re-registration is idempotent — an already-numbered device is never renumbered.
 
+Pairing also issues the device its **own random web API password** (192-bit,
+URL-safe), delivered in the pulled config. The display enforces HTTP Basic Auth
+once it has one, and the manager presents it on every device HTTP call (live
+status/logs, discovery probe, manager-register, and the layout editor's screenshot proxy, which only sends credentials to a registered device's host). Passwords are kept in
+`device-secrets.json` (mode 0600) in the plugin data dir, never in the registry,
+logs or admin JSON. **Rotate web password** on the device page issues a new one;
+the previous one is still tried until the device confirms the new one. Devices
+paired by an older manager (shared default password) are migrated on next
+contact: reached with the old password, given a new one through the config
+pull, then verified over HTTP before the old one is retired.
+
 ### Also included
 Firmware catalog with GitHub-release import + OTA-job runner; dashboard presets;
 the visual layout editor (per-device screen/widget CRUD, manifest-gated);
@@ -93,6 +104,28 @@ SignalK Admin → Server → Plugin Config. Open it at:
 /plugins/yey-boats-display-manager/ui        (plugin console)
 /yey-boats-display-manager/                   (webapp / app-dock tile)
 ```
+
+## Upgrading: manager auth (instruments-manager#23)
+
+Release note. The manager no longer accepts the public `yeyboats-dev` token.
+
+- Each install generates its own **manager API token**; displays get their own
+  per-device token. New displays join only when you press **Claim**.
+- **Changes need an operator**: a SignalK admin session, or (always, and the
+  only option when SignalK security is off) the manager API token, either as
+  `X-YeyBoats-Authorization: Bearer <token>` or via **Sign in** on the manager
+  UI. With SignalK security off the Settings page does not show the token;
+  read it on the server from `manager-api-token.json` in the plugin data dir.
+- **Displays paired before this release need re-claiming.** They stay online,
+  but the manager sends them nothing until you open **Settings → Displays to
+  re-claim**, check each display's address and last-seen time, and press
+  **Confirm & re-claim**. (The address on file may have been set by anyone who
+  had the old public token.)
+- Re-keying a paired display is **Re-claim** on its device page: the display
+  proves itself with its current token and collects a new one; the current
+  token keeps working until then.
+
+Details: [deploy/README.md](deploy/README.md#verify-yey-boats-display-manager).
 
 ## Upgrading from “ESP Display Manager”
 

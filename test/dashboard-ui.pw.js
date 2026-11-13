@@ -149,20 +149,32 @@ test('operator creates a missing dashboard preset and applies populated real-dat
     await expect(page).toHaveURL(/\/ui\/profiles\/playwright-real-data$/)
     await expect(page.getByRole('heading', { name: 'Playwright Real Data' })).toBeVisible()
     await page.locator('input[name="deviceIds"][value="yey-d-playwright-wide"]').check()
-    await page.getByRole('button', { name: 'Apply to selected devices' }).click()
+    // The UI posts forms with fetch (relogin intercept, #42) and then follows
+    // the redirect, so wait for the apply round trip before driving the
+    // firmware or navigating away.
+    await Promise.all([
+      page.waitForResponse((r) => r.request().method() === 'POST' && /\/apply$/.test(new URL(r.url()).pathname)),
+      page.getByRole('button', { name: 'Apply to selected devices' }).click()
+    ])
+    await page.waitForLoadState('load')
+    await expect(page).toHaveURL(/\/ui\/profiles\/playwright-real-data$/)
 
     harness.firmware.pollAndExecute()
     harness.firmware.heartbeat()
 
     await page.goto(`${harness.baseUrl}/plugins/yey-boats-display-manager/ui/devices/yey-d-playwright-wide/config`)
-    await expect(page.locator('select[name="profileId"]')).toHaveValue('playwright-real-data')
+    // The page has two profile pickers now (the view switcher's and the config
+    // form's); both must show the applied preset.
+    const pickers = page.locator('select[name="profileId"]')
+    await expect(pickers).toHaveCount(2)
+    for (const picker of await pickers.all()) await expect(picker).toHaveValue('playwright-real-data')
     await expect(page.getByText('navigation.speedOverGround')).toBeVisible()
     await expect(page.getByText('environment.wind.angleApparent')).toBeVisible()
     await expect(page.getByText('environment.wind.speedApparent')).toBeVisible()
     await expect(page.getByText('SOG').first()).toBeVisible()
     await expect(page.getByText('AWA').first()).toBeVisible()
     await expect(page.getByText('AWS').first()).toBeVisible()
-    await expect(page.getByText('dashboard').first()).toBeVisible()
+    await expect(page.getByText('dashboard').filter({ visible: true }).first()).toBeVisible()
   } finally {
     await harness.close()
   }

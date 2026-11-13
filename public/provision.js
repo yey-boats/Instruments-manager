@@ -24,6 +24,37 @@
     el.scrollTop = el.scrollHeight
   }
 
+  // #25: a 401/403 from the payload route means "sign in first" (it carries
+  // the WiFi password, so it needs an operator). Say so, with a link.
+  const PLUGIN_BASE = '/plugins/yey-boats-display-manager'
+  const loginUrl = () => {
+    const here = (typeof location !== 'undefined' && location.pathname) || ''
+    return PLUGIN_BASE + '/ui/login' + (here.indexOf(PLUGIN_BASE + '/') === 0 ? '?next=' + encodeURIComponent(here) : '')
+  }
+  const showSignInHint = () => {
+    if (document.getElementById('prov-signin')) return
+    const logEl = document.getElementById('prov-log')
+    const p = document.createElement('p')
+    p.id = 'prov-signin'
+    p.setAttribute('role', 'alert')
+    p.textContent = 'Sign in to the manager first: '
+    const a = document.createElement('a')
+    a.href = loginUrl()
+    a.textContent = 'sign in with the manager API token'
+    p.appendChild(a)
+    const tail = document.createElement('span')
+    tail.textContent = ' (or log in to SignalK as an admin), then press Provision again.'
+    p.appendChild(tail)
+    if (logEl && logEl.insertAdjacentElement) logEl.insertAdjacentElement('beforebegin', p)
+  }
+  const payloadError = (status) => {
+    if (status === 401 || status === 403) {
+      showSignInHint()
+      return new Error('the manager wants you to sign in before it hands out the WiFi credentials (HTTP ' + status + '). Sign in: ' + loginUrl())
+    }
+    return new Error('payload HTTP ' + status)
+  }
+
   // Mirror tools/provision_device.py: quote the SSID only when it has a space.
   const quoteSsid = (ssid) => (/\s/.test(ssid) ? '"' + ssid + '"' : ssid)
   const sleep = (ms) => new Promise((r) => setTimeout(r, ms))
@@ -44,7 +75,7 @@
     try {
       log('Fetching provisioning payload from the manager…')
       const res = await fetch('/plugins/yey-boats-display-manager/provisioning/payload', { credentials: 'include' })
-      if (!res.ok) throw new Error('payload HTTP ' + res.status)
+      if (!res.ok) throw payloadError(res.status)
       const payload = await res.json()
       const ssid = payload && payload.wifi && payload.wifi.ssid
       const pass = (payload && payload.wifi && payload.wifi.password) || ''

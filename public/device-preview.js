@@ -1,16 +1,146 @@
-/* Device-page live preview: renders an authored screen layout (widgets.items +
- * layout.screens) bound to LIVE SignalK data, so the operator sees what the
- * screen resembles with real values before switching/saving. Self-contained;
- * reads window.__yeyboatsPreview = { screens:[{id,title,tiles:[...]}], current }.
- * Tiles are flattened server-side to {widget,title,path,unit,precision}. */
+// SPDX-License-Identifier: PolyForm-Noncommercial-1.0.0
+// Copyright (c) 2026 Yey Boats Project. See LICENSE and COMMERCIAL.md.
+//
+/* Device-page live preview (#14, roadmap S7: one renderer). Tile screens are
+ * drawn by the shared MIDL device bundle (public/midl-device.global.js, global
+ * `MidlWeb`) — the renderer the firmware serves — bound to LIVE SignalK data.
+ * This file only turns the server's flattened tiles into a MIDL document and
+ * hosts the edit-fields UI; the built-in HUD / System / Trip screens are still
+ * drawn by DeviceHud (public/device-hud.js).
+ * Reads window.__yeyboatsPreview = { screens:[{id,title,tiles:[...]}], current,
+ * midl:{className,viewport,manifest,types} }. */
 (function () {
   'use strict'
+
+  // --- pure helpers (exposed for tests as window.YeyDevicePreview) ---------
+  const STALE_MS = 10000
+  // Display unit for a tile in MIDL format tokens. tile.unit (the firmware's
+  // symbols) wins; else inferred from the path LEAF like the device does (every
+  // route metric lives under navigation.course*, so XTE/DTW must be matched
+  // before the angle leaves).
+  const UNIT_TOKENS = { '°': 'deg', '°C': 'degC', C: 'degC' }
+  function displayUnitFor (tile) {
+    if (tile.unit) return UNIT_TOKENS[tile.unit] || tile.unit
+    const p = tile.path || ''
+    const leaf = (p.split('.').pop() || '')
+    if (/crossTrackError/i.test(leaf)) return 'm'
+    if (/distance/i.test(leaf)) return 'nm'
+    if (/speed|drift|velocityMadeGood/i.test(leaf)) return 'kn'
+    if (/angle|heading|bearing|direction|course|cog|track|setTrue/i.test(leaf)) return 'deg'
+    if (/depth/i.test(p)) return 'm'
+    if (/temperature/i.test(leaf)) return 'degC'
+    if (/stateOfCharge|currentLevel|relativeHumidity/i.test(leaf)) return '%'
+    if (/voltage/i.test(leaf)) return 'V'
+    return ''
+  }
+  function formatFor (tile) {
+    const unit = displayUnitFor(tile)
+    const f = { decimals: tile.precision != null ? tile.precision : (unit === 'deg' ? 0 : 1) }
+    if (unit) f.unit = unit
+    return f
+  }
+  // SignalK carries SI values; the display unit's family names the SI source
+  // (as the old live-preview.js converted). The provider tags every value with
+  // it, so the bundle converts correctly: its own path inference reads every
+  // navigation.course* path (route DTW, VMG) as an angle (PR #31 review).
+  const SI_FOR = { kn: 'm/s', 'km/h': 'm/s', deg: 'rad', degC: 'K', degF: 'K', nm: 'm', km: 'm', ft: 'm', m: 'm', '%': 'ratio', rpm: 'Hz', hPa: 'Pa', kPa: 'Pa', bar: 'Pa' }
+  function sourceUnitFor (path) {
+    return SI_FOR[displayUnitFor({ path })]
+  }
+  // MIDL DataProvider over the live SignalK value map.
+  function makeProvider (values, stamps) {
+    const none = { value: undefined, stale: false, present: false }
+    return {
+      now () { return Date.now() },
+      subscribe () { return function () {} },
+      getValue (b) {
+        if (!b) return none
+        if (b.kind === 'const') return { value: b.value, stale: false, present: true }
+        if (b.kind !== 'signalk' || !Object.prototype.hasOwnProperty.call(values, b.path)) return none
+        const at = stamps && stamps[b.path]
+        const r = { value: values[b.path], updatedAt: at, present: true, stale: !!at && Date.now() - at > STALE_MS }
+        const su = sourceUnitFor(b.path)
+        if (su) r.sourceUnit = su
+        return r
+      }
+    }
+  }
+  // Firmware marker colour names -> MIDL theme tokens.
+  const MARKER_TOKENS = { accent: 'accent', good: 'good', warn: 'warn', alarm: 'danger' }
+  const own = (o, k) => typeof k === 'string' && Object.prototype.hasOwnProperty.call(o, k)
+  // Colours are document data the renderer writes into SVG attributes, and the
+  // page inserts that SVG with innerHTML: pass only a theme token or a plain
+  // #rgb / #rrggbb / #rrggbbaa literal, never anything else (PR #31 review).
+  const HEX_COLOR = /^#(?:[0-9a-fA-F]{3}|[0-9a-fA-F]{6}|[0-9a-fA-F]{8})$/
+  const THEME_TOKENS = new Set(['panel', 'panel2', 'edge', 'fg', 'dim', 'accent', 'accent2', 'good', 'warn', 'bad',
+    'danger', 'port', 'starboard', 'tide', 'stale', 'bg'])
+  function safeColor (c, fallback) {
+    if (own(MARKER_TOKENS, c)) return MARKER_TOKENS[c]
+    if (typeof c === 'string' && (HEX_COLOR.test(c) || THEME_TOKENS.has(c))) return c
+    return fallback
+  }
+  const GLYPHS = new Set(['triangle', 'diamond', 'circle', 'bar', 'cross', 'chevron_in', 'chevron_out',
+    'chevron_left', 'chevron_right', 'chevron_double'])
+  // One screen of flattened tiles -> a one-screen MIDL config document.
+  function midlDocFor (scr, midl) {
+    const types = (midl && midl.types) || {}
+    const cls = midl && midl.manifest && midl.manifest.classes && midl.manifest.classes[0]
+    const max = (cls && cls.maxTiles) || 9
+    const tiles = ((scr && scr.tiles) || []).slice(0, max)
+    const elements = {}
+    const cells = []
+    tiles.forEach((tile, i) => {
+      const id = 't' + i
+      const type = types[tile.kind] || types[tile.widget] || 'single-value'
+      const el = { type, name: String(tile.title || (tile.path || '').split('.').pop() || '').toUpperCase() }
+      if (tile.path) {
+        el.bindings = { value: { kind: 'signalk', path: tile.path } }
+        if (type === 'compass' || type === 'windrose') el.bindings.dir = { kind: 'signalk', path: tile.path }
+      }
+      if (type !== 'compass' && type !== 'button' && type !== 'autopilot') el.format = formatFor(tile)
+      const col = tile.color && typeof tile.color === 'object' ? tile.color : null
+      const accent = col && safeColor(col.value || col.fill || col.needle || col.arc || col.line, null)
+      // The renderer reads the override from `style.color` (MIDL element style).
+      if (accent) el.style = { color: accent }
+      if ((type === 'compass' || type === 'windrose') && Array.isArray(tile.markers) && tile.markers.length) {
+        el.markers = tile.markers.filter((m) => m && typeof m.path === 'string').map((m) => ({
+          glyph: GLYPHS.has(m.glyph) ? m.glyph : 'triangle',
+          color: safeColor(m.color, 'accent'),
+          dir: { kind: 'signalk', path: m.path }
+        }))
+      }
+      elements[id] = el
+      cells.push({ element: id })
+    })
+    const n = cells.length
+    const cols = n <= 1 ? 1 : (n <= 4 ? 2 : 3)
+    const rows = Math.max(1, Math.ceil(n / cols))
+    // Pad with spacer cells ({} in the MIDL schema), never { element: '' }.
+    while (cells.length < rows * cols) cells.push({})
+    return { midl: '1.0.0', screens: [{ id: String((scr && scr.id) || 'screen'), elements, layout: { rows, cols, cells } }] }
+  }
+  // A path's live value as the device would show it on a numeric tile.
+  function liveValueFor (values, path, stamps) {
+    if (!path) return ''
+    const v = values[path]
+    if (v === undefined || v === null) return '—'
+    const W = typeof window !== 'undefined' && window.MidlWeb
+    if (!W || typeof W.resolveElement !== 'function') return typeof v === 'object' ? '—' : String(v)
+    const el = { type: 'single-value', format: formatFor({ path }), bindings: { value: { kind: 'signalk', path } } }
+    const m = W.resolveElement(el, makeProvider(values, stamps))
+    return (m && m.text && m.text !== '--') ? m.text : '—'
+  }
+  window.YeyDevicePreview = { displayUnitFor, sourceUnitFor, formatFor, makeProvider, midlDocFor, liveValueFor }
+
   const cfg = window.__yeyboatsPreview || {}
   const root = document.getElementById('lp-root')
   const sel = document.getElementById('lp-screen')
   if (!root) return
 
   const values = Object.create(null) // signalk path -> latest value
+  const stamps = Object.create(null) // signalk path -> ms of last update
+  const provider = makeProvider(values, stamps)
+  const trendsByScreen = Object.create(null)
   // initialScreen (carried through a save redirect) wins over the device's
   // current screen, so a reload after Save-to-view/Save-as-new keeps the
   // operator's pick instead of snapping back.
@@ -82,109 +212,9 @@
     Object.keys(values).forEach((p) => set.add(p))
     return Array.from(set).sort()
   }
-  // Live value preview string for an arbitrary path (uses the same conversion
-  // as a tile so the operator sees what they'd be binding).
-  function liveValueFor (path) {
-    if (!path) return ''
-    const v = values[path]
-    if (v === undefined || v === null) return '—'
-    if (typeof v === 'object') {
-      if (typeof v.latitude === 'number' && typeof v.longitude === 'number') {
-        return v.latitude.toFixed(3) + ',' + v.longitude.toFixed(3)
-      }
-      return '—'
-    }
-    const u = unitFor({ path: path })
-    return valueFor({ path: path }) + (u ? ' ' + u : '')
-  }
+  // Live value preview string for an arbitrary path (same formatter as a tile).
+  function liveValue (path) { return liveValueFor(values, path, stamps) }
   const THEME_SWATCHES = ['#4fc3f7', '#36d399', '#ffb84d', '#ff5252', '#288cff', '#8fa7bd', '#eef4fa']
-
-  // --- unit + value formatting (mirror the device's conventions) -----------
-  // Preset tiles often carry no unit, so infer one from the SignalK path:
-  // speeds -> kn, angles/headings/bearings -> deg, depth -> m, temp -> °C,
-  // ratios -> %, voltage -> V. tile.unit (if set) overrides the inference.
-  function unitFor (tile) {
-    if (tile.unit) return tile.unit
-    const p = tile.path || ''
-    // Classify by the LEAF segment, not the whole path: every route metric
-    // lives under navigation.courseRhumbline.*, so a naive /course/ test made
-    // XTE / VMG / DTW all read as degrees (XTE 23 m -> "1318°"). The length +
-    // speed leaves must be matched BEFORE the angle leaf (crossTrackError /
-    // bearingTrackTrue both contain "track").
-    const leaf = (p.split('.').pop() || '')
-    if (/crossTrackError/i.test(leaf)) return 'm'
-    if (/distance/i.test(leaf)) return 'nm'
-    if (/speed|drift|velocityMadeGood/i.test(leaf)) return 'kn'
-    if (/angle|heading|bearing|direction|course|cog|track|setTrue/i.test(leaf)) return '°'
-    if (/depth/i.test(p)) return 'm'
-    if (/temperature/i.test(leaf)) return '°C'
-    if (/stateOfCharge|currentLevel|relativeHumidity/i.test(leaf)) return '%'
-    if (/voltage/i.test(leaf)) return 'V'
-    return ''
-  }
-  function valueFor (tile) {
-    if (!tile.path) return '--'
-    const v = values[tile.path]
-    if (v === undefined || v === null) return '--'
-    if (typeof v === 'object') {
-      if (typeof v.latitude === 'number' && typeof v.longitude === 'number') {
-        return v.latitude.toFixed(4) + ', ' + v.longitude.toFixed(4)
-      }
-      return '--'
-    }
-    if (typeof v !== 'number') return String(v)
-    const unit = unitFor(tile)
-    let x = v
-    if (unit === 'kn') x = v * 1.94384
-    else if (unit === '°' || unit === 'deg') x = v * 180 / Math.PI
-    else if (unit === '%') x = v <= 1.0001 ? v * 100 : v
-    else if (unit === '°C') x = v - 273.15
-    else if (unit === 'nm') x = v / 1852 // SK distance is metres
-    // 'm' (XTE / depth) and 'V' are already in display units — no conversion.
-    const p = tile.precision != null ? tile.precision : (unit === '°' ? 0 : 1)
-    return x.toFixed(p)
-  }
-  function percent (tile) {
-    const v = values[tile.path]
-    if (typeof v !== 'number') return 0
-    const x = v <= 1.0001 ? v * 100 : v
-    return Math.max(0, Math.min(100, x))
-  }
-
-  // --- compass / wind-rose marker rings (device-mirrored) ------------------
-  // A dial tile may carry markers:[{path,glyph,filled,color}]. We paint each
-  // glyph around a round ring at its live bearing. Glyph token set + fill/hollow
-  // unicode + theme->CSS color map mirror the firmware.
-  const GLYPH_CHARS = {
-    triangle:       ['▲', '△'],
-    diamond:        ['◆', '◇'],
-    circle:         ['●', '○'],
-    bar:            ['▮', '▯'],
-    cross:          ['✚', '✛'],
-    chevron_in:     ['▼', '▽'],
-    chevron_out:    ['▲', '△'],
-    chevron_left:   ['◀', '◁'],
-    chevron_right:  ['▶', '▷'],
-    chevron_double: ['«', '‹']
-  }
-  const MARKER_COLORS = {
-    accent: '#4fc3f7', good: '#36d399', warn: '#ffb84d', alarm: '#ff5252'
-  }
-  function glyphChar (glyph, filled) {
-    const pair = GLYPH_CHARS[glyph]
-    if (!pair) return '●'
-    return filled ? pair[0] : pair[1]
-  }
-  // Read a marker's live bearing from SignalK (RADIANS) -> degrees [0,360).
-  // null when the path has no numeric value (skip the marker).
-  function markerDeg (marker) {
-    if (!marker || typeof marker.path !== 'string') return null
-    const v = values[marker.path]
-    if (typeof v !== 'number' || !isFinite(v)) return null
-    let deg = v * 180 / Math.PI
-    deg = ((deg % 360) + 360) % 360
-    return deg
-  }
 
   // --- rich per-tile editor (KIND + scrollable VALUE picker + COLORS) ------
   // Stable edit key: authored tiles rebind their own widget in place; preset/
@@ -262,7 +292,7 @@
     pathRow.appendChild(pathInp)
     // current bound value readout
     const cur = document.createElement('div'); cur.className = 'lp-edit-cur'
-    cur.textContent = tile.path ? (tile.path + ' = ' + liveValueFor(tile.path)) : 'no path bound'
+    cur.textContent = tile.path ? (tile.path + ' = ' + liveValue(tile.path)) : 'no path bound'
     pathRow.appendChild(cur)
     // scrollable candidate list, filtered by kind compatibility
     const list = document.createElement('div'); list.className = 'lp-edit-paths'
@@ -271,7 +301,7 @@
       row.type = 'button'
       row.className = 'lp-edit-prow' + (p === tile.path ? ' active' : '')
       const name = document.createElement('span'); name.className = 'lp-edit-pname'; name.textContent = p
-      const lv = document.createElement('span'); lv.className = 'lp-edit-plv'; lv.textContent = liveValueFor(p)
+      const lv = document.createElement('span'); lv.className = 'lp-edit-plv'; lv.textContent = liveValue(p)
       row.appendChild(name); row.appendChild(lv)
       row.addEventListener('click', () => {
         tile.path = p
@@ -410,7 +440,7 @@
       row.appendChild(pathInp)
 
       const cur = document.createElement('div'); cur.className = 'lp-edit-cur'
-      cur.textContent = curPath ? (curPath + ' = ' + liveValueFor(curPath)) : 'default source'
+      cur.textContent = curPath ? (curPath + ' = ' + liveValue(curPath)) : 'default source'
       row.appendChild(cur)
 
       // scrollable candidate list, filtered to the field's quantity
@@ -420,7 +450,7 @@
         prow.type = 'button'
         prow.className = 'lp-edit-prow' + (p === fst.path ? ' active' : '')
         const name = document.createElement('span'); name.className = 'lp-edit-pname'; name.textContent = p
-        const lv = document.createElement('span'); lv.className = 'lp-edit-plv'; lv.textContent = liveValueFor(p)
+        const lv = document.createElement('span'); lv.className = 'lp-edit-plv'; lv.textContent = liveValue(p)
         prow.appendChild(name); prow.appendChild(lv)
         prow.addEventListener('click', () => {
           fst.path = p
@@ -538,101 +568,43 @@
       root.appendChild(m)
       return
     }
-    const grid = document.createElement('div')
-    grid.className = 'lp-grid' + (editMode ? ' lp-grid-edit' : '')
-    scr.tiles.forEach((tile, tileIndex) => {
-      const cell = document.createElement('div')
-      cell.className = 'lp-tile lp-w-' + (tile.widget || 'numeric')
-      // Per-element color overrides round-tripped from the editor (element ->
-      // #rrggbb). Unset elements fall back to the stylesheet's theme defaults.
-      const col = (tile.color && typeof tile.color === 'object') ? tile.color : null
-      const cap = document.createElement('div')
-      cap.className = 'lp-cap'
-      cap.textContent = (tile.title || (tile.path || '').split('.').pop() || '').toUpperCase()
-      if (col && col.label) cap.style.color = col.label
-      cell.appendChild(cap)
-      const Hud = window.DeviceHud
-      const isPos = /position/i.test(tile.path || '')
-      const hasMarkers = Array.isArray(tile.markers) && tile.markers.length
-      if ((tile.widget === 'compass' || tile.widget === 'windRose') && hasMarkers) {
-        // Device-mirrored marker ring. North-up compass / bow-up windRose:
-        // center value, N/E/S/W cardinals (compass only), one glyph per live
-        // marker (skip markers whose bearing is null). center=65, glyph
-        // radius = 65-14 = 51.
-        const isRose = tile.widget === 'windRose'
-        const ring = document.createElement('div')
-        ring.className = 'lp-ring' + (isRose ? ' lp-rose' : '')
-        const ctr = document.createElement('div')
-        ctr.className = 'lp-val lp-val-sm'
-        ctr.textContent = valueFor(tile)
-        if (col && col.value) ctr.style.color = col.value
-        ring.appendChild(ctr)
-        if (!isRose) {
-          for (const [lab, cls] of [['N', 'lp-card-n'], ['E', 'lp-card-e'], ['S', 'lp-card-s'], ['W', 'lp-card-w']]) {
-            const c = document.createElement('div')
-            c.className = 'lp-card ' + cls
-            c.textContent = lab
-            ring.appendChild(c)
-          }
-        }
-        const CENTER = 65, RAD = 65 - 14
-        tile.markers.forEach((m) => {
-          const deg = markerDeg(m)
-          if (deg == null) return
-          const angleRad = (deg - 90) * Math.PI / 180
-          const x = CENTER + RAD * Math.cos(angleRad)
-          const y = CENTER + RAD * Math.sin(angleRad)
-          const span = document.createElement('span')
-          span.className = 'lp-rmark'
-          span.style.left = x.toFixed(1) + 'px'
-          span.style.top = y.toFixed(1) + 'px'
-          span.style.transform = 'translate(-50%,-50%)'
-          span.style.color = MARKER_COLORS[m.color] || '#4fc3f7'
-          span.textContent = glyphChar(m.glyph, m.filled)
-          ring.appendChild(span)
-        })
-        cell.appendChild(ring)
-      } else if (tile.widget === 'compass' && Hud) {
-        // Faithful mini compass dial (heading-up ring + COG) instead of a
-        // bare number, matching the device's grid compass tile.
-        const holder = document.createElement('div'); holder.className = 'lp-compass'
-        holder.innerHTML = Hud.compassTileSVG(Hud.accessor(values), tile)
-        cell.appendChild(holder)
-      } else if (tile.widget === 'bar') {
-        const bar = document.createElement('div'); bar.className = 'lp-bar'
-        const fill = document.createElement('div'); fill.className = 'lp-bar-fill'
-        fill.style.height = percent(tile) + '%'
-        if (col && col.fill) fill.style.background = col.fill
-        bar.appendChild(fill); cell.appendChild(bar)
-        const val = document.createElement('div'); val.className = 'lp-val lp-val-sm'
-        const u = unitFor(tile)
-        val.textContent = valueFor(tile) + (u ? ' ' + u : '')
-        if (col && col.value) val.style.color = col.value
-        cell.appendChild(val)
-      } else if (tile.widget === 'text' || isPos) {
-        // Position / text tile: format lat-lon as DMS (two lines), like device.
-        const pos = Hud && Hud.accessor(values).position()
-        const val = document.createElement('div'); val.className = 'lp-val lp-val-pos'
-        if (pos && isPos) {
-          const [la, lo] = Hud.dms(pos)
-          val.textContent = la + '\n' + lo
-        } else {
-          val.textContent = valueFor(tile)
-        }
-        if (col && col.value) val.style.color = col.value
-        cell.appendChild(val)
-      } else {
-        const val = document.createElement('div'); val.className = 'lp-val'
-        val.textContent = valueFor(tile)
-        if (col && col.value) val.style.color = col.value
-        const unit = document.createElement('span'); unit.className = 'lp-unit'
-        unit.textContent = unitFor(tile)
-        val.appendChild(unit); cell.appendChild(val)
+    // Draw the screen with the shared MIDL renderer.
+    const W = window.MidlWeb
+    const midl = cfg.midl || {}
+    const stage = document.createElement('div')
+    stage.className = 'lp-midl'
+    if (!W || typeof W.renderDashboardSvg !== 'function' || !midl.manifest) {
+      stage.className = 'lp-empty'
+      stage.textContent = 'Preview unavailable: the MIDL renderer (midl-device.global.js) did not load.'
+    } else {
+      const trends = trendsByScreen[scr.id] || (trendsByScreen[scr.id] = new W.TrendBuffers())
+      let r
+      try {
+        r = W.renderDashboardSvg(JSON.stringify(midlDocFor(scr, midl)), midl.manifest, midl.className,
+          midl.viewport || { x: 0, y: 0, w: 480, h: 480 }, provider, { trends })
+      } catch (e) {
+        r = { ok: false, issues: [{ message: String((e && e.message) || e) }] }
       }
-      if (editMode) buildTileEditor(cell, scr, tile, tileIndex)
-      grid.appendChild(cell)
-    })
-    root.appendChild(grid)
+      // The bundle escapes every string it puts into the SVG.
+      if (r && r.ok && r.svg) stage.innerHTML = r.svg
+      else stage.textContent = 'Preview error: ' + ((r && r.issues && r.issues[0] && r.issues[0].message) || 'unknown')
+    }
+    root.appendChild(stage)
+    if (editMode) {
+      const list = document.createElement('div')
+      list.className = 'lp-edit-list'
+      scr.tiles.forEach((tile, tileIndex) => {
+        const item = document.createElement('div')
+        item.className = 'lp-edit-item'
+        const cap = document.createElement('div')
+        cap.className = 'lp-cap'
+        cap.textContent = (tileIndex + 1) + '. ' + (tile.title || (tile.path || '').split('.').pop() || '').toUpperCase()
+        item.appendChild(cap)
+        buildTileEditor(item, scr, tile, tileIndex)
+        list.appendChild(item)
+      })
+      root.appendChild(list)
+    }
   }
 
   // throttle re-render to ~5 Hz (matches the device refresh cadence)
@@ -660,7 +632,10 @@
       try { msg = JSON.parse(e.data) } catch (_) { return }
       if (!msg.updates) return
       msg.updates.forEach((u) => (u.values || []).forEach((val) => {
-        if (val && typeof val.path === 'string') values[val.path] = val.value
+        if (val && typeof val.path === 'string') {
+          values[val.path] = val.value
+          stamps[val.path] = Date.now()
+        }
       }))
       dirty = true
     }

@@ -19,7 +19,7 @@
     board: "esp32-4848s040",
     maxMarkersPerDial: 12,
     classes: [{
-      id: "square-480", width: 480, height: 480, maxTiles: 4, maxDepth: 3,
+      id: "square-480", width: 480, height: 480, maxTiles: 9, maxDepth: 3,
       presets: ["full", "hero-split"],
       elements: ["single-value", "text", "gauge", "bar", "compass", "windrose", "trend", "autopilot", "button"],
     }],
@@ -265,7 +265,7 @@
         if (overlay.parentNode) overlay.parentNode.removeChild(overlay);
       }
 
-      function showSuccess() {
+      function showSuccess(unvalidated) {
         // Rebuild body with success state using DOM methods; the only
         // innerHTML here is the static SVG icon (no user data).
         var successBody = el("div", "midl-success-body");
@@ -283,6 +283,11 @@
           el("div", "midl-success-heading", "Pushed!"),
           el("div", "midl-success-sub", deviceId + " pulled config")
         );
+        if (unvalidated) {
+          // #33: this install has no MIDL validator, so the device may still
+          // refuse the dashboard.
+          ap(successBody, el("div", "midl-success-sub", "Not validated: the MIDL validator is not installed on this server."));
+        }
 
         body.style.maxHeight = "none";
         while (body.firstChild) body.removeChild(body.firstChild);
@@ -321,8 +326,22 @@
               "device config changed since you loaded it; close and reopen the editor to reload, then retry";
             throw new Error(cmsg);
           }
+          if (r.status === 422) {
+            // The device's MIDL validator would refuse this document (#33):
+            // show the first issues instead of a bare status code.
+            var vj = null;
+            try { vj = await r.json(); } catch (e) { vj = null; }
+            var issues = (vj && vj.error && vj.error.details && vj.error.details.issues) || [];
+            var vmsg = (vj && vj.error && vj.error.message) || "Device would reject this dashboard";
+            if (issues.length) {
+              vmsg += ": " + issues.slice(0, 3).map(function (i) { return i.path + " " + i.message; }).join("; ");
+            }
+            throw new Error(vmsg);
+          }
           if (!r.ok) throw new Error("Push failed (HTTP " + r.status + ")");
-          showSuccess();
+          var pj = null;
+          try { pj = await r.json(); } catch (e) { pj = null; }
+          showSuccess(!!(pj && pj.validation && pj.validation.unavailable));
           resolve({ ref: { id: deviceId }, validation: { ok: true, issues: [] } });
         } catch (err) {
           pushBtn.disabled = false;
