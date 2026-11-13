@@ -450,6 +450,9 @@ test('switch-view carries the validation in its redirect and the device page sho
   assert.match(await page({ validation: 'unavailable' }), /validation-banner[\s\S]*MIDL validator is not available/)
   assert.doesNotMatch(await page({}), /validation-banner/)
   assert.doesNotMatch(await page({ validation: '<b>x</b>' }), /validation-banner|<b>x<\/b>/)
+  for (const v of ['constructor', 'toString', '__proto__', 'hasOwnProperty']) {
+    assert.doesNotMatch(await page({ validation: v }), /validation-banner/, v)
+  }
 })
 
 test('applyProfile returns the layout validation at the top level', needsBuild, () => {

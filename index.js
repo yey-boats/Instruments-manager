@@ -3153,7 +3153,7 @@ const VALIDATION_BANNERS = {
   unavailable: 'Saved without a layout check: the MIDL validator is not available in this install, so the display may refuse this layout.'
 }
 function renderValidationBanner (validation) {
-  const text = VALIDATION_BANNERS[validation]
+  const text = Object.hasOwn(VALIDATION_BANNERS, validation) ? VALIDATION_BANNERS[validation] : null
   return text
     ? `<p class="panel validation-banner" role="alert" style="border-left:4px solid #d97706;background:#fff7ed;color:#7c2d12;"><b>Layout warning.</b> ${escapeHtml(text)}</p>`
     : ''
