@@ -1914,18 +1914,72 @@ function renderUiShell (title, body, dashboard, page = '') {
   function looksLikeLogin (resp) {
     return resp.status === 401 || /\\/admin\\/?#?\\/?login|Please Login/i.test(resp.url || '')
   }
+  // #42: bubble phase, so a form's own onsubmit (the confirm() prompts on
+  // destructive actions) runs first and a cancel (defaultPrevented) stops it.
+  function showError (form, message) {
+    var box = form.querySelector('.form-error')
+    if (!box) {
+      box = document.createElement('p')
+      box.className = 'form-error'
+      box.setAttribute('role', 'alert')
+      box.style.cssText = 'color:#b42318;font-weight:600'
+      form.insertBefore(box, form.firstChild)
+    }
+    box.textContent = message
+  }
   document.addEventListener('submit', async function (e) {
     var form = e.target
-    if (!form || String(form.method).toLowerCase() !== 'post') return
+    // getAttribute: a control named "action"/"method" shadows form.action.
+    var method = String((form && form.getAttribute && form.getAttribute('method')) || '').toLowerCase()
+    if (e.defaultPrevented || !form || method !== 'post') return
     e.preventDefault()
+    if (form.dataset.submitting === '1') return // one request per submit, like a native post
+    var action = new URL(form.getAttribute('action') || location.href, location.href)
+    // Send what a native submit would: urlencoded (the plugin's body parser
+    // does not read multipart), including the clicked submit button's value.
+    var data = new FormData(form)
+    var sub = e.submitter
+    if (sub && sub.name && !data.has(sub.name)) data.append(sub.name, sub.value || '')
+    var multipart = String(form.getAttribute('enctype') || '').toLowerCase() === 'multipart/form-data'
+    form.dataset.submitting = '1'
+    var old = form.querySelector('.form-error')
+    if (old) old.remove()
+    var leaving = false
     try {
-      var resp = await fetch(form.action, { method: 'POST', body: new FormData(form), redirect: 'follow', credentials: 'include' })
-      if (looksLikeLogin(resp)) { document.getElementById('relogin-modal').style.display = 'flex'; return }
+      var resp = await fetch(action.href, { method: 'POST', body: multipart ? data : new URLSearchParams(data), redirect: 'follow', credentials: 'include', mode: 'same-origin' })
+      var type = String((resp.headers && resp.headers.get('content-type')) || '').toLowerCase()
+      var isHtml = type.indexOf('text/html') !== -1
+      var ownLogin = action.pathname.slice(-9) === '/ui/login'
+      if (looksLikeLogin(resp) && !(ownLogin && isHtml)) { document.getElementById('relogin-modal').style.display = 'flex'; return }
+      if (resp.status >= 400) {
+        // Show the server's answer instead of re-requesting the POST URL
+        // with a GET: an HTML page replaces the document (as a native submit
+        // would); a JSON/text error is shown on the form, keeping its input.
+        var text = await resp.text()
+        if (isHtml) { document.open(); document.write(text); document.close(); return }
+        var msg = text
+        try {
+          var j = JSON.parse(text)
+          var er = j && j.error
+          msg = (typeof er === 'string' ? er : (er && (er.message || er.code))) || (j && j.message) || text
+        } catch (err) {}
+        showError(form, 'Not saved (' + resp.status + '): ' + msg)
+        return
+      }
+      // Keep the guard while the follow-up page loads (no second post).
+      leaving = true
       window.location.assign(resp.url || window.location.href)
     } catch (err) {
       document.getElementById('relogin-modal').style.display = 'flex'
+    } finally {
+      if (!leaving) delete form.dataset.submitting
     }
-  }, true)
+  })
+  // Back/forward cache restores the page with the guard still set.
+  window.addEventListener('pageshow', function () {
+    var busy = document.querySelectorAll('form[data-submitting]')
+    for (var i = 0; i < busy.length; i++) delete busy[i].dataset.submitting
+  })
 })();
 </script>
 </body>
