@@ -296,9 +296,9 @@ function fail(n, msg) { console.log(`  ✗ [${n}] FAIL — ${msg}`); }
       return null;
     });
 
-    // Change size to 48
+    // Change size to the XL role (the Inspector offers S/M/L/XL/Fill, #43)
     const sizeSelect = dPage.locator('[data-component="inspector"] [data-testid="size-select"]');
-    await sizeSelect.selectOption("48");
+    await sizeSelect.selectOption("XL");
     await dPage.waitForTimeout(600);
 
     const sizeAfter = await dPage.evaluate(() => {
@@ -313,7 +313,7 @@ function fail(n, msg) { console.log(`  ✗ [${n}] FAIL — ${msg}`); }
     });
 
     const sizeSelectVal = await sizeSelect.inputValue().catch(() => "");
-    const sizeSelectOk = sizeSelectVal === "48";
+    const sizeSelectOk = sizeSelectVal === "XL";
 
     // Text grew (or we at least confirm the select changed; SVG may not show inline font-size attribute)
     let grew = sizeSelectOk;
