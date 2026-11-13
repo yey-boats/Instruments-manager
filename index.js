@@ -648,7 +648,7 @@ function registerRoutes (baseRouter, getManager) {
       throw midlLib.httpError(422, 'midl_unsupported', 'parts of this MIDL document cannot be saved to a device dashboard', { className, issues: lost })
     }
     // mutateEditorLayout persists and calls queueConfigReload internally.
-    manager.mutateEditorLayout(req.params.id, (cfg) => {
+    const saved = manager.mutateEditorLayout(req.params.id, (cfg) => {
       // #38: merge into the stored dashboard so what MIDL cannot express
       // (zones, marker details, other colour elements, screen extras, widget
       // defaults) survives the save.
@@ -657,7 +657,7 @@ function registerRoutes (baseRouter, getManager) {
       cfg.layout = cfg.layout || {}
       cfg.layout.screens = v2.layout.screens
     })
-    res.json({ ok: true, revision: String(manager.configVersion(manager.getDevice(req.params.id))), validation })
+    res.json({ ok: true, revision: String(manager.configVersion(manager.getDevice(req.params.id))), validation, layoutValidation: saved.layoutValidation })
   }))
 
   router.get('/discovery/devices', wrap(getManager, (manager, req, res) => {
@@ -903,7 +903,7 @@ function registerRoutes (baseRouter, getManager) {
   router.post('/ui/devices/:id/config', wrap(getManager, (manager, req, res) => {
     const result = saveDeviceConfigForm(manager, req.params.id, req.body || {})
     res.statusCode = 303
-    res.setHeader('location', `/plugins/yey-boats-display-manager/ui/devices/${encodeURIComponent(req.params.id)}?status=${encodeURIComponent(result.status)}#config`)
+    res.setHeader('location', `/plugins/yey-boats-display-manager/ui/devices/${encodeURIComponent(req.params.id)}?status=${encodeURIComponent(result.status)}${validationParam(result)}#config`)
     res.end()
   }))
 
@@ -989,7 +989,7 @@ function registerRoutes (baseRouter, getManager) {
   router.post('/ui/profiles/:id/apply', wrap(getManager, (manager, req, res) => {
     const result = applyPresetForm(manager, req.params.id, req.body || {})
     res.statusCode = 303
-    res.setHeader('location', `/plugins/yey-boats-display-manager/ui/profiles/${encodeURIComponent(req.params.id)}?status=${encodeURIComponent(result.status)}&count=${result.count}`)
+    res.setHeader('location', `/plugins/yey-boats-display-manager/ui/profiles/${encodeURIComponent(req.params.id)}?status=${encodeURIComponent(result.status)}&count=${result.count}${validationParam(result)}`)
     res.end()
   }))
 
@@ -1036,6 +1036,7 @@ function registerRoutes (baseRouter, getManager) {
     let edits = []
     try { edits = JSON.parse(body.edits || '[]') } catch (e) { edits = [] }
     let status = 'noop'
+    let layoutValidation
     // AJAX clients (the live preview's "Show on device") set ajax=1 / send an
     // Accept: application/json header so we answer with JSON instead of a 303
     // full-page reload — that keeps the operator's selected preview screen put.
@@ -1061,10 +1062,16 @@ function registerRoutes (baseRouter, getManager) {
           const name = String(body.profileName || 'New View').trim()
           const newId = (name.toLowerCase().replace(/[^a-z0-9]+/g, '-').replace(/(^-|-$)/g, '')) ||
             ('view-' + Math.abs(sha256Json({ id, t: cfg }).length))
-          manager.upsertProfile({ id: newId, name, config: cfg })
+          // Validator on store: a new view is checked for any display that
+          // already points at its id.
+          layoutValidation = manager.saveProfileChecked({ id: newId, name, config: cfg }).layoutValidation
           status = 'created:' + newId
         } else {
-          manager.upsertProfile({ id: baseId, name: base.name || baseId, config: cfg })
+          // Validator on store: this saves the display's profile, which every
+          // display assigned it picks up, so it is checked for all of them
+          // (only issues the edit introduces count).
+          layoutValidation = manager.saveProfileChecked({ id: baseId, name: base.name || baseId, config: cfg },
+            [{ deviceId: id, opts: { profileConfig: cfg }, compare: true }]).layoutValidation
           // Best-effort reload nudge, but log failures instead of swallowing
           // them (MGR-8): a broken trigger should not vanish without a trace.
           try {
@@ -1079,7 +1086,7 @@ function registerRoutes (baseRouter, getManager) {
       }
     }
     if (wantsJson) {
-      res.json({ status, screenId: body.screenId || null })
+      res.json(Object.assign({ status, screenId: body.screenId || null }, layoutValidation ? { layoutValidation } : {}))
       return
     }
     // Carry the operator's selected preview screen through the redirect so the
@@ -1166,7 +1173,9 @@ function registerRoutes (baseRouter, getManager) {
   }))
 
   router.patch('/devices/:id', wrap(getManager, (manager, req, res) => {
-    res.json(manager.patchDevice(req.params.id, req.body || {}))
+    // Validator on store: a new profile or overrides reach the display on
+    // its next heartbeat, so they are checked before they are stored.
+    res.json(manager.patchDeviceChecked(req.params.id, req.body || {}))
   }))
 
   router.get('/devices/:id/auth/status', wrap(getManager, (manager, req, res) => {
@@ -1220,7 +1229,9 @@ function registerRoutes (baseRouter, getManager) {
   }))
 
   router.post('/profiles', wrap(getManager, (manager, req, res) => {
-    res.json(manager.upsertProfile(req.body || {}))
+    // Validator on store: checked for every display using the profile.
+    const { profile, layoutValidation } = manager.saveProfileChecked(req.body || {})
+    res.json(Object.assign({}, profile, { layoutValidation }))
   }))
 
   router.post('/profiles/:id/apply', wrap(getManager, (manager, req, res) => {
@@ -1228,7 +1239,13 @@ function registerRoutes (baseRouter, getManager) {
   }))
 
   router.post('/devices/:id/command', wrap(getManager, (manager, req, res) => {
-    res.json(manager.createCommand(req.params.id, req.body || {}))
+    // A config.reload resends the stored layout, which was checked when it
+    // was stored: it is not refused, but an invalid one is reported.
+    const layoutValidation = req.body && req.body.type === 'config.reload'
+      ? manager.gateLayouts([{ deviceId: req.params.id }], { warnOnly: true })
+      : undefined
+    const command = manager.createCommand(req.params.id, req.body || {})
+    res.json(layoutValidation ? Object.assign({}, command, { layoutValidation }) : command)
   }))
 
   router.post('/groups/:groupId/command', wrap(getManager, (manager, req, res) => {
@@ -1799,12 +1816,15 @@ function importDashboardPreset (manager, body, headers) {
   if (!config || typeof config !== 'object' || Array.isArray(config)) {
     throw statusError(400, 'dashboard object is required')
   }
-  return manager.upsertProfile({
+  // Validator on store: an import that replaces a preset displays use is
+  // checked for them.
+  const { profile, layoutValidation } = manager.saveProfileChecked({
     id,
     name: preset.name || doc.name || id,
     version: Number(preset.version || doc.version || 1),
     config
   })
+  return Object.assign({}, profile, { layoutValidation })
 }
 
 function parseDashboardImport (raw, contentType) {
@@ -3118,12 +3138,35 @@ function screenKindLabel (id) {
   return FULLSCREEN_SCREEN_IDS.has(String(id)) ? 'fullscreen' : 'grid'
 }
 
+// Form routes answer with a redirect: a validation other than "ok" (an
+// already-invalid layout, or no validator in this install) rides along.
+function validationParam (result) {
+  const v = result && result.layoutValidation && result.layoutValidation.validation
+  return v && v !== 'ok' ? `&validation=${encodeURIComponent(v)}` : ''
+}
+
 function saveDeviceConfigForm (manager, id, body) {
   const device = manager.getDevice(id)
   const profileId = String(body.profileId || device.assignedProfile || 'default')
   if (!manager.store.profiles.profiles[profileId]) throw statusError(400, 'unknown preset')
   const overrides = configOverridesFromForm(body)
   let assignedProfile = profileId
+  // Validator on store: every action stores this display's profile and
+  // overrides (its heartbeat then pulls them in), so all are checked before
+  // anything is stored, against what the display has now: only issues the
+  // form introduces are refused, so re-saving or re-sending an unchanged
+  // layout goes through (with a warning if it is already invalid). Saving
+  // as a preset also checks every other display assigned that preset.
+  const asPreset = body.action === 'save-preset' || body.action === 'save-send-preset'
+  const presetIdFor = asPreset ? sanitizePresetId(body.presetId || body.presetName) : null
+  if (asPreset && !presetIdFor) throw statusError(400, 'preset id is required')
+  const targets = [{ deviceId: id, opts: asPreset ? { profileConfig: overrides, overrides } : { profileId, overrides }, compare: true }]
+  if (asPreset) {
+    for (const other of manager.devicesUsingProfile(presetIdFor)) {
+      if (other !== id) targets.push({ deviceId: other, opts: { profileConfig: overrides }, compare: true })
+    }
+  }
+  const layoutValidation = manager.gateLayouts(targets)
 
   if (body.action === 'save-preset' || body.action === 'save-send-preset') {
     const presetId = sanitizePresetId(body.presetId || body.presetName)
@@ -3155,7 +3198,7 @@ function saveDeviceConfigForm (manager, id, body) {
     })
   }
 
-  return { status: body.action || 'saved' }
+  return { status: body.action || 'saved', layoutValidation }
 }
 
 function applyPresetForm (manager, profileId, body) {
@@ -3163,6 +3206,14 @@ function applyPresetForm (manager, profileId, body) {
   if (!profile) throw statusError(404, 'preset not found')
   const deviceIds = arrayValue(body.deviceIds)
   if (deviceIds.length === 0) throw statusError(400, 'select at least one device')
+  // Validator on store: every display is checked before any is changed
+  // (re-applying what a display already has only warns).
+  const layoutValidation = manager.gateLayouts(deviceIds.map((deviceId) => {
+    const d = manager.getDevice(deviceId)
+    const overrides = checkboxValue(body.clearOverrides) ? {} : d.overrides
+    const unchanged = (d.assignedProfile || 'default') === profileId && JSON.stringify(overrides || {}) === JSON.stringify(d.overrides || {})
+    return { deviceId, opts: { profileId, overrides }, compare: unchanged }
+  }))
 
   deviceIds.forEach((deviceId) => {
     manager.assignProfile(deviceId, {
@@ -3182,7 +3233,7 @@ function applyPresetForm (manager, profileId, body) {
     }
   })
 
-  return { status: checkboxValue(body.sendReload) ? 'applied-and-sent' : 'applied', count: deviceIds.length }
+  return { status: checkboxValue(body.sendReload) ? 'applied-and-sent' : 'applied', count: deviceIds.length, layoutValidation }
 }
 
 // Per-unit-class number formatting, mirroring the firmware's `ui.format` shape
