@@ -11,21 +11,20 @@
 //
 //   npm run build:midl-bundle
 //
-// Steps: build midl/ts (the validator+solver), then build midl/web's device
+// Steps: install the midl workspace, build midl/ts (the validator+solver), then build midl/web's device
 // entry (vite.device.config.ts -> dist-device/midl-device.global.js) and
 // midl/editor's global entry (vite.global.config.ts ->
 // dist-global/midl-editor.global.js), then copy.
 //
-// midl/web and midl/editor declare `"@yey-boats/midl*": "*"` dependencies,
-// which 404 on `npm install` (they are resolved via Vite aliases to the
-// sibling sources, NOT from npm). We install AROUND them: temporarily strip
-// those lines, install, build, restore.
+// midl is an npm workspace monorepo (ts, web, editor) whose packages depend on
+// each other by version; the Vite configs alias them to the sibling sources.
+// So we install once at the midl root (workspaces link the siblings) and run
+// each build with `-w`.
 const { execFileSync } = require("node:child_process");
 const fs = require("node:fs");
 const path = require("node:path");
 
 const ROOT = path.resolve(__dirname, "..");
-const TS = path.join(ROOT, "midl", "ts");
 const WEB = path.join(ROOT, "midl", "web");
 const EDITOR = path.join(ROOT, "midl", "editor");
 const BUNDLE = path.join(WEB, "dist-device", "midl-device.global.js");
@@ -41,36 +40,15 @@ function run(cmd, args, cwd) {
   execFileSync(cmd, args, { cwd, stdio: "inherit" });
 }
 
-// The builds below touch files the midl repo tracks (npm rewrites the
-// workspace lockfile; the editor build overwrites midl's own committed
-// editor/dist-global bundle). Snapshot them and put them back afterwards so a
+// The builds below may touch files the midl repo tracks (npm can rewrite the
+// workspace lockfile). Snapshot them and put them back afterwards so a
 // rebuild never leaves the submodule dirty.
+const MIDL = path.join(ROOT, "midl");
 const MIDL_TRACKED_OUTPUTS = [
-  path.join(ROOT, "midl", "package-lock.json"),
-  EDITOR_BUNDLE,
+  path.join(MIDL, "package-lock.json"),
 ].filter((f) => fs.existsSync(f)).map((f) => [f, fs.readFileSync(f)]);
-// midl/ts has no lockfile of its own (the workspace root holds it); drop the
-// one its standalone `npm install` writes unless it was already there.
-const TS_LOCK = path.join(TS, "package-lock.json");
-const tsLockExisted = fs.existsSync(TS_LOCK);
 function restoreMidlTracked() {
   for (const [f, buf] of MIDL_TRACKED_OUTPUTS) fs.writeFileSync(f, buf);
-  if (!tsLockExisted) fs.rmSync(TS_LOCK, { force: true });
-}
-
-// Install + build a package with its unresolvable workspace deps stripped from
-// package.json for the duration (restored afterwards, even on failure).
-function buildAround(dir, script) {
-  const pkg = path.join(dir, "package.json");
-  const original = fs.readFileSync(pkg, "utf8");
-  const stripped = original.replace(/^\s*"@yey-boats\/midl(-web)?":\s*"\*",?\s*\n/gm, "");
-  try {
-    fs.writeFileSync(pkg, stripped);
-    run("npm", ["install", "--no-audit", "--no-fund", "--no-package-lock"], dir);
-    run("npm", ["run", script], dir);
-  } finally {
-    fs.writeFileSync(pkg, original);
-  }
 }
 
 // Copy a single-file bundle into the plugin (public/ is the webapp root).
@@ -80,13 +58,14 @@ function copy(src, dest) {
   console.log(`OK: copied ${path.relative(ROOT, src)} -> ${path.relative(ROOT, dest)} (${kb} KB)`);
 }
 try {
-  // 1. Build the validator/solver the device bundle inlines.
-  run("npm", ["install", "--no-audit", "--no-fund", "--no-package-lock"], TS);
-  run("npm", ["run", "build"], TS);
+  // 1. Install the workspace and build the validator/solver (midl/ts/dist,
+  //    which lib/midl.js requires and the device bundle inlines).
+  run("npm", ["ci", "--no-audit", "--no-fund"], MIDL);
+  run("npm", ["run", "build", "-w", "@yey-boats/midl"], MIDL);
 
   // 2. Build the device bundle and the editor bundle.
-  buildAround(WEB, "build:device");
-  buildAround(EDITOR, "build:global");
+  run("npm", ["run", "build:device", "-w", "@yey-boats/midl-web"], MIDL);
+  run("npm", ["run", "build:global", "-w", "@yey-boats/midl-editor"], MIDL);
 
   console.log("");
   copy(BUNDLE, DEST);

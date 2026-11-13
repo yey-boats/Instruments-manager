@@ -236,10 +236,11 @@ test("4. Font size select changes preview text size", async ({ browser }) => {
   console.log(`[4] text metrics before font change: ${JSON.stringify(textSizeBefore)}`);
 
   // The midl Inspector offers role tokens (S / M / L / XL / Fill; schema
-  // style.size), not pixel sizes. It defaults to L; step up to XL (#43).
-  expect(sizeBefore, "size-select defaults to the L role").toBe("L");
+  // style.size), not pixel sizes. An element without style.size shows
+  // "unset" (value "", midl#46); step up to XL (#43).
+  expect(sizeBefore, "size-select shows unset when no size is set").toBe("");
   const options = await page.locator('[data-testid="size-select"] option').evaluateAll((os) => os.map((o) => o.value));
-  expect(options).toEqual(expect.arrayContaining(["S", "M", "L", "XL", "Fill"]));
+  expect(options).toEqual(expect.arrayContaining(["", "S", "M", "L", "XL", "Fill"]));
   await page.selectOption('[data-testid="size-select"]', "XL");
   // Wait for the preview to re-render with the larger hero.
   await expect.poll(() => page.locator('[data-testid="preview-host"]').innerHTML()).toContain('font-size="' );
