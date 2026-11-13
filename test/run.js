@@ -63,7 +63,8 @@ const NODE_TEST_FILES = [
   'midl-adapter.test.js',
   'midl-diff.test.js',
   'device-preview-midl.test.js',
-  'marker-validation.test.js'
+  'marker-validation.test.js',
+  'layout-push-validation.test.js'
 ]
 function runNodeTestSuites () {
   if (!NODE_TEST_FILES.length) return

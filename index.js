@@ -1048,6 +1048,9 @@ function registerRoutes (baseRouter, getManager) {
           manager.upsertProfile({ id: newId, name, config: cfg })
           status = 'created:' + newId
         } else {
+          // Validator on push: this saves the display's profile and reloads
+          // it, so refuse edits that make its layout fail validation.
+          manager.requireValidDeviceLayout(id, { profileConfig: cfg }, manager.checkDeviceLayout(id, { profileConfig: base.config || {} }))
           manager.upsertProfile({ id: baseId, name: base.name || baseId, config: cfg })
           // Best-effort reload nudge, but log failures instead of swallowing
           // them (MGR-8): a broken trigger should not vanish without a trace.
@@ -1209,6 +1212,8 @@ function registerRoutes (baseRouter, getManager) {
   }))
 
   router.post('/devices/:id/command', wrap(getManager, (manager, req, res) => {
+    // Validator on push: a config.reload sends the display its layout.
+    if (req.body && req.body.type === 'config.reload') manager.requireValidDeviceLayout(req.params.id)
     res.json(manager.createCommand(req.params.id, req.body || {}))
   }))
 
@@ -3079,6 +3084,12 @@ function saveDeviceConfigForm (manager, id, body) {
   if (!manager.store.profiles.profiles[profileId]) throw statusError(400, 'unknown preset')
   const overrides = configOverridesFromForm(body)
   let assignedProfile = profileId
+  // Validator on push: "save and send" refuses a layout the display would
+  // reject before anything is stored.
+  if (body.action === 'save-send' || body.action === 'save-send-preset') {
+    const preset = body.action === 'save-send-preset'
+    manager.requireValidDeviceLayout(id, preset ? { profileConfig: overrides, overrides } : { profileId, overrides })
+  }
 
   if (body.action === 'save-preset' || body.action === 'save-send-preset') {
     const presetId = sanitizePresetId(body.presetId || body.presetName)
@@ -3118,6 +3129,10 @@ function applyPresetForm (manager, profileId, body) {
   if (!profile) throw statusError(404, 'preset not found')
   const deviceIds = arrayValue(body.deviceIds)
   if (deviceIds.length === 0) throw statusError(400, 'select at least one device')
+  // Validator on push: every display is checked before any is changed.
+  manager.requireValidLayouts(deviceIds, (deviceId) => ({
+    profileId, overrides: checkboxValue(body.clearOverrides) ? {} : manager.getDevice(deviceId).overrides
+  }))
 
   deviceIds.forEach((deviceId) => {
     manager.assignProfile(deviceId, {
