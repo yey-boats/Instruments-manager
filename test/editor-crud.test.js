@@ -279,3 +279,17 @@ test('#41: a valid 5-tile MIDL doc saves through POST /editor/midl (was 409)', a
   assert.strictEqual(r.status, 200, JSON.stringify(r.json))
   assert.strictEqual(manager.editorLayout(id).screens[0].tiles.length, 5)
 })
+
+test('#41: a profile already over the 32-widget limit can still be shrunk', () => {
+  const { manager, id } = freshManager()
+  const items = {}
+  const tiles = []
+  for (let i = 0; i < 35; i++) { items['w' + i] = { type: 'numeric', path: 'navigation.speedOverGround', paths: { value: 'navigation.speedOverGround' } }; tiles.push({ widget: 'w' + i }) }
+  const screens = []
+  for (let v = 0; v < 5; v++) screens.push({ id: 's' + v, type: 'grid', tiles: tiles.slice(v * 7, v * 7 + 7) })
+  manager.upsertProfile({ id: 'bench', name: 'Bench', config: { widgets: { version: 1, items }, layout: { version: 1, screens } } })
+  const layout = manager.removeField(id, 's0', 'w0')
+  assert.strictEqual(Object.keys(layout.items).length, 34)
+  manager.renameScreen(id, 's1', 'Renamed')
+  assert.throws(() => manager.addField(id, 's0', { type: 'numeric', paths: { value: 'x' } }), (e) => e.payload.error.code === 'max_widgets_exceeded')
+})
