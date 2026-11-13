@@ -180,13 +180,15 @@ test('CRUD queues a config.reload so the device fetches the new layout', () => {
 })
 
 // #41: the tile cap comes from the device's MIDL display class.
-test('#41: the tile cap follows the MIDL display class, which mirrors the generated manifests', () => {
+test('#41: MIDL_CLASSES maxTiles mirrors the generated manifests', (t) => {
   const fs = require('node:fs')
   const path = require('node:path')
   const midl = require('../lib/midl')
+  const dir = path.join(__dirname, '..', 'midl', 'schemas', 'gen')
+  if (!fs.existsSync(dir)) { t.skip('midl submodule not checked out'); return }
   for (const c of midl.MIDL_CLASSES) {
-    const p = path.join(__dirname, '..', 'midl', 'schemas', 'gen', `yb-midl-capabilities.${c.id}.json`)
-    if (!fs.existsSync(p)) continue // submodule absent: nothing to compare against
+    const p = path.join(dir, `yb-midl-capabilities.${c.id}.json`)
+    assert.ok(fs.existsSync(p), `generated manifest for ${c.id}`)
     const gen = JSON.parse(fs.readFileSync(p, 'utf8')).classes.find((k) => k.id === c.id)
     assert.strictEqual(c.maxTiles, gen.maxTiles, `${c.id} maxTiles mirrors the generated manifest`)
   }
@@ -194,8 +196,26 @@ test('#41: the tile cap follows the MIDL display class, which mirrors the genera
   const square = midl.MIDL_CLASSES.find((c) => c.id === 'square-480').maxTiles
   for (const f of ['midl-editor.js', 'midl-preview.js']) {
     const src = fs.readFileSync(path.join(__dirname, '..', 'public', f), 'utf8')
-    assert.ok(src.includes(`id: "square-480", width: 480, height: 480, maxTiles: ${square},`), `${f} square-480 maxTiles is ${square}`)
+    const m = src.match(/id:\s*"square-480"[^}]*?maxTiles:\s*(\d+)/)
+    assert.ok(m, `${f} has a square-480 class`)
+    assert.strictEqual(Number(m[1]), square, `${f} square-480 maxTiles`)
   }
+})
+
+test('#41: classForDisplay picks the class (round, rotation, nearest landscape)', () => {
+  const { classForDisplay } = require('../lib/midl')
+  const id = (d) => classForDisplay(d).id
+  assert.strictEqual(id({ width: 480, height: 480 }), 'square-480')
+  assert.strictEqual(id({ width: 360, height: 360, shape: 'round' }), 'round-360')
+  assert.strictEqual(id({ width: 240, height: 240, shape: 'round' }), 'round-360')
+  assert.strictEqual(id({ width: 480, height: 800 }), 'landscape-800x480')
+  assert.strictEqual(id({ width: 800, height: 400 }), 'landscape-800x480')
+  assert.strictEqual(id({ width: 480, height: 320 }), 'landscape-800x480')
+  assert.strictEqual(id({ width: 1280, height: 800 }), 'landscape-1024x600')
+  assert.strictEqual(id({}), 'square-480')
+})
+
+test('#41: per-class caps on the server; the whole dashboard stays within the firmware widget limit', () => {
 
   const { manager, id, auth } = freshManager()
   // A device reporting the legacy bound (4) still gets its class's cap.
@@ -206,11 +226,36 @@ test('#41: the tile cap follows the MIDL display class, which mirrors the genera
   for (let n = 0; n < 5; n++) manager.addField(id, sid, { type: 'numeric', paths: { value: 'navigation.speedOverGround' } })
   assert.strictEqual(manager.editorLayout(id).screens.find((s) => s.id === sid).tiles.length, 5)
 
-  // A wide (800x480) display is a landscape class: 6 tiles.
-  const { manager: m2, auth: a2 } = makeManager({ auth: { mode: 'dev-shared-token', devToken: 'test-token' } })
-  const wide = 'yey-d-dddddddddddd'
-  m2.registerDevice({ device: { id: wide, name: 'Wide', role: 'display', board: 'sunton_8048s050', display: { width: 800, height: 480, shape: 'wide' } } }, a2)
-  assert.strictEqual(m2.editorMaxTiles(wide), 6)
+  // Firmware MAX_WIDGETS = 32 widget items per config: 4 full screens of 9
+  // would be 36, so the 33rd field is refused.
+  const { manager: m3, id: id3 } = freshManager()
+  let added = 0
+  let refused = null
+  for (let v = 0; v < 4 && !refused; v++) {
+    const s3 = m3.addScreen(id3, { title: 'V' + v }).screens.slice(-1)[0].id
+    for (let n = 0; n < 9; n++) {
+      try { m3.addField(id3, s3, { type: 'numeric', paths: { value: 'navigation.speedOverGround' } }); added++ } catch (e) { refused = e; break }
+    }
+  }
+  assert.strictEqual(added, 32)
+  assert.strictEqual(refused && refused.payload.error.code, 'max_widgets_exceeded')
+
+  // Landscape classes allow 6 (the 7th is refused); a round panel 4.
+  const capOf = (devId, display) => {
+    const { manager: m, auth: a } = makeManager({ auth: { mode: 'dev-shared-token', devToken: 'test-token' } })
+    m.registerDevice({ device: { id: devId, name: 'D', role: 'display', board: 'x', display } }, a)
+    m.upsertProfile({ id: 'p', name: 'P', config: { layout: { version: 1, screens: [] }, widgets: { version: 1, items: {} } } })
+    m.assignProfile(devId, { profileId: 'p' })
+    const sc = m.addScreen(devId, { title: 'S' }).screens[0].id
+    let n = 0
+    try { for (;;) { m.addField(devId, sc, { type: 'numeric', paths: { value: 'navigation.speedOverGround' } }); n++ } } catch (e) {
+      assert.strictEqual(e.payload.error.code, 'max_tiles_exceeded')
+    }
+    return n
+  }
+  assert.strictEqual(capOf('yey-d-dddddddddddd', { width: 800, height: 480, shape: 'wide' }), 6)
+  assert.strictEqual(capOf('yey-d-ffffffffffff', { width: 1024, height: 600, shape: 'wide' }), 6)
+  assert.strictEqual(capOf('yey-d-aaaaaaaaaaaa', { width: 360, height: 360, shape: 'round' }), 4)
 })
 
 test('#41: a valid 5-tile MIDL doc saves through POST /editor/midl (was 409)', async () => {
