@@ -632,9 +632,11 @@ function registerRoutes (baseRouter, getManager) {
     // #33: refuse (422) a document the device's validator would reject, or
     // one the v2 dashboard model cannot hold (it would be silently changed on
     // save). Range, size, a #rrggbb colour, signalk dial markers and the
-    // screen title are carried (#38); other element styling (zones in MIDL
-    // form, sectors, ...), format decimals and actions are not. Without
-    // the validator in this install the save proceeds, flagged `unavailable`.
+    // screen title are carried (#38); other element styling (colorRole, zones
+    // in MIDL form, sectors, ...), actions and marker extras are refused by
+    // name (#53), never dropped. format.decimals and style.span are tolerated
+    // (the editor always writes them; see lib/midl.js). Without the validator
+    // in this install the save proceeds, flagged `unavailable`.
     const device = manager.getDevice(req.params.id)
     const className = midlLib.classForDisplay(manager.resolveDisplay(device)).id
     const validation = midlLib.checkMidlDoc(doc, className)

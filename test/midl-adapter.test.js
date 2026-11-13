@@ -715,3 +715,101 @@ test('#38: a new element keeps only what its type can hold', () => {
   assert.strictEqual(v2.widgets.items.n.range, undefined)
   assert.strictEqual(v2.widgets.items.g.markers, undefined)
 })
+
+// #53: what the Inspector writes that the v2 item has no slot for (colorRole,
+// MIDL zones, sectors, scale, side, zoom, unknown format keys, actions, extra
+// bindings, marker extras) is refused by name with 422 midl_unsupported,
+// never dropped. format.decimals and style.span are tolerated (the editor
+// writes them on every catalog pick / Span change).
+test('#53: colorRole, zones, sectors and marker extras are refused by name, not dropped', needsBuild, async () => {
+  const cases = [
+    ['colorRole', (els) => { els['dash-gauge'].style.colorRole = 'warn' }, '/style/colorRole', /style\.colorRole/],
+    ['zones', (els) => { els['dash-gauge'].style.zones = [{ lt: 11, color: 'warn' }, { lt: 15, color: 'good' }] }, '/style/zones', /style\.zones/],
+    ['sectors', (els) => { els['dash-compass'].style = { sectors: [{ from: -45, to: 45, color: 'warn' }] } }, '/style/sectors', /style\.sectors/],
+    ['scale', (els) => { els['dash-gauge'].style.scale = 'metric' }, '/style/scale', /style\.scale/],
+    ['other style key', (els) => { els['dash-compass'].style = { hull: true } }, '/style/hull', /style\.hull/],
+    ['side', (els) => { els['dash-gauge'].format = { side: true } }, '/format/side', /format\.side/],
+    ['string side', (els) => { els['dash-gauge'].format = { side: 'port-stbd' } }, '/format/side', /format\.side/],
+    ['precision', (els) => { els['dash-gauge'].format = { precision: 2 } }, '/format/precision', /format\.precision/],
+    ['unknown format key', (els) => { els['dash-gauge'].format = { decimals: 1, si: true } }, '/format/si', /format\.si/],
+    ['marker extra', (els) => { els['dash-compass'].markers[0].filled = true }, '/markers/0/filled', /marker\.filled/],
+    ['marker label', (els) => { els['dash-compass'].markers[0].label = 'COG' }, '/markers/0/label', /marker\.label/]
+  ]
+  for (const [name, edit, where, says] of cases) {
+    const { manager, id } = richBench()
+    const before = JSON.stringify(manager.editorLayout(id))
+    const get = routes(manager)
+    const doc = JSON.parse((await call(get('GET', '/devices/:id/editor/midl'), { id })).json.doc)
+    edit(doc.screens[0].elements)
+    const r = await call(get('POST', '/devices/:id/editor/midl'), { id }, { doc })
+    assert.strictEqual(r.status, 422, `${name}: ${JSON.stringify(r.json)}`)
+    assert.strictEqual(r.json.error.code, 'midl_unsupported', name)
+    const hit = r.json.error.details.issues.find((i) => i.path.endsWith(where))
+    assert.ok(hit, `${name}: ${JSON.stringify(r.json.error.details.issues)}`)
+    assert.match(hit.message, says, name)
+    assert.strictEqual(JSON.stringify(manager.editorLayout(id)), before, `${name}: nothing stored`)
+  }
+})
+
+test('#53: default-valued Inspector settings lose nothing and save', needsBuild, async () => {
+  const { manager, id } = richBench()
+  const before = manager.editorLayout(id).items
+  await roundTrip(manager, id, (doc) => {
+    const els = doc.screens[0].elements
+    // (colorRole "default" is not a theme token; the validator refuses it.)
+    Object.assign(els['dash-gauge'].style, { scale: 'fixed', zones: [] })
+    els['dash-gauge'].format = { side: false }
+    els['dash-compass'].style = { sectors: [] }
+  })
+  assert.deepStrictEqual(manager.editorLayout(id).items, before)
+})
+
+test('#53: roundTripLoss refuses action, extra bindings and owner-scope styling without the validator', () => {
+  const { roundTripLoss } = require('../lib/midl')
+  const el = {
+    type: 'gauge',
+    bindings: { value: { kind: 'signalk', path: 'x.v' }, min: { kind: 'signalk', path: 'x.m' } },
+    style: { range: [0, 10], colorRole: 'accent', zones: [{ lt: 5, color: 'warn' }] },
+    format: { unit: 'V', decimals: 1 },
+    action: { kind: 'put', target: 'x.y' },
+    zoom: { min: 0, max: 2 }
+  }
+  const doc = { midl: '1.0.0', screens: [{ id: 's', elements: { g: el }, layout: { rows: 1, cols: 1, cells: [{ element: 'g' }] } }] }
+  assert.deepStrictEqual(roundTripLoss(doc).map((i) => i.path).sort(), [
+    '/screens/0/elements/g/action',
+    '/screens/0/elements/g/bindings/min',
+    '/screens/0/elements/g/style/colorRole',
+    '/screens/0/elements/g/style/zones',
+    '/screens/0/elements/g/zoom'
+  ])
+  // (The device validator refuses these two first on a POST; roundTripLoss
+  // still names them when it is not built into the install.)
+  // An unplaced element never reaches the device and is not refused.
+  doc.screens[0].elements.h = Object.assign({}, el)
+  assert.strictEqual(roundTripLoss(doc).length, 5)
+})
+
+test('#53: what the editor writes on a catalog pick (decimals, span 1x1, size) saves', needsBuild, async () => {
+  const { manager, id } = richBench()
+  const before = manager.editorLayout(id).items
+  const r = await roundTrip(manager, id, (doc) => {
+    const g = doc.screens[0].elements['dash-gauge']
+    // applyCatalogDefaults: name, format.unit + format.decimals, a size
+    // (a pixel size here: role tokens are refused by #38); the Span select
+    // writes style.span even for 1x1.
+    g.name = g.name || 'House'
+    g.format = Object.assign({}, g.format, { unit: 'V', decimals: 2 })
+    g.style = Object.assign({}, g.style, { span: '1x1', size: 28 })
+    const c = doc.screens[0].elements['dash-compass']
+    c.format = { decimals: 0 }
+    c.style = { span: '1x1' }
+  })
+  assert.ok(r)
+  const after = manager.editorLayout(id).items
+  assert.deepStrictEqual(Object.keys(after).sort(), Object.keys(before).sort())
+  for (const k of Object.keys(before)) {
+    assert.strictEqual(after[k].type, before[k].type, k)
+    assert.deepStrictEqual(after[k].paths, before[k].paths, k)
+  }
+})
+
