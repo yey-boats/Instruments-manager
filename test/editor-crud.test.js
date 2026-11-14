@@ -132,6 +132,43 @@ test('add / update / remove fields with maxTilesPerScreen cap + gating', () => {
   assert.ok(!layout.items[widgetId], 'orphan widget item removed')
 })
 
+// #49: addField did not set a tile `area`, and the firmware defaults a
+// missing one to col 0 / row 0 — every field-editor tile would render
+// stacked in one cell. Fields added through the editor must auto-flow
+// row-major, accounting for the tiles already on the screen.
+test('addField auto-flows tile areas row-major (#49)', () => {
+  const { manager, id, auth } = freshManager()
+  manager.updateStatus(id, { time: new Date().toISOString(), ui: { capabilities: REPORTED_MANIFEST } }, auth)
+  let layout = manager.addScreen(id, { title: 'Dash' })
+  const sid = layout.screens[0].id
+
+  for (let n = 0; n < 5; n++) {
+    layout = manager.addField(id, sid, { type: 'numeric', paths: { value: `path.${n}` } })
+  }
+  const tiles = layout.screens.find((s) => s.id === sid).tiles
+  assert.strictEqual(tiles.length, 5)
+
+  for (const t of tiles) {
+    assert.ok(t.area && Number.isInteger(t.area.col) && Number.isInteger(t.area.row), `tile ${t.widget} has a numeric area`)
+  }
+
+  // No two tiles share a cell, and not every tile sits at col 0 / row 0.
+  const keys = tiles.map((t) => `${t.area.col},${t.area.row}`)
+  assert.strictEqual(new Set(keys).size, keys.length, 'every tile gets a distinct cell')
+  assert.ok(keys.some((k) => k !== '0,0'), 'tiles do not all stack at col 0 / row 0')
+
+  // Flow is row-major: the first tile anchors at the origin, and later
+  // tiles advance by column before wrapping to the next row.
+  assert.deepStrictEqual(tiles[0].area, { col: 0, row: 0 })
+
+  // updateField must not disturb the tile's position.
+  const widgetId = tiles[2].widget
+  const before = tiles[2].area
+  layout = manager.updateField(id, sid, widgetId, { type: 'numeric', paths: { value: 'path.2' }, unit: 'kn' })
+  const after = layout.screens.find((s) => s.id === sid).tiles.find((t) => t.widget === widgetId)
+  assert.deepStrictEqual(after.area, before, 'updateField preserves the existing area')
+})
+
 test('range/zones only persist on gauge/bar; save limits writes them', () => {
   const { manager, id, auth } = freshManager()
   manager.updateStatus(id, { time: new Date().toISOString(), ui: { capabilities: REPORTED_MANIFEST } }, auth)
