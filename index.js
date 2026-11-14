@@ -4620,7 +4620,7 @@ function renderDayNightSection (manager, req) {
     const d = new Date(iso)
     return `${String(d.getHours()).padStart(2, '0')}:${String(d.getMinutes()).padStart(2, '0')}`
   }
-  const SOURCES = { schedule: 'by the clock', sun: 'by sunrise / sunset', 'schedule-fallback': 'by the clock (no boat position yet)', override: 'set by hand' }
+  const SOURCES = { schedule: 'by the clock', sun: 'by sunrise / sunset', 'sun-last-position': 'by sunrise / sunset at the last known position', 'schedule-fallback': 'by the clock (no boat position yet)', override: 'set by hand' }
   const status = st.phase
     ? `Now: <b>${st.phase === 'day' ? 'Day' : 'Night'}</b> (${escapeHtml(themeLabel(st.theme))}), ${escapeHtml(SOURCES[st.source] || st.source || '')}` +
       (st.nextChangeAt ? `. Next switch ${escapeHtml(clock(st.nextChangeAt))}` : '') +
@@ -4629,6 +4629,8 @@ function renderDayNightSection (manager, req) {
   const pending = st.devices.filter((d) => ['pending', 'delivered', 'retry'].includes(d.state)).length
   const failed = st.devices.filter((d) => d.state === 'failed').length
   const gaveUp = st.devices.filter((d) => d.state === 'gave-up').length
+  const local = st.devices.filter((d) => d.state === 'local').length
+  const byHand = st.devices.filter((d) => d.state === 'overridden').length
   return `
     <form class="config-form" id="day-night" method="post" action="/plugins/yey-boats-display-manager/ui/settings/day-night">
       <h2>Day / night</h2>
@@ -4644,9 +4646,9 @@ function renderDayNightSection (manager, req) {
           ${field('Day starts', input('dayStart', s.dayStart, 'time'))}
           ${field('Night starts', input('nightStart', s.nightStart, 'time'))}
         </div>
-        <p class="muted">Sunrise / sunset uses the boat's position from SignalK${st.position ? '' : ' (none yet, so the fixed times apply)'}; the fixed times are this server's local time.</p>
+        <p class="muted">Sunrise / sunset uses the boat's position from SignalK${st.position ? (st.positionLastKnown ? ' (none right now, so the last known position)' : '') : ' (none yet, so the fixed times apply)'}; the fixed times are this server's local time.</p>
       </fieldset>
-      <p>${status}${pending ? ` ${pending} display(s) still to switch.` : ''}${failed ? ` ${failed} display(s) refused the theme (firmware too old?).` : ''}${gaveUp ? ` ${gaveUp} display(s) did not keep the theme; they are sent it again at the next switch.` : ''}</p>
+      <p>${status}${pending ? ` ${pending} display(s) still to switch.` : ''}${failed ? ` ${failed} display(s) refused the theme (firmware too old?).` : ''}${local ? ` ${local} display(s) changed on the display; kept until the next switch.` : ''}${byHand ? ` ${byHand} display(s) set by hand; kept until the next switch.` : ''}${gaveUp ? ` ${gaveUp} display(s) did not keep the theme; they are sent it again at the next switch.` : ''}</p>
       <div class="actions">
         <button type="submit">Save day / night</button>
       </div>

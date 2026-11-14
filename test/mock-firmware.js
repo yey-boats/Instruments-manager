@@ -20,6 +20,10 @@ class MockFirmware {
     this.config = null
     this.applied = null
     this.persisted = null
+    // Boot instant on Date.now()'s clock: the heartbeat reports the uptime
+    // since then (the firmware's ui.uptime_ms, millis()). Up an hour when
+    // the mock is created; reboot() starts it again from zero.
+    this.bootAt = Date.now() - 3600000
     this.firmware = {
       name: 'yey-display',
       version: options.version || '0.5.0-dev',
@@ -121,6 +125,7 @@ class MockFirmware {
   // Power cycle: the theme in NVS survives; load_persisted_config() then
   // re-applies the persisted config (incl. its ui.theme) and reports its hash.
   reboot () {
+    this.bootAt = Date.now()
     this.applied = null
     if (this.persisted) {
       this.config = JSON.parse(JSON.stringify(this.persisted))
@@ -128,9 +133,13 @@ class MockFirmware {
     }
   }
 
+  uptimeMs () {
+    return Math.max(0, Date.now() - this.bootAt)
+  }
+
   heartbeat () {
     return this.manager.updateStatus(this.deviceId, {
-      uptimeMs: 1000,
+      uptimeMs: this.uptimeMs(),
       network: {
         mode: 'sta',
         ssid: 'BoatWiFi',
@@ -148,6 +157,7 @@ class MockFirmware {
         lastDeltaAgeMs: 200
       },
       ui: {
+        uptime_ms: this.uptimeMs(),
         screen: this.screen,
         theme: this.theme,
         brightness: this.brightness,

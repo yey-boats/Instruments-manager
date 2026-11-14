@@ -4,8 +4,9 @@
 //
 // Pure phase computation (lib/day-night.js) and the manager side: broadcast
 // on a transition, catch-up for a display that was offline, no duplicate
-// sends, the generated config following the phase, the manual override, the
-// SignalK delta and the audit trail.
+// sends, the generated config never carrying the phase theme (theme.set is
+// the only carrier), the manual override, the SignalK delta and the audit
+// trail.
 
 const { test } = require('node:test')
 const assert = require('node:assert')
@@ -353,20 +354,27 @@ test('B1: a display that reports another theme after applying is re-sent it, rat
   // ...then once more.
   c.advance(RETRY_MS)
   assert.strictEqual(fw.pollAndExecute().length, 1)
-  // A display that keeps reverting gets at most MAX_SENDS per switch.
+  // A display that keeps reverting gets at most MAX_SENDS per switch (each
+  // reboot is a while after the last ack, as a real power cycle is).
   for (let i = 0; i < 10; i++) {
+    c.advance(RETRY_MS)
     fw.reboot()
     fw.heartbeat()
-    c.advance(RETRY_MS)
     fw.pollAndExecute()
   }
   assert.strictEqual(themeCmds(manager, id).length, MAX_SENDS)
   assert.strictEqual(record(manager, id).state, 'gave-up')
-  // The next switch starts afresh.
+  // The next switch starts afresh: the display already reports the day
+  // theme (its persisted config brought it back), so that one is applied.
   manager.dayNightTick(local(7, 0, 2))
+  assert.strictEqual(fw.pollAndExecute().length, 0)
+  assert.strictEqual(fw.theme, 'sun')
+  assert.strictEqual(record(manager, id).state, 'applied')
+  // ...and the night after is sent again.
+  manager.dayNightTick(local(20, 0, 2))
   got = fw.pollAndExecute()
   assert.strictEqual(got.length, 1)
-  assert.strictEqual(fw.theme, 'sun')
+  assert.strictEqual(fw.theme, 'red-night')
 })
 
 test('B1: a heartbeat sent before the theme was applied does not count as a mismatch', (t) => {
@@ -625,6 +633,247 @@ test('nit: a phase change while the manager was down applies at startup', (t) =>
   const pending = again.store.commands.commands.filter((x) => x.deviceId === fw.deviceId && x.type === 'theme.set' && x.status === 'pending')
   assert.strictEqual(pending.length, 1)
   assert.deepStrictEqual(pending[0].payload, { theme: 'red-night' })
+})
+
+// ---- PR #70 re-review (6ef9f7a) ---------------------------------------------
+
+// Pins Date.now() to `start` and lets the test move it.
+function pinnedClock (t, start) {
+  const real = Date.now
+  let at = start
+  Date.now = () => at
+  t.after(() => { Date.now = real })
+  return { advance (ms) { at += ms } }
+}
+
+// HH:00 `h` hours after the local hour of `ms`.
+const hourAfter = (ms, h) => `${String((new Date(ms).getHours() + h) % 24).padStart(2, '0')}:00`
+
+test('R1: sun mode keeps the last known position across a restart and a GPS dropout', (t) => {
+  // 21 Jun 04:30 UTC: the sun is up in London (sunrise 03:43Z). The fixed
+  // times are set so that the schedule says night then.
+  const t0 = Date.UTC(2026, 5, 21, 4, 30)
+  const c = pinnedClock(t, t0)
+  const { manager, fws } = setup(1)
+  const fw = fws[0]
+  let pos = LONDON
+  manager.app.getSelfPath = (p) => (p === 'navigation.position' && pos ? { value: pos } : undefined)
+  manager.updateDayNight({ mode: 'sun', dayStart: hourAfter(t0, 1), nightStart: hourAfter(t0, 2) }, Date.now())
+  assert.strictEqual(manager.getDayNight().status.source, 'sun')
+  fw.pollAndExecute()
+  fw.heartbeat()
+  assert.strictEqual(fw.theme, 'sun')
+  const kept = manager.store.settings.dayNight.lastPosition
+  assert.ok(kept && Math.abs(kept.latitude - LONDON.latitude) < 1e-9 && Math.abs(kept.longitude - LONDON.longitude) < 1e-9)
+  assert.ok(kept.at, 'with the time it was seen')
+  // Restart before SignalK has a position: the startup tick uses the last one.
+  manager.close()
+  pos = null
+  c.advance(2 * MIN)
+  const { YeyBoatsDisplayManager } = require('../lib/manager')
+  const again = new YeyBoatsDisplayManager(manager.app, manager.options)
+  t.after(() => again.close())
+  fw.manager = again
+  const st = again.getDayNight().status
+  assert.strictEqual(st.phase, 'day')
+  assert.strictEqual(st.source, 'sun-last-position')
+  assert.strictEqual(fw.pollAndExecute().length, 0, 'nothing broadcast at startup')
+  assert.strictEqual(fw.theme, 'sun')
+  // The fix is back, then lost again mid-run: no flip either way.
+  pos = LONDON
+  c.advance(MIN)
+  assert.strictEqual(again.dayNightTick().changed, false)
+  pos = null
+  c.advance(MIN)
+  assert.strictEqual(again.dayNightTick().changed, false)
+  assert.strictEqual(fw.pollAndExecute().length, 0)
+  assert.strictEqual(themeCmds(again, fw.deviceId).length, 1)
+  assert.ok(/last known position/.test(require('../index.js').__renderSettingsPage(again, { query: {} })))
+})
+
+test('R1: sun mode with no position ever known uses the fixed times', () => {
+  const { manager } = setup(0, { position: null })
+  manager.updateDayNight({ mode: 'sun' }, local(12, 0))
+  assert.strictEqual(manager.getDayNight().status.source, 'schedule-fallback')
+  assert.strictEqual(manager.getDayNight().status.position, false)
+  assert.ok(!manager.store.settings.dayNight.lastPosition)
+})
+
+test('R2: a theme picked on the display itself holds until the next switch', (t) => {
+  const c = clock(t)
+  const { manager, fws } = setup(1, { ackStrings: true })
+  const fw = fws[0]
+  manager.updateDayNight({ mode: 'schedule' }, local(20, 0))
+  fw.pollAndExecute()
+  fw.heartbeat()
+  assert.strictEqual(fw.theme, 'red-night')
+  for (let i = 0; i < 8; i++) {
+    c.advance(5 * MIN)
+    fw.theme = 'night' // the crew picks it on the touch screen
+    fw.heartbeat()
+    c.advance(15000)
+    assert.strictEqual(fw.pollAndExecute().length, 0, 'not reverted')
+    fw.heartbeat()
+  }
+  assert.strictEqual(fw.theme, 'night')
+  assert.strictEqual(themeCmds(manager, fw.deviceId).length, 1)
+  assert.strictEqual(record(manager, fw.deviceId).state, 'local')
+  const html = require('../index.js').__renderSettingsPage(manager, { query: {} })
+  assert.ok(/changed on the display/.test(html), 'shown as changed on the display')
+  assert.ok(!/did not keep the theme/.test(html))
+  // The next switch applies again.
+  manager.dayNightTick(local(7, 0, 2))
+  assert.strictEqual(fw.pollAndExecute().length, 1)
+  assert.strictEqual(fw.theme, 'sun')
+})
+
+test('R2: a heartbeat built just before the queued theme took effect is not a local change', (t) => {
+  const c = clock(t)
+  const { manager, fws } = setup(1, { ackStrings: true })
+  const fw = fws[0]
+  manager.updateDayNight({ mode: 'schedule' }, local(20, 0))
+  fw.pollAndExecute()
+  // The firmware acks when the UI task has the command queued; a heartbeat
+  // right after can still carry the old theme.
+  fw.theme = 'day'
+  fw.heartbeat()
+  fw.theme = 'red-night'
+  assert.notStrictEqual(record(manager, fw.deviceId).state, 'local')
+  c.advance(15000)
+  fw.heartbeat()
+  assert.strictEqual(record(manager, fw.deviceId).state, 'applied')
+})
+
+test('R2: a reboot after the ack that brings back another theme is re-sent once', (t) => {
+  const c = clock(t)
+  const { manager, fws } = setup(1, { ackStrings: true })
+  const fw = fws[0]
+  manager.updateDayNight({ mode: 'schedule' }, local(20, 0))
+  fw.pollAndExecute()
+  // No heartbeat between the ack and the power cycle (missed, or the
+  // display went down at once): the uptime still shows it rebooted.
+  c.advance(5 * MIN)
+  fw.persisted = Object.assign({}, fw.persisted, { ui: { theme: 'sun' } })
+  fw.reboot()
+  c.advance(30000)
+  fw.heartbeat()
+  assert.strictEqual(fw.theme, 'sun')
+  const got = fw.pollAndExecute()
+  assert.strictEqual(got.length, 1)
+  assert.deepStrictEqual(got[0].command.payload, { theme: 'red-night' })
+  fw.heartbeat()
+  assert.strictEqual(record(manager, fw.deviceId).state, 'applied')
+  // Then the crew changes it (no reboot): respected.
+  c.advance(5 * MIN)
+  fw.theme = 'classic'
+  fw.heartbeat()
+  c.advance(RETRY_MS)
+  assert.strictEqual(fw.pollAndExecute().length, 0)
+  assert.strictEqual(record(manager, fw.deviceId).state, 'local')
+})
+
+test('R3: an operator theme.set sent while the record is in retry is not overwritten', (t) => {
+  const c = clock(t)
+  const { manager, fws } = setup(1, { ackStrings: true })
+  const fw = fws[0]
+  manager.updateDayNight({ mode: 'schedule' }, local(20, 0))
+  fw.busy = true
+  fw.pollAndExecute()
+  fw.busy = false
+  assert.strictEqual(record(manager, fw.deviceId).state, 'retry')
+  c.advance(20000)
+  manager.createCommand(fw.deviceId, { type: 'theme.set', payload: { theme: 'high-contrast' } })
+  fw.pollAndExecute()
+  fw.heartbeat()
+  assert.strictEqual(fw.theme, 'high-contrast')
+  c.advance(RETRY_MS)
+  assert.strictEqual(fw.pollAndExecute().length, 0)
+  fw.heartbeat()
+  assert.strictEqual(fw.theme, 'high-contrast')
+  assert.strictEqual(record(manager, fw.deviceId).state, 'overridden')
+})
+
+test('R3: an operator theme.set that was not applied does not stop a retry', (t) => {
+  const c = clock(t)
+  const { manager, fws } = setup(1, { ackStrings: true, themes: ['day', 'night', 'sun', 'red-night'] })
+  const fw = fws[0]
+  manager.updateDayNight({ mode: 'schedule' }, local(20, 0))
+  fw.busy = true
+  fw.pollAndExecute()
+  fw.busy = false
+  // Refused by the display (the build lacks it)...
+  manager.createCommand(fw.deviceId, { type: 'theme.set', payload: { theme: 'classic' } })
+  fw.pollAndExecute()
+  // ...and one cancelled before delivery.
+  const cancelled = manager.createCommand(fw.deviceId, { type: 'theme.set', payload: { theme: 'high-contrast' } })
+  manager.cancelCommand(fw.deviceId, cancelled.id, 'changed my mind')
+  c.advance(RETRY_MS)
+  const got = fw.pollAndExecute()
+  assert.strictEqual(got.length, 1)
+  assert.deepStrictEqual(got[0].command.payload, { theme: 'red-night' })
+  assert.strictEqual(fw.theme, 'red-night')
+})
+
+test('Ra: a display that never acks but reports the theme counts as applied', (t) => {
+  const c = clock(t)
+  const { manager, fws } = setup(1, { ackStrings: true })
+  const fw = fws[0]
+  manager.updateDayNight({ mode: 'schedule' }, local(20, 0))
+  for (let i = 0; i < 40; i++) {
+    // Low heap: the command runs but no ack goes out.
+    const got = manager.getCommands(fw.deviceId, fw.auth, 10).commands
+    got.forEach((x) => { if (x.type === 'theme.set') fw.theme = x.payload.theme })
+    fw.heartbeat()
+    c.advance(15000)
+  }
+  assert.strictEqual(fw.theme, 'red-night')
+  assert.strictEqual(themeCmds(manager, fw.deviceId).length, 1)
+  assert.strictEqual(record(manager, fw.deviceId).state, 'applied')
+})
+
+test('Ra: a display already reporting the phase theme is not sent it', () => {
+  const { manager, fws } = setup(2)
+  const [on, other] = fws
+  on.theme = 'red-night'
+  on.heartbeat()
+  other.heartbeat()
+  manager.updateDayNight({ mode: 'schedule' }, local(20, 0))
+  assert.strictEqual(themeCmds(manager, on.deviceId).length, 0)
+  assert.strictEqual(record(manager, on.deviceId).state, 'applied')
+  assert.strictEqual(themeCmds(manager, other.deviceId).length, 1)
+  assert.strictEqual(on.pollAndExecute().length, 0)
+  // The next switch is sent as usual.
+  manager.dayNightTick(local(7, 0, 2))
+  assert.strictEqual(on.pollAndExecute().length, 1)
+  assert.strictEqual(on.theme, 'sun')
+})
+
+test('Ra: skipping the send also withdraws a queued theme.set for another target', () => {
+  const { manager, fws } = setup(1)
+  const fw = fws[0]
+  manager.updateDayNight({ mode: 'schedule' }, local(20, 0))
+  fw.pollAndExecute()
+  fw.heartbeat()
+  // Off: a restore to its own theme is queued, but the display does not poll.
+  manager.updateDayNight({ mode: 'off' }, local(20, 10))
+  assert.strictEqual(themeCmds(manager, fw.deviceId).filter((x) => x.status === 'pending').length, 1)
+  // On again while it still reports the night theme.
+  manager.updateDayNight({ mode: 'schedule' }, local(20, 20))
+  assert.strictEqual(themeCmds(manager, fw.deviceId).filter((x) => x.status === 'pending').length, 0)
+  assert.strictEqual(fw.pollAndExecute().length, 0)
+  assert.strictEqual(fw.theme, 'red-night')
+  assert.strictEqual(record(manager, fw.deviceId).state, 'applied')
+})
+
+test('Rb: a day/night error never breaks command delivery', () => {
+  const { manager, fws } = setup(1)
+  const fw = fws[0]
+  manager.updateDayNight({ mode: 'schedule' }, local(20, 0))
+  manager.syncDeviceTheme = () => { throw new Error('boom') }
+  manager.createCommand(fw.deviceId, { type: 'screen.set', payload: { screen: 'wind' } })
+  const got = fw.pollAndExecute()
+  assert.ok(got.some((x) => x.command.type === 'screen.set'))
+  assert.strictEqual(fw.screen, 'wind')
 })
 
 // ---- routes + UI -------------------------------------------------------------
