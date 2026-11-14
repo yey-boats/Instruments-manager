@@ -12,6 +12,17 @@ function once (emitter, event) {
   })
 }
 
+async function waitUntil (predicate, { timeoutMs = 2000, intervalMs = 10 } = {}) {
+  const deadline = Date.now() + timeoutMs
+  while (true) {
+    if (predicate()) return
+    if (Date.now() >= deadline) {
+      throw new Error(`waitUntil: condition not met within ${timeoutMs}ms`)
+    }
+    await new Promise((resolve) => setTimeout(resolve, intervalMs))
+  }
+}
+
 module.exports = (async () => {
   const dataDir = fs.mkdtempSync(path.join(os.tmpdir(), 'yey-boats-display-manager-device-udp-'))
   const app = {
@@ -38,7 +49,7 @@ module.exports = (async () => {
     display: { width: 480, height: 480 }
   })), port, '127.0.0.1')
 
-  await new Promise((resolve) => setTimeout(resolve, 50))
+  await waitUntil(() => manager.listDiscoveredDevices().devices.length >= 1)
   client.close()
   manager.close()
 
