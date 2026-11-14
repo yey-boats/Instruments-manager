@@ -78,6 +78,26 @@ test('field-editor has a colour scheme preset for every theme', () => {
   }
 })
 
+// Firmware palettes (instruments include/ui_palette.h, after the #67 AA
+// contrast pass): value/line = accent, label = fg_dim, needle = warn.
+test('firmware-only scheme presets match the firmware palettes', () => {
+  const src = fs.readFileSync(path.join(__dirname, '..', 'public/field-editor.js'), 'utf8')
+  const scheme = (key) => {
+    const m = src.match(new RegExp(`${key}: \\{([^}]*)\\}`))
+    assert.ok(m, `scheme ${key}`)
+    return Object.fromEntries([...m[1].matchAll(/(\w+): '(#[0-9a-f]{6})'/g)].map((x) => [x[1], x[2]]))
+  }
+  const want = {
+    sun: { value: '#0050a0', label: '#3a3a3a', needle: '#a05a00', line: '#0050a0' },
+    "'red-night'": { value: '#ff7a29', label: '#d84a3a', needle: '#ffa028', line: '#ff7a29' },
+    classic: { value: '#7a5a10', label: '#685d4e', needle: '#8a5500', line: '#7a5a10' }
+  }
+  for (const [key, colours] of Object.entries(want)) {
+    const got = scheme(key)
+    for (const [k, v] of Object.entries(colours)) assert.strictEqual(got[k], v, `${key}.${k}`)
+  }
+})
+
 test('#69: a current theme the picker does not know stays selected', () => {
   const { manager, auth } = makeManager({ auth: { mode: 'dev-shared-token', devToken: 'test-token' } })
   const id = 'yey-d-themetheme02'

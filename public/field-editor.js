@@ -66,9 +66,9 @@
     sun: { value: '#0050a0', label: '#3a3a3a', needle: '#a05a00', fill: '#007a3d', dir: '#0a5fc0', arc: '#e6e6e6', line: '#0050a0' },
     night: { value: '#4fc3f7', label: '#8fa7bd', needle: '#ffb84d', fill: '#36d399', dir: '#288cff', arc: '#1f2d3d', line: '#4fc3f7' },
     day: { value: '#0277bd', label: '#37474f', needle: '#ef6c00', fill: '#2e7d32', dir: '#1565c0', arc: '#b0bec5', line: '#0277bd' },
-    'red-night': { value: '#ff7a29', label: '#a63527', needle: '#ffa028', fill: '#e0921e', dir: '#c03a30', arc: '#2a0805', line: '#ff7a29' },
+    'red-night': { value: '#ff7a29', label: '#d84a3a', needle: '#ffa028', fill: '#e0921e', dir: '#c03a30', arc: '#2a0805', line: '#ff7a29' },
     'high-contrast': { value: '#ffffff', label: '#ffff00', needle: '#ff0000', fill: '#00ff00', dir: '#00ffff', arc: '#ffffff', line: '#ffffff' },
-    classic: { value: '#9a741b', label: '#6f6454', needle: '#b56f00', fill: '#3e6b41', dir: '#35566b', arc: '#efe8d6', line: '#9a741b' }
+    classic: { value: '#7a5a10', label: '#685d4e', needle: '#8a5500', fill: '#3e6b41', dir: '#35566b', arc: '#efe8d6', line: '#7a5a10' }
   };
 
   var THEME_LABELS = { sun: 'Sun', day: 'Day', night: 'Night', 'red-night': 'Red night', 'high-contrast': 'High contrast', classic: 'Classic' };
