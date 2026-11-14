@@ -44,7 +44,7 @@
     fontSizes: [12, 14, 16, 20, 28, 32, 38, 48, 64],
     units: { speed: ['kn', 'm/s'], angle: ['deg'], depth: ['m', 'ft'], temp: ['C', 'F'], ratio: ['%'], voltage: ['V'] },
     maxViews: 8, maxTilesPerScreen: 4, maxMarkersPerDial: 12,
-    paths: 'open', controls: ['autopilot'], themes: ['day', 'night', 'high-contrast']
+    paths: 'open', controls: ['autopilot'], themes: ['sun', 'day', 'night', 'red-night', 'high-contrast', 'classic']
   };
 
   var RANGED = ['gauge', 'bar'];
@@ -58,13 +58,20 @@
     control: ['value', 'label']
   };
 
-  // Color-scheme presets (Day/Night/High-contrast). Element -> hex per scheme.
-  // Night matches the editor :root palette; the others are sensible variants.
+  // Color-scheme presets, one per firmware theme. Element -> hex per scheme.
+  // Night matches the editor :root palette; sun / red-night / classic take the
+  // firmware palette (instruments ui_theme.cpp: accent, fg_dim, warn, good,
+  // tide, arc_band).
   var SCHEMES = {
+    sun: { value: '#0050a0', label: '#3a3a3a', needle: '#a05a00', fill: '#007a3d', dir: '#0a5fc0', arc: '#e6e6e6', line: '#0050a0' },
     night: { value: '#4fc3f7', label: '#8fa7bd', needle: '#ffb84d', fill: '#36d399', dir: '#288cff', arc: '#1f2d3d', line: '#4fc3f7' },
     day: { value: '#0277bd', label: '#37474f', needle: '#ef6c00', fill: '#2e7d32', dir: '#1565c0', arc: '#b0bec5', line: '#0277bd' },
-    'high-contrast': { value: '#ffffff', label: '#ffff00', needle: '#ff0000', fill: '#00ff00', dir: '#00ffff', arc: '#ffffff', line: '#ffffff' }
+    'red-night': { value: '#ff7a29', label: '#d84a3a', needle: '#ffa028', fill: '#e0921e', dir: '#c03a30', arc: '#2a0805', line: '#ff7a29' },
+    'high-contrast': { value: '#ffffff', label: '#ffff00', needle: '#ff0000', fill: '#00ff00', dir: '#00ffff', arc: '#ffffff', line: '#ffffff' },
+    classic: { value: '#7a5a10', label: '#685d4e', needle: '#8a5500', fill: '#3e6b41', dir: '#35566b', arc: '#efe8d6', line: '#7a5a10' }
   };
+
+  var THEME_LABELS = { sun: 'Sun', day: 'Day', night: 'Night', 'red-night': 'Red night', 'high-contrast': 'High contrast', classic: 'Classic' };
 
   // Theme named swatches the inline picker offers (consistent with the editor).
   var THEME_SWATCHES = ['#4fc3f7', '#36d399', '#ffb84d', '#ff5252', '#288cff', '#8fa7bd', '#eef4fa'];
@@ -400,7 +407,7 @@
     if (attrs.indexOf('color') >= 0) {
       var schemeSel = el('select');
       schemeSel.append(el('option', { value: '', text: 'scheme…' }));
-      (state.manifest.themes || ['day', 'night', 'high-contrast']).forEach(function (t) { schemeSel.append(el('option', { value: t, text: t })); });
+      (state.manifest.themes || ['sun', 'day', 'night', 'red-night', 'high-contrast', 'classic']).forEach(function (t) { schemeSel.append(el('option', { value: t, text: THEME_LABELS[t] || t })); });
       schemeSel.addEventListener('change', function () {
         var sch = SCHEMES[schemeSel.value];
         if (!sch) return;

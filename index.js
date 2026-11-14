@@ -3,6 +3,7 @@ const path = require('path')
 const { YeyBoatsDisplayManager, basicAuthHeaders } = require('./lib/manager')
 const presets = require('./lib/screen-presets')
 const fieldSchema = require('./lib/field-schema')
+const { THEMES, isTheme } = require('./lib/themes')
 const midlAdapter = require('./lib/midl-adapter')
 const midlLib = require('./lib/midl')
 const cloudDashboards = require('./lib/cloud-dashboards')
@@ -3542,7 +3543,7 @@ function renderDeviceConfigForm (device, config, profiles, views) {
       <div class="form-grid">
         ${field('Preset', profileSelect(profiles, device.assignedProfile || config.profile))}
         ${field('Default screen', defaultScreenField)}
-        ${field('Theme', select('theme', settings.theme || 'day', [['day', 'Day'], ['night', 'Night'], ['high-contrast', 'High contrast']]))}
+        ${field('Theme', themeSelect('theme', settings.theme || 'day'))}
         ${field('Brightness', input('brightness', settings.brightness == null ? 0.8 : settings.brightness, 'number', '0', '1', '0.05'))}
         ${field('Demo mode', checkbox('demoMode', settings.demoMode))}
         ${field('NMEA WiFi', checkbox('nmeaEnabled', nmea.enabled))}
@@ -3803,6 +3804,14 @@ function select (name, value, options) {
     const selected = String(optionValue) === String(value) ? ' selected' : ''
     return `<option value="${escapeHtml(optionValue)}"${selected}>${escapeHtml(label)}</option>`
   }).join('')}</select>`
+}
+
+// #69: every known theme, plus the display's current one when the picker
+// doesn't know it, so saving the form unchanged never switches the theme.
+function themeSelect (name, current) {
+  const options = THEMES.map((t) => [t.id, t.label])
+  if (current && !isTheme(current)) options.push([current, `${current} (current)`])
+  return select(name, current, options)
 }
 
 function profileSelect (profiles, selectedProfile) {

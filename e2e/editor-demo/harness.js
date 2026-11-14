@@ -202,7 +202,7 @@
     sources: ["signalk"],
     actionKinds: ["nav", "command"],
     presets: ["full", "hero-split"],
-    themes: ["day", "night", "high-contrast"],
+    themes: ["sun", "day", "night", "red-night", "high-contrast", "classic"],
     fonts: [14, 20, 28, 48],
   };
 
