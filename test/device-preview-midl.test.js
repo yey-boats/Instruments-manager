@@ -321,3 +321,70 @@ test('the live preview keeps only this boat\'s deltas', () => {
   const src = fs.readFileSync(path.join(PUBLIC, 'device-preview.js'), 'utf8')
   assert.ok(!src.includes('subscribe=all'), 'the stream is not subscribed to every vessel')
 })
+
+// Bench 2026-11-14 (display on red-night, "Nav"): the preview drew the default
+// blue theme, "HEADINGTRUE", no CTS line, a grid filling the whole panel and
+// "43°21.28'N 15°47.57'E". It now follows what the display draws.
+test('the preview uses the theme the display reports, else day/night, else its own', () => {
+  const { manager, auth } = makeManager({ auth: { mode: 'dev-shared-token', devToken: 'test-token' } })
+  try {
+    const id = 'yey-d-prevtheme'
+    manager.registerDevice({ device: { id, board: 'esp32-4848s040', display: { width: 480, height: 480, shape: 'square' } } }, auth)
+    manager.assignProfile(id, { profileId: 'default', overrides: { settings: { theme: 'classic' } } })
+    assert.deepStrictEqual(manager.deviceTheme(id), { theme: 'classic', source: 'settings' })
+    manager.updateStatus(id, { time: new Date().toISOString(), ui: { screen: 'nav', theme: 'red-night' } }, auth)
+    assert.deepStrictEqual(manager.deviceTheme(id), { theme: 'red-night', source: 'device' })
+    assert.strictEqual(manager.deviceViews(id).theme, 'red-night', 'the views poll carries the theme')
+    assert.strictEqual(previewPayload(indexPlugin.__renderDevicePage(manager, id)).theme, 'red-night')
+    manager.updateStatus(id, { time: new Date().toISOString(), ui: { screen: 'nav', theme: 'bogus' } }, auth)
+    assert.strictEqual(manager.deviceTheme(id).source, 'settings', 'an unknown reported theme is ignored')
+  } finally {
+    if (manager.close) manager.close()
+  }
+})
+
+test('the Nav preset mirrors the firmware built-in Nav screen', () => {
+  const nav = require('../lib/screen-presets').getPresetsForClass('sunton-480').find((s) => s.id === 'nav')
+  assert.deepStrictEqual(nav.tiles.map((t) => t.title), ['HDG', 'SOG', 'COG', 'POS'])
+  assert.strictEqual(nav.tiles[0].secondary, 'navigation.courseRhumbline.bearingTrackTrue', 'compass secondary is CTS')
+  assert.deepStrictEqual(nav.tiles.slice(1).map((t) => t.color), ['accent', 'fg', 'good'])
+  const cfg = previewPayload(devicePage())
+  const scr = cfg.screens.find((s) => s.id === 'nav')
+  if (scr) {
+    assert.strictEqual(scr.tiles[0].title, 'HDG')
+    assert.strictEqual(scr.tiles[0].secondary, 'navigation.courseRhumbline.bearingTrackTrue')
+    assert.deepStrictEqual(scr.tiles[2].color, { value: 'fg' })
+  }
+})
+
+test('positions print like the firmware (DDM, padded degrees, 3-decimal minutes)', () => {
+  const { DP } = loadGlue({})
+  assert.strictEqual(DP.formatPositionDDM({ latitude: 43.354683, longitude: 15.792867 }), "43°21.281'N\n015°47.572'E")
+  assert.strictEqual(DP.formatPositionDDM({ latitude: -5.5, longitude: -120.999999 }), "05°30.000'S\n121°00.000'W")
+  assert.strictEqual(DP.formatPositionDDM(3), null)
+  const p = DP.makeProvider({ 'navigation.position': { latitude: 43.5, longitude: 16.25 } }, {})
+  assert.strictEqual(p.getValue({ kind: 'signalk', path: 'navigation.position' }).value, "43°30.000'N\n016°15.000'E")
+})
+
+test('square panels get the firmware grid margins; round panels do not', () => {
+  const { DP } = loadGlue({})
+  const vp = { x: 0, y: 0, w: 480, h: 480 }
+  const inner = DP.gridViewport(vp, 'square-480')
+  // Panels are drawn 2 px inside their cells: tiles at x 4/242, y 72/274, 234x198.
+  assert.deepStrictEqual(JSON.parse(JSON.stringify(inner)), { x: 2, y: 70, w: 476, h: 404 })
+  assert.strictEqual(DP.gridViewport(vp, 'round-360'), null)
+  const svg = DP.placeSvg('<svg viewBox="0 0 476 404"><rect/></svg>', vp, inner, '#000000')
+  assert.ok(svg.startsWith('<svg viewBox="0 0 480 480"'))
+  assert.ok(svg.includes('<svg x="2" y="70" width="476" height="404" viewBox="0 0 476 404">'))
+})
+
+test('the compass gets the firmware HDG caption and CTS line', () => {
+  const { DP } = loadGlue({})
+  const th = { dim: '#d84a3a', warn: '#ffa028' }
+  const tiles = [{ widget: 'compass', path: 'navigation.headingTrue', secondary: 'navigation.courseRhumbline.bearingTrackTrue' }]
+  const values = { 'navigation.headingTrue': 280 * Math.PI / 180, 'navigation.courseRhumbline.bearingTrackTrue': Math.PI / 2 }
+  const out = DP.compassDecorations(tiles, { rows: 2, cols: 2 }, { x: 2, y: 70, w: 476, h: 404 }, values, th)
+  assert.ok(/fill="#d84a3a"[^>]*>HDG<\/text>/.test(out), 'HDG caption in the label colour')
+  assert.ok(/fill="#ffa028"[^>]*>CTS 090<\/text>/.test(out), 'CTS line in warn, zero-padded')
+  assert.strictEqual(DP.compassDecorations(tiles, { rows: 2, cols: 2 }, { x: 2, y: 70, w: 476, h: 404 }, {}, th), '', 'nothing over the no-data placeholder')
+})

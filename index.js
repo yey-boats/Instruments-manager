@@ -2526,6 +2526,10 @@ function renderDevicePage (manager, id, live = {}, opts = {}) {
     // #32: the preview gets the same checked markers the device config does.
     const markerManifest = manager.effectiveManifest(id)
     const previewMarkers = (arr) => (Array.isArray(arr) ? fieldSchema.sanitizeMarkers(arr, markerManifest) : null)
+    // A preset tile's value colour is a theme token (the firmware's built-in
+    // screen picks accent / fg / good per tile); the preview's colour shape
+    // is element -> colour.
+    const presetColor = (t) => (t && typeof t.color === 'string' ? { value: t.color } : null)
     const presetTiles = (screenId) => {
       // exact id, alias, else a prefix match so built-in variants map to their
       // base (wind_classic / wind_steer -> "wind"); gives real SignalK bindings.
@@ -2539,7 +2543,8 @@ function renderDevicePage (manager, id, live = {}, opts = {}) {
         widgetId: null, editable: false,
         widget: t.widget || 'numeric', title: t.title || (t.primary ? String(t.primary).split('.').pop() : ''),
         path: t.primary || t.path || '', unit: t.unit || '', precision: t.precision != null ? t.precision : null,
-        color: null,
+        color: presetColor(t),
+        secondary: t.secondary || null,
         markers: previewMarkers(t.markers)
       }))
     }
@@ -2580,7 +2585,11 @@ function renderDevicePage (manager, id, live = {}, opts = {}) {
             precision: w.precision != null ? w.precision : (t && t.precision != null ? t.precision : (fb.precision != null ? fb.precision : null)),
             // Per-element color overrides (element -> #rrggbb). Only the managed
             // widget item carries them; preset/inline tiles default to theme.
-            color: (w.color && typeof w.color === 'object') ? w.color : null,
+            // preset/inline tiles take the preset's theme token (firmware built-in).
+            color: (w.color && typeof w.color === 'object') ? w.color : (fb.color || null),
+            // The compass's secondary readout line ("CTS 090") is part of the
+            // firmware's built-in screen, which the preset mirrors.
+            secondary: refKey ? null : (fb.secondary || null),
             markers: previewMarkers(Array.isArray(w.markers) ? w.markers
               : (Array.isArray(t && t.markers) ? t.markers : fb.markers))
           }
@@ -2632,6 +2641,8 @@ function renderDevicePage (manager, id, live = {}, opts = {}) {
     return {
       current: currentScreen,
       profileId: assigned,
+      // The theme the display draws with now (reported > day/night > own).
+      theme: manager.deviceTheme(id).theme,
       telemetry,
       manifest: editorManifest,
       screens: dvViews.map((v) => {

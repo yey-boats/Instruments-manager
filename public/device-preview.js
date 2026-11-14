@@ -47,6 +47,22 @@
   function sourceUnitFor (path) {
     return SI_FOR[displayUnitFor({ path })]
   }
+  // A SignalK position the way the firmware prints it (instruments
+  // src/ui/ui_data.cpp format_position, default DDM): "43°30.042'N" over
+  // "016°23.876'E", zero-padded degrees, three decimals of minutes. Null for
+  // anything that is not a position.
+  function formatPositionDDM (v) {
+    if (!v || typeof v !== 'object' || typeof v.latitude !== 'number' || typeof v.longitude !== 'number' ||
+      !Number.isFinite(v.latitude) || !Number.isFinite(v.longitude)) return null
+    const part = (val, width, pos, neg) => {
+      const a = Math.abs(val)
+      let d = Math.floor(a)
+      let m = Number(((a - d) * 60).toFixed(3))
+      if (m >= 60) { d += 1; m = 0 }
+      return String(d).padStart(width, '0') + '°' + m.toFixed(3).padStart(6, '0') + "'" + (val >= 0 ? pos : neg)
+    }
+    return part(v.latitude, 2, 'N', 'S') + '\n' + part(v.longitude, 3, 'E', 'W')
+  }
   // MIDL DataProvider over the live SignalK value map.
   function makeProvider (values, stamps) {
     const none = { value: undefined, stale: false, present: false }
@@ -58,7 +74,12 @@
         if (b.kind === 'const') return { value: b.value, stale: false, present: true }
         if (b.kind !== 'signalk' || !Object.prototype.hasOwnProperty.call(values, b.path)) return none
         const at = stamps && stamps[b.path]
-        const r = { value: values[b.path], updatedAt: at, present: true, stale: !!at && Date.now() - at > STALE_MS }
+        const raw = values[b.path]
+        // A position is handed over already formatted the way the display
+        // prints it; the bundle shows a string value verbatim.
+        const pos = formatPositionDDM(raw)
+        const r = { value: pos || raw, updatedAt: at, present: true, stale: !!at && Date.now() - at > STALE_MS }
+        if (pos) return r
         const su = sourceUnitFor(b.path)
         if (su) r.sourceUnit = su
         return r
@@ -138,7 +159,86 @@
     const c = msg && msg.context
     return !c || c === 'vessels.self' || (!!selfContext && c === selfContext)
   }
-  window.YeyDevicePreview = { displayUnitFor, sourceUnitFor, formatFor, makeProvider, midlDocFor, liveValueFor, isSelfDelta }
+  // Where the firmware puts its tile grid on a square panel (instruments
+  // src/ui/ui_layouts.cpp quad_grid: tiles from y=72, an 8 px bottom margin,
+  // 4 px side margins and gaps; the band above is kept clear for the MOB
+  // pill). The bundle draws each panel 2 px inside its cell, so the grid is
+  // laid out in a viewport inset by 2 px less than the firmware margins.
+  // Round panels keep the full viewport (the bundle fits them to the disc).
+  const FW_GRID_TOP = 72
+  const FW_GRID_BOTTOM = 8
+  const FW_GRID_SIDE = 4
+  function gridViewport (vp, className) {
+    if (!vp || /^round/.test(String(className || ''))) return null
+    const x = FW_GRID_SIDE - 2
+    const y = FW_GRID_TOP - 2
+    return { x, y, w: vp.w - 2 * x, h: vp.h - y - (FW_GRID_BOTTOM - 2) }
+  }
+  // Place the bundle's SVG (drawn for `inner`) inside a full-panel SVG.
+  function placeSvg (svg, vp, inner, bg) {
+    const body = String(svg).replace(/^<svg /, `<svg x="${inner.x}" y="${inner.y}" width="${inner.w}" height="${inner.h}" `)
+    return `<svg viewBox="0 0 ${vp.w} ${vp.h}" xmlns="http://www.w3.org/2000/svg" preserveAspectRatio="xMidYMid meet">` +
+      `<rect width="${vp.w}" height="${vp.h}" fill="${bg}"/>${body}</svg>`
+  }
+  // Short label for a compass's secondary readout, as the firmware prints it.
+  const SECONDARY_LABELS = { bearingTrackTrue: 'CTS', courseOverGroundTrue: 'COG', headingTrue: 'HDG', headingMagnetic: 'HDG' }
+  function pad3 (deg) {
+    return String(((Math.round(deg) % 360) + 360) % 360).padStart(3, '0')
+  }
+  function radToDeg (v) { return typeof v === 'number' && Number.isFinite(v) ? v * 180 / Math.PI : null }
+  // The firmware's compass tile (ui_layouts.cpp paint_compass_body) adds two
+  // things the bundle's minimal dial does not draw: a small dim "HDG" caption
+  // above the heading number and, on its built-in screens, a "CTS 090" line
+  // under the ring in the warn colour. Drawn here over the bundle's dial; the
+  // dial geometry below follows the bundle's grid tile (svg/render-svg.ts
+  // caption band, svg/dial.ts minimalSvg ring and hero sizing).
+  function compassDecorations (tiles, layout, inner, values, th) {
+    const out = []
+    const cw = inner.w / layout.cols
+    const ch = inner.h / layout.rows
+    tiles.forEach((tile, i) => {
+      const kind = tile.kind || tile.widget
+      if (kind !== 'compass' || !tile.path) return
+      const hdg = radToDeg(values[tile.path])
+      if (hdg == null) return // the bundle draws its no-data placeholder
+      const col = i % layout.cols
+      const row = Math.floor(i / layout.cols)
+      const cell = { x: col * cw, y: row * ch, w: cw, h: ch }
+      if (Math.min(cell.w, cell.h) >= 300) return // HUD face, not the tile dial
+      const capFs = Math.max(12, Math.min(20, Math.min(cell.w, cell.h) / 9))
+      const band = Math.round(capFs * 1.45)
+      const body = { x: cell.x, y: cell.y + band, w: cell.w, h: cell.h - band }
+      const D = Math.min(body.w, body.h)
+      const R = D * 0.42
+      const cx = body.x + body.w / 2
+      const cy = body.y + body.h / 2
+      const fCard = Math.max(9, D * 0.07)
+      const rCard = R - fCard * 0.9
+      const gap = Math.max(2, D * 0.02)
+      const span = Math.max(0, 2 * (rCard - fCard * 0.6 - gap))
+      const heroText = Math.round(hdg) + '°'
+      let ems = 0
+      for (const c of heroText) ems += c === '°' ? 0.4 : 0.62
+      const hero = Math.max(8, Math.min(span / ems, R * 0.5))
+      const fs = Math.round(fCard * 10) / 10
+      // "HDG" sits just above the hero digits (cap top ~0.72em above baseline).
+      const capY = cy + hero * 0.34 - hero * 0.72 - 4
+      out.push(`<text x="${cx.toFixed(1)}" y="${capY.toFixed(1)}" font-family="${FONT}" font-size="${fs}" fill="${th.dim}" text-anchor="middle">HDG</text>`)
+      if (tile.secondary) {
+        const leaf = String(tile.secondary).split('.').pop()
+        const label = SECONDARY_LABELS[leaf] || leaf.slice(0, 3).toUpperCase()
+        const sd = radToDeg(values[tile.secondary])
+        const text = label + ' ' + (sd == null ? '--' : pad3(sd))
+        const y = Math.min(cy + R + 2 + fs * 0.8, cell.y + cell.h - 6)
+        // The firmware aligns the (then empty) label to the ring's bottom
+        // centre, so the text starts at the centre line, not centred on it.
+        out.push(`<text x="${cx.toFixed(1)}" y="${y.toFixed(1)}" font-family="${FONT}" font-size="${fs}" fill="${th.warn}" text-anchor="start">${text}</text>`)
+      }
+    })
+    return out.join('')
+  }
+  const FONT = "Montserrat, -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, 'Helvetica Neue', Arial, sans-serif"
+  window.YeyDevicePreview = { displayUnitFor, sourceUnitFor, formatFor, makeProvider, midlDocFor, liveValueFor, isSelfDelta, formatPositionDDM, gridViewport, placeSvg, compassDecorations }
 
   const cfg = window.__yeyboatsPreview || {}
   const root = document.getElementById('lp-root')
@@ -153,6 +253,8 @@
   // current screen, so a reload after Save-to-view/Save-as-new keeps the
   // operator's pick instead of snapping back.
   let currentScreenId = cfg.initialScreen || cfg.current || (cfg.screens && cfg.screens[0] && cfg.screens[0].id)
+  // Theme the display draws with; the device-views poll keeps it current.
+  let themeName = typeof cfg.theme === 'string' ? cfg.theme : 'night'
   const editChk = document.getElementById('lp-edit')
   // stable tile-edit key -> { path, screenId, tileIndex, widgetId, widget, color, ... }
   const editsMap = Object.create(null)
@@ -586,15 +688,25 @@
       stage.textContent = 'Preview unavailable: the MIDL renderer (midl-device.global.js) did not load.'
     } else {
       const trends = trendsByScreen[scr.id] || (trendsByScreen[scr.id] = new W.TrendBuffers())
+      const vp = midl.viewport || { x: 0, y: 0, w: 480, h: 480 }
+      const inner = gridViewport(vp, midl.className)
+      const doc = midlDocFor(scr, midl)
+      // The display's own theme (reported by the device, else day/night).
+      const th = typeof W.theme === 'function' ? W.theme(themeName) : null
       let r
       try {
-        r = W.renderDashboardSvg(JSON.stringify(midlDocFor(scr, midl)), midl.manifest, midl.className,
-          midl.viewport || { x: 0, y: 0, w: 480, h: 480 }, provider, { trends })
+        r = W.renderDashboardSvg(JSON.stringify(doc), midl.manifest, midl.className,
+          inner ? { x: 0, y: 0, w: inner.w, h: inner.h } : vp, provider, { trends, theme: themeName })
       } catch (e) {
         r = { ok: false, issues: [{ message: String((e && e.message) || e) }] }
       }
-      // The bundle escapes every string it puts into the SVG.
-      if (r && r.ok && r.svg) stage.innerHTML = r.svg
+      // The bundle escapes every string it puts into the SVG; the decorations
+      // carry only fixed labels and digits.
+      if (r && r.ok && r.svg && inner && th) {
+        const drawn = scr.tiles.slice(0, Object.keys(doc.screens[0].elements).length)
+        const deco = compassDecorations(drawn, doc.screens[0].layout, inner, values, th)
+        stage.innerHTML = placeSvg(r.svg.replace(/<\/svg>$/, deco + '</svg>'), vp, inner, th.bg)
+      } else if (r && r.ok && r.svg) stage.innerHTML = r.svg
       else stage.textContent = 'Preview error: ' + ((r && r.issues && r.issues[0] && r.issues[0].message) || 'unknown')
     }
     root.appendChild(stage)
@@ -721,7 +833,9 @@
         { credentials: 'include' })
         .then((r) => r.ok ? r.json() : null)
         .then((d) => {
-          if (!d || !d.current) return
+          if (!d) return
+          if (typeof d.theme === 'string' && d.theme !== themeName) { themeName = d.theme; dirty = true }
+          if (!d.current) return
           if (nowEl) nowEl.textContent = titleOf(d.current) // indicator always tracks the device
           if (editMode || userPicked || d.current === currentScreenId) return
           currentScreenId = d.current
