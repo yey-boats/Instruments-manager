@@ -319,7 +319,14 @@ module.exports = function yeyBoatsDisplayManagerPlugin (app) {
           post: { summary: 'Apply profile to one or more devices' }
         },
         '/plugins/yey-boats-display-manager/cloud-dashboards': {
-          get: { summary: 'List dashboards saved on yey.boats (via the yey connector)' }
+          get: { summary: 'yey.boats sign-in state, with the dashboards saved there when signed in (operator)' }
+        },
+        '/plugins/yey-boats-display-manager/cloud-dashboards/link': {
+          get: { summary: 'Poll the pending "sign in with yey.boats" (operator)' },
+          post: { summary: 'Start "sign in with yey.boats": returns a code and the URL to approve it at (operator)' }
+        },
+        '/plugins/yey-boats-display-manager/cloud-dashboards/unlink': {
+          post: { summary: 'Sign this boat out of yey.boats (operator)' }
         },
         '/plugins/yey-boats-display-manager/cloud-dashboards/{dashboardId}/import': {
           post: { summary: 'Import (or update) a yey.boats dashboard as a profile' }
@@ -954,7 +961,11 @@ function registerRoutes (baseRouter, getManager) {
   }))
 
   router.get('/ui/profiles', wrap(getManager, async (manager, req, res) => {
-    const cloud = await cloudDashboards.listCloudDashboards(manager.app, manager.listProfiles().profiles)
+    // The yey.boats panel (list, sign-in code) is for operators only; the
+    // connector is not even asked for anyone else.
+    const cloud = operatorAllowed(manager, req)
+      ? await cloudDashboards.cloudState(manager.app, manager.listProfiles().profiles)
+      : { state: 'operator_required' }
     res.setHeader('content-type', 'text/html; charset=utf-8')
     res.end(renderUi(manager, 'profiles', req, { cloud }))
   }))
@@ -1230,11 +1241,31 @@ function registerRoutes (baseRouter, getManager) {
     res.json(Object.assign({}, imported, { midlValidation }))
   }))
 
-  // Dashboards saved on yey.boats (via the yey connector's resource
-  // provider). The listing never fails: without the connector it answers
-  // {available: false, reason, message}.
-  router.get('/cloud-dashboards', wrap(getManager, async (manager, req, res) => {
-    res.json(await cloudDashboards.listCloudDashboards(manager.app, manager.listProfiles().profiles))
+  // Dashboards saved on yey.boats, through the yey connector's in-process
+  // API (app.yeyDashboards). They are readable only after someone proved a
+  // yey.boats login (the boat's owner or crew), so EVERY cloud-dashboards
+  // route -- the GETs included -- is an operator route: a guest with SignalK
+  // read access must not see the list or the sign-in code.
+  //   GET  /cloud-dashboards          the state, with the list when signed in
+  //   POST /cloud-dashboards/link     start "sign in with yey.boats"
+  //   GET  /cloud-dashboards/link     poll that sign-in
+  //   POST /cloud-dashboards/unlink   sign out
+  //   POST /cloud-dashboards/:id/import
+  router.get('/cloud-dashboards', operatorGuard(getManager, wrap(getManager, async (manager, req, res) => {
+    res.json(await cloudDashboards.cloudState(manager.app, manager.listProfiles().profiles))
+  })))
+
+  router.get('/cloud-dashboards/link', operatorGuard(getManager, wrap(getManager, async (manager, req, res) => {
+    res.setHeader('cache-control', 'no-store')
+    res.json(await cloudDashboards.pollLink(manager.app))
+  })))
+
+  router.post('/cloud-dashboards/link', wrap(getManager, async (manager, req, res) => {
+    await cloudFormOrJson(req, res, 'Sign-in failed', () => cloudDashboards.startLink(manager.app))
+  }))
+
+  router.post('/cloud-dashboards/unlink', wrap(getManager, async (manager, req, res) => {
+    await cloudFormOrJson(req, res, 'Sign-out failed', () => cloudDashboards.unlink(manager.app))
   }))
 
   router.post('/cloud-dashboards/:id/import', wrap(getManager, async (manager, req, res) => {
@@ -1244,7 +1275,7 @@ function registerRoutes (baseRouter, getManager) {
         imported = await importCloudDashboard(manager, req.params.id)
       } catch (err) {
         res.statusCode = 303
-        res.setHeader('location', `${PLUGIN_BASE}/ui/profiles?cloudError=${encodeURIComponent(importErrorText(err))}#yey-boats`)
+        res.setHeader('location', `${PLUGIN_BASE}/ui/profiles?cloudError=${encodeURIComponent('Import failed: ' + importErrorText(err))}#yey-boats`)
         res.end()
         return
       }
@@ -1956,6 +1987,24 @@ function importErrorText (err) {
   const listed = issues.slice(0, 5).map((i) => [i.path, i.message].filter(Boolean).join(': ')).filter(Boolean)
   const more = issues.length > listed.length ? ` (+${issues.length - listed.length} more)` : ''
   return [String((e && e.message) || (err && err.message) || 'import failed')].concat(listed).join(' \u2014 ') + more
+}
+
+// A cloud-dashboards action from the UI form (303 back to the panel, with
+// the refusal in `cloudError`) or from the API (JSON).
+async function cloudFormOrJson (req, res, failed, action) {
+  if (!String(req.headers['content-type'] || '').includes('application/x-www-form-urlencoded')) {
+    res.json(await action())
+    return
+  }
+  let query = ''
+  try {
+    await action()
+  } catch (err) {
+    query = `?cloudError=${encodeURIComponent(`${failed}: ${importErrorText(err)}`)}`
+  }
+  res.statusCode = 303
+  res.setHeader('location', `${PLUGIN_BASE}/ui/profiles${query}#yey-boats`)
+  res.end()
 }
 
 function renderUi (manager, page, req, extra) {
@@ -4197,41 +4246,100 @@ function renderProfilesPage (profiles, devices, cloud, req) {
     </section>${cloud ? renderCloudDashboardsPanel(cloud, req) : ''}`
 }
 
-// "From yey.boats": the owner's dashboards saved on yey.boats, each one
-// importable as a preset in one click. Every string here comes from the
-// cloud (titles are user-written) and is escaped.
+// "From yey.boats": the dashboards the boat's owner or crew saved on
+// yey.boats, readable once someone signs in with yey.boats here. States:
+// operator_required, connector_missing, not_connected, not_linked, pending,
+// linked, error (see lib/cloud-dashboards). Every string from the cloud
+// (titles, user_label, the code, verify_url, times) is escaped, and the
+// verify URL only goes into an href when it is https.
 function renderCloudDashboardsPanel (cloud, req) {
   const q = (req && req.query) || {}
-  const error = q.cloudError ? `<p class="status bad" role="alert">Import failed: ${escapeHtml(String(q.cloudError).slice(0, 1000))}</p>` : ''
+  const base = '/plugins/yey-boats-display-manager/cloud-dashboards'
+  const error = q.cloudError ? `<p class="status bad" role="alert">${escapeHtml(String(q.cloudError).slice(0, 1000))}</p>` : ''
+  const state = (cloud && cloud.state) || 'error'
+  const signIn = `<form method="post" action="${base}/link"><button type="submit">Sign in with yey.boats</button></form>`
   let body
-  if (!cloud.available) {
+  if (state === 'operator_required') {
+    const next = '/plugins/yey-boats-display-manager/ui/profiles'
     body = `
-      <p class="muted" data-cloud-state="unavailable" data-cloud-reason="${escapeHtml(cloud.reason || '')}">${escapeHtml(cloudDashboards.CONNECT_HINT)}</p>
-      ${cloud.message && cloud.message !== cloudDashboards.CONNECT_HINT ? `<p class="muted">${escapeHtml(cloud.message)}</p>` : ''}`
-  } else if (!cloud.dashboards.length) {
+      <p class="muted" data-cloud-state="operator_required">Sign in to this manager to see the dashboards saved on yey.boats.</p>
+      <p><a href="/plugins/yey-boats-display-manager/ui/login?next=${encodeURIComponent(next)}">Sign in</a></p>`
+  } else if (state === 'connector_missing' || state === 'not_connected') {
     body = `
-      <p class="muted" data-cloud-state="empty">${escapeHtml(cloudDashboards.EMPTY_HINT)}</p>`
-  } else {
-    const label = { new: 'Import', update: 'Update', current: 'Re-import' }
-    const rows = cloud.dashboards.map((d) => {
-      const action = `/plugins/yey-boats-display-manager/cloud-dashboards/${encodeURIComponent(d.id)}/import`
-      const imported = d.profileId
-        ? `<a href="/plugins/yey-boats-display-manager/ui/profiles/${encodeURIComponent(d.profileId)}">${escapeHtml(d.profileId)}</a>${d.state === 'update' ? ' <span class="pill">newer on yey.boats</span>' : ''}`
-        : '<span class="muted">not imported</span>'
-      return `
+      <p class="muted" data-cloud-state="${state}">${escapeHtml(cloudDashboards.MESSAGES[state])}</p>`
+  } else if (state === 'not_linked') {
+    const link = cloud.link || (['rejected', 'expired'].includes(q.cloudLink) ? q.cloudLink : null)
+    const linkNote = link === 'rejected'
+      ? '<p class="status bad" data-cloud-link="rejected">The sign-in was declined on yey.boats.</p>'
+      : link === 'expired'
+        ? '<p class="status bad" data-cloud-link="expired">The sign-in code expired before it was approved. Start again.</p>'
+        : ''
+    body = `${linkNote}
+      <p class="muted" data-cloud-state="not_linked"${cloud.reason ? ` data-cloud-reason="${escapeHtml(cloud.reason)}"` : ''}>${escapeHtml(cloud.message || cloudDashboards.MESSAGES.not_linked)}</p>
+      ${signIn}`
+  } else if (state === 'pending') {
+    const p = cloud.pending || {}
+    const url = p.verify_url_safe
+      ? `<a href="${escapeHtml(p.verify_url_safe)}" target="_blank" rel="noopener noreferrer">${escapeHtml(p.verify_url)}</a>`
+      : `<code>${escapeHtml(p.verify_url)}</code>`
+    body = `
+      <div data-cloud-state="pending">
+        <p>Open ${url} on any device signed in to yey.boats and enter this code:</p>
+        <p class="cloud-code" style="font-size: 2.2em; font-weight: 700; letter-spacing: 0.12em; font-family: ui-monospace, monospace; margin: 8px 0;">${escapeHtml(p.code)}</p>
+        <p class="muted" role="status">Waiting for approval…${p.expires_at ? ` The code is valid until <time datetime="${escapeHtml(p.expires_at)}">${escapeHtml(p.expires_at)}</time>.` : ''}</p>
+        <noscript><meta http-equiv="refresh" content="5"></noscript>
+        <script>
+          (function () {
+            var url = ${JSON.stringify(base + '/link')}
+            function poll () {
+              fetch(url, { credentials: 'same-origin', headers: { accept: 'application/json' } })
+                .then(function (r) { return r.ok ? r.json() : { status: 'pending' } })
+                .then(function (b) {
+                  if (b && b.status && b.status !== 'pending') {
+                    location.replace(location.pathname + (b.status === 'approved' ? '' : '?cloudLink=' + encodeURIComponent(b.status)) + '#yey-boats')
+                  } else {
+                    setTimeout(poll, 3000)
+                  }
+                }, function () { setTimeout(poll, 3000) })
+            }
+            setTimeout(poll, 3000)
+          })()
+        </script>
+      </div>`
+  } else if (state === 'linked') {
+    const until = cloud.expires_at ? ` until <time datetime="${escapeHtml(cloud.expires_at)}">${escapeHtml(cloud.expires_at)}</time>` : ''
+    const who = `
+      <p data-cloud-state="linked">Signed in to yey.boats as <strong>${escapeHtml(cloud.user_label || 'unknown')}</strong>${until} ·
+        <form method="post" action="${base}/unlink" style="display: inline;"><button type="submit">Sign out</button></form></p>`
+    const dashboards = cloud.dashboards || []
+    if (!dashboards.length) {
+      body = `${who}
+      <p class="muted" data-cloud-list="empty">${escapeHtml(cloudDashboards.EMPTY_HINT)}</p>`
+    } else {
+      const label = { new: 'Import', update: 'Update', current: 'Re-import' }
+      const rows = dashboards.map((d) => {
+        const action = `${base}/${encodeURIComponent(d.id)}/import`
+        const imported = d.profileId
+          ? `<a href="/plugins/yey-boats-display-manager/ui/profiles/${encodeURIComponent(d.profileId)}">${escapeHtml(d.profileId)}</a>${d.state === 'update' ? ' <span class="pill">newer on yey.boats</span>' : ''}`
+          : '<span class="muted">not imported</span>'
+        return `
         <tr data-cloud-id="${escapeHtml(d.id)}">
-          <td><strong>${escapeHtml(d.title)}</strong>${d.name && d.name !== d.title ? `<br><span>${escapeHtml(d.name)}</span>` : ''}</td>
+          <td><strong>${escapeHtml(d.title)}</strong></td>
           <td>${escapeHtml(d.targetClass || 'any')}</td>
           <td>${d.updatedAt ? `<time datetime="${escapeHtml(d.updatedAt)}">${escapeHtml(d.updatedAt)}</time>` : ''}</td>
           <td>${imported}</td>
           <td><form method="post" action="${escapeHtml(action)}"><button type="submit">${label[d.state] || 'Import'}</button></form></td>
         </tr>`
-    }).join('')
-    body = `
+      }).join('')
+      body = `${who}
       <table>
         <thead><tr><th>Dashboard</th><th>Target class</th><th>Updated</th><th>Preset</th><th></th></tr></thead>
         <tbody>${rows}</tbody>
       </table>`
+    }
+  } else {
+    body = `
+      <p class="status bad" data-cloud-state="error">${escapeHtml(cloud.message || 'The yey connector did not answer.')}</p>`
   }
   return `
     <section class="panel" id="yey-boats">
