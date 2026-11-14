@@ -144,13 +144,13 @@ function connector (manager, init) {
 
 const linked = (extra) => Object.assign({ linked: true, user_label: 'Skipper Ann', expires_at: '2026-12-14T12:00:00Z' }, extra || {})
 
-test('state: connector missing or older than 0.5.0', async () => {
+test('state: connector missing or older than 0.5.1', async () => {
   const { manager } = makeManager()
   const get = routes(manager)('GET', '/cloud-dashboards')
   let res = await call(get)
   assert.strictEqual(res.status, 200)
   assert.strictEqual(res.json.state, 'connector_missing')
-  assert.match(res.json.message, /older than 0\.5\.0/)
+  assert.match(res.json.message, /older than 0\.5\.1/)
   // An older connector: something there, but not the 0.5.0 API.
   manager.app.yeyDashboards = { list: async () => ({}) }
   res = await call(get)
@@ -158,6 +158,24 @@ test('state: connector missing or older than 0.5.0', async () => {
   const page = await call(routes(manager)('GET', '/ui/profiles'))
   assert.match(page.body, /data-cloud-state="connector_missing"/)
   assert.ok(!page.body.includes('Sign in with yey.boats'))
+})
+
+test('the connector API is found process-wide, not on our own app copy', async () => {
+  // SignalK hands each plugin a shallow copy of app (signalk-server
+  // interfaces/plugins.js), so the connector publishes under a global symbol.
+  const { manager } = makeManager()
+  const key = Symbol.for('yey-boats.dashboards')
+  const c = connector(manager, { connected: true, linked: true, user_label: 'Skipper Ann', expires_at: '2026-12-14T12:00:00Z' })
+  const api = manager.app.yeyDashboards
+  delete manager.app.yeyDashboards
+  globalThis[key] = api
+  try {
+    const res = await call(routes(manager)('GET', '/cloud-dashboards'))
+    assert.strictEqual(res.json.state, 'linked')
+    assert.ok(c.calls.includes('state'))
+  } finally {
+    delete globalThis[key]
+  }
 })
 
 test('state: boat not connected to yey.boats', async () => {
