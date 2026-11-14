@@ -66,7 +66,8 @@ const NODE_TEST_FILES = [
   'marker-validation.test.js',
   'layout-push-validation.test.js',
   'cloud-dashboards.test.js',
-  'themes.test.js'
+  'themes.test.js',
+  'day-night.test.js'
 ]
 function runNodeTestSuites () {
   if (!NODE_TEST_FILES.length) return

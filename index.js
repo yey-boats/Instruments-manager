@@ -3,7 +3,7 @@ const path = require('path')
 const { YeyBoatsDisplayManager, basicAuthHeaders } = require('./lib/manager')
 const presets = require('./lib/screen-presets')
 const fieldSchema = require('./lib/field-schema')
-const { THEMES, isTheme } = require('./lib/themes')
+const { THEMES, isTheme, themeLabel } = require('./lib/themes')
 const midlAdapter = require('./lib/midl-adapter')
 const midlLib = require('./lib/midl')
 const cloudDashboards = require('./lib/cloud-dashboards')
@@ -1132,6 +1132,49 @@ function registerRoutes (baseRouter, getManager) {
     })
     res.statusCode = 303
     res.setHeader('location', '/plugins/yey-boats-display-manager/ui/settings?saved=1')
+    res.end()
+  }))
+
+  // #67: automatic day/night theme switching (manager-wide).
+  router.get('/day-night', wrap(getManager, (manager, req, res) => {
+    res.json(manager.getDayNight())
+  }))
+
+  router.post('/day-night', wrap(getManager, (manager, req, res) => {
+    res.json(manager.updateDayNight(req.body || {}))
+  }))
+
+  // { phase: "day" | "night" } holds until the next automatic transition;
+  // { phase: null } clears it.
+  router.post('/day-night/override', wrap(getManager, (manager, req, res) => {
+    res.json(manager.setDayNightOverride((req.body && req.body.phase) || null))
+  }))
+
+  router.post('/ui/settings/day-night', wrap(getManager, (manager, req, res) => {
+    const b = req.body || {}
+    let q = 'dayNight=saved'
+    try {
+      manager.updateDayNight({
+        mode: b.dayNightMode,
+        dayTheme: b.dayTheme,
+        nightTheme: b.nightTheme,
+        dayStart: b.dayStart,
+        nightStart: b.nightStart
+      })
+    } catch (err) {
+      if (err.status !== 400) throw err
+      q = `dayNightError=${encodeURIComponent(err.message)}`
+    }
+    res.statusCode = 303
+    res.setHeader('location', `/plugins/yey-boats-display-manager/ui/settings?${q}#day-night`)
+    res.end()
+  }))
+
+  router.post('/ui/settings/day-night/override', wrap(getManager, (manager, req, res) => {
+    const phase = req.body && req.body.phase
+    manager.setDayNightOverride(phase === 'day' || phase === 'night' ? phase : null)
+    res.statusCode = 303
+    res.setHeader('location', '/plugins/yey-boats-display-manager/ui/settings#day-night')
     res.end()
   }))
 
@@ -2840,7 +2883,7 @@ function renderDeviceConfigDetails (device, config, profiles, views, open, webAu
             Operator config for ${escapeHtml(id)}. The device pull endpoint still
             requires <code>X-YeyBoats-Authorization</code>.
           </p>
-          ${renderDeviceConfigForm(device, config, profiles, views)}
+          ${renderDeviceConfigForm(device, config, profiles, views, Boolean(manager && manager.getDayNight().settings.mode !== 'off'))}
           ${renderDeviceConfigWidget(config, views)}
           ${renderWebPasswordSection(id, webAuth)}
           ${manager ? renderDeviceTokenSection(manager, id) : ''}
@@ -3521,7 +3564,7 @@ function configOverridesFromForm (body) {
   }
 }
 
-function renderDeviceConfigForm (device, config, profiles, views) {
+function renderDeviceConfigForm (device, config, profiles, views, dayNightActive) {
   const settings = config.settings || {}
   const nmea = config.nmea0183Wifi || {}
   const autopilot = config.autopilot || {}
@@ -3543,7 +3586,7 @@ function renderDeviceConfigForm (device, config, profiles, views) {
       <div class="form-grid">
         ${field('Preset', profileSelect(profiles, device.assignedProfile || config.profile))}
         ${field('Default screen', defaultScreenField)}
-        ${field('Theme', themeSelect('theme', settings.theme || 'day'))}
+        ${field('Theme', themeSelect('theme', settings.theme || 'day'))}${dayNightActive ? '<p class="muted">Day / night switching is on (Settings), so this theme applies when it is off.</p>' : ''}
         ${field('Brightness', input('brightness', settings.brightness == null ? 0.8 : settings.brightness, 'number', '0', '1', '0.05'))}
         ${field('Demo mode', checkbox('demoMode', settings.demoMode))}
         ${field('NMEA WiFi', checkbox('nmeaEnabled', nmea.enabled))}
@@ -4562,7 +4605,61 @@ function renderSettingsPage (manager, req) {
       <div class="actions">
         <button type="submit">Save settings</button>
       </div>
-    </form>`
+    </form>
+    ${renderDayNightSection(manager, req)}`
+}
+
+// #67: manager-wide automatic day/night theme switching.
+function renderDayNightSection (manager, req) {
+  const dn = manager.getDayNight()
+  const s = dn.settings
+  const st = dn.status
+  const q = (req && req.query) || {}
+  const themeOpts = THEMES.map((t) => [t.id, t.label])
+  const clock = (iso) => {
+    const d = new Date(iso)
+    return `${String(d.getHours()).padStart(2, '0')}:${String(d.getMinutes()).padStart(2, '0')}`
+  }
+  const SOURCES = { schedule: 'by the clock', sun: 'by sunrise / sunset', 'sun-last-position': 'by sunrise / sunset at the last known position', 'schedule-fallback': 'by the clock (no boat position yet)', override: 'set by hand' }
+  const status = st.phase
+    ? `Now: <b>${st.phase === 'day' ? 'Day' : 'Night'}</b> (${escapeHtml(themeLabel(st.theme))}), ${escapeHtml(SOURCES[st.source] || st.source || '')}` +
+      (st.nextChangeAt ? `. Next switch ${escapeHtml(clock(st.nextChangeAt))}` : '') +
+      (dn.override ? ' (the hand-set phase ends then)' : '') + '.'
+    : 'Off: each display keeps its own theme.'
+  const pending = st.devices.filter((d) => ['pending', 'delivered', 'retry'].includes(d.state)).length
+  const failed = st.devices.filter((d) => d.state === 'failed').length
+  const gaveUp = st.devices.filter((d) => d.state === 'gave-up').length
+  const local = st.devices.filter((d) => d.state === 'local').length
+  const byHand = st.devices.filter((d) => d.state === 'overridden').length
+  return `
+    <form class="config-form" id="day-night" method="post" action="/plugins/yey-boats-display-manager/ui/settings/day-night">
+      <h2>Day / night</h2>
+      ${q.dayNight === 'saved' ? '<p class="muted">Saved.</p>' : ''}
+      ${q.dayNightError ? `<p class="error">${escapeHtml(q.dayNightError)}</p>` : ''}
+      <p class="muted">Switches every display between a day and a night theme. Displays that are off when it switches catch up when they next check in.</p>
+      <fieldset>
+        <legend>Switching</legend>
+        <div class="form-grid">
+          ${field('Mode', select('dayNightMode', s.mode, [['off', 'Off'], ['schedule', 'Fixed times'], ['sun', 'Sunrise / sunset']]))}
+          ${field('Day theme', select('dayTheme', s.dayTheme, themeOpts))}
+          ${field('Night theme', select('nightTheme', s.nightTheme, themeOpts))}
+          ${field('Day starts', input('dayStart', s.dayStart, 'time'))}
+          ${field('Night starts', input('nightStart', s.nightStart, 'time'))}
+        </div>
+        <p class="muted">Sunrise / sunset uses the boat's position from SignalK${st.position ? (st.positionLastKnown ? ' (none right now, so the last known position)' : '') : ' (none yet, so the fixed times apply)'}; the fixed times are this server's local time.</p>
+      </fieldset>
+      <p>${status}${pending ? ` ${pending} display(s) still to switch.` : ''}${failed ? ` ${failed} display(s) refused the theme (firmware too old?).` : ''}${local ? ` ${local} display(s) changed on the display; kept until the next switch.` : ''}${byHand ? ` ${byHand} display(s) set by hand; kept until the next switch.` : ''}${gaveUp ? ` ${gaveUp} display(s) did not keep the theme; they are sent it again at the next switch.` : ''}</p>
+      <div class="actions">
+        <button type="submit">Save day / night</button>
+      </div>
+    </form>
+    ${s.mode === 'off' ? '' : `
+    <form method="post" action="/plugins/yey-boats-display-manager/ui/settings/day-night/override" class="actions">
+      <button type="submit" name="phase" value="day">Day now</button>
+      <button type="submit" name="phase" value="night">Night now</button>
+      ${dn.override ? '<button type="submit" name="phase" value="clear">Back to automatic</button>' : ''}
+      <span class="muted">Holds until the next automatic switch.</span>
+    </form>`}`
 }
 
 // #23: the manager API token, shown in full only until the admin confirms
