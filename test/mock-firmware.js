@@ -6,6 +6,9 @@ class MockFirmware {
     this.name = options.name !== undefined ? options.name : 'Mock ESP Display'
     this.screen = 'dashboard'
     this.theme = 'day'
+    // Theme names this build's theme.set accepts (all six by default; older
+    // builds took only day/night, instruments#76).
+    this.themes = options.themes || ['day', 'night', 'high-contrast', 'red-night', 'classic', 'sun']
     this.brightness = 0.8
     this.config = null
     this.firmware = {
@@ -84,6 +87,8 @@ class MockFirmware {
 
   fetchConfig () {
     this.config = this.manager.generateConfig(this.deviceId)
+    // Like the firmware, a loaded config's ui.theme is applied.
+    if (this.config.ui && typeof this.config.ui.theme === 'string') this.theme = this.config.ui.theme
     return this.config
   }
 
@@ -145,6 +150,9 @@ class MockFirmware {
           this.screen = command.payload.screen
           return { ok: true, message: 'screen changed' }
         case 'theme.set':
+          if (!this.themes.includes(command.payload.theme)) {
+            return { ok: false, code: 'invalid_payload', message: 'invalid_payload' }
+          }
           this.theme = command.payload.theme
           return { ok: true, message: 'theme changed' }
         case 'brightness.set':
