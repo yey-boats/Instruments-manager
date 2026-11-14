@@ -306,3 +306,18 @@ test('#39: managed tiles are labelled from their own widget item, not the preset
     if (manager.close) manager.close()
   }
 })
+
+// The preview subscribed to every vessel and ignored the delta's context, so an
+// AIS target's speedOverGround/position replaced the boat's own (seen on the
+// bench, 2026-11-14: preview 17.1 kn while the display showed 3 kn).
+test('the live preview keeps only this boat\'s deltas', () => {
+  const { DP } = loadGlue({})
+  const self = 'vessels.urn:mrn:signalk:uuid:self-1'
+  assert.strictEqual(DP.isSelfDelta({ updates: [] }, self), true)
+  assert.strictEqual(DP.isSelfDelta({ context: 'vessels.self', updates: [] }, self), true)
+  assert.strictEqual(DP.isSelfDelta({ context: self, updates: [] }, self), true)
+  assert.strictEqual(DP.isSelfDelta({ context: 'vessels.urn:mrn:imo:mmsi:244123456', updates: [] }, self), false)
+  assert.strictEqual(DP.isSelfDelta({ context: 'vessels.urn:mrn:imo:mmsi:244123456', updates: [] }, null), false)
+  const src = fs.readFileSync(path.join(PUBLIC, 'device-preview.js'), 'utf8')
+  assert.ok(!src.includes('subscribe=all'), 'the stream is not subscribed to every vessel')
+})
