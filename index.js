@@ -4210,7 +4210,7 @@ function renderCloudDashboardsPanel (cloud, req) {
       ${cloud.message && cloud.message !== cloudDashboards.CONNECT_HINT ? `<p class="muted">${escapeHtml(cloud.message)}</p>` : ''}`
   } else if (!cloud.dashboards.length) {
     body = `
-      <p class="muted" data-cloud-state="empty">No dashboards saved on yey.boats yet. Dashboards you save there show up here, ready to import as a preset.</p>`
+      <p class="muted" data-cloud-state="empty">${escapeHtml(cloudDashboards.EMPTY_HINT)}</p>`
   } else {
     const label = { new: 'Import', update: 'Update', current: 'Re-import' }
     const rows = cloud.dashboards.map((d) => {

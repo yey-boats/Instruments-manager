@@ -225,6 +225,23 @@ test('an invalid doc is refused with the validator message, and nothing is store
   assert.match(loc, /element type not supported: nonsense/)
 })
 
+test('signalk-server drops provider rejections: empty list, empty get', async () => {
+  const { manager } = makeManager()
+  manager.app.resourcesApi = { listResources: async () => ({}), getResource: async () => undefined }
+  const list = await call(routes(manager)('GET', '/cloud-dashboards'))
+  assert.deepStrictEqual(list.json, { available: true, dashboards: [] })
+  const imp = routes(manager)('POST', '/cloud-dashboards/:id/import')
+  for (const got of [undefined, null, {}, { id: 'a1', title: 'T' }, { id: 'a1', doc: { midl: '1.0.0' } }]) {
+    manager.app.resourcesApi.getResource = async () => got
+    const res = await call(imp, { method: 'POST', params: { id: 'a1' } })
+    assert.strictEqual(res.status, 502, JSON.stringify(got))
+    assert.strictEqual(res.json.error.code, 'cloud_dashboard_unavailable')
+    assert.strictEqual(res.json.error.message, "Couldn't fetch that dashboard from yey.boats (is the connector online?)")
+  }
+  const form = await call(imp, { method: 'POST', params: { id: 'a1' }, headers: { 'content-type': 'application/x-www-form-urlencoded' } })
+  assert.match(decodeURIComponent(form.headers.location), /cloudError=Couldn't fetch that dashboard/)
+})
+
 test('a malformed cloud doc is a 400, a doc-less resource a 502', async () => {
   const { manager } = makeManager()
   connector(manager, {
@@ -236,7 +253,7 @@ test('a malformed cloud doc is a 400, a doc-less resource a 502', async () => {
   assert.strictEqual(res.status, 400)
   res = await call(imp, { method: 'POST', params: { id: 'none' } })
   assert.strictEqual(res.status, 502)
-  assert.strictEqual(res.json.error.code, 'cloud_dashboard_invalid')
+  assert.strictEqual(res.json.error.code, 'cloud_dashboard_unavailable')
 })
 
 test('the file import also takes a MIDL document now', needsBuild, () => {
@@ -258,6 +275,7 @@ test('profiles page: From yey.boats panel escapes cloud strings and shows the st
   connector(manager, {})
   res = await call(page)
   assert.match(res.body, /data-cloud-state="empty"/)
+  assert.match(res.body, /No dashboards from yey\.boats yet\. Make sure the yey connector is installed, paired and online/)
 
   connector(manager, {
     'x"><script>': { name: '<b>n</b>', title: '<img src=x onerror=alert(1)>', targetClass: '<i>c</i>', updatedAt: '2026-11-01T10:00:00Z<x>', doc: '{}' }
