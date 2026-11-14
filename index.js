@@ -2474,9 +2474,7 @@ function midlPreviewFor (display) {
 
 function renderDevicePage (manager, id, live = {}, opts = {}) {
   const device = manager.getDevice(id)
-  // #67: the page edits the display's own settings, not the day/night theme
-  // it is currently sent.
-  const config = manager.generateConfig(id, { dayNight: false })
+  const config = manager.generateConfig(id)
   const profilesList = manager.listProfiles().profiles
   // Device's real switchable screens (heartbeat ui.screens) drive the config
   // editors so the screen pickers only offer screens that actually exist.
@@ -4628,8 +4626,9 @@ function renderDayNightSection (manager, req) {
       (st.nextChangeAt ? `. Next switch ${escapeHtml(clock(st.nextChangeAt))}` : '') +
       (dn.override ? ' (the hand-set phase ends then)' : '') + '.'
     : 'Off: each display keeps its own theme.'
-  const pending = st.devices.filter((d) => d.state === 'pending' || d.state === 'undelivered').length
+  const pending = st.devices.filter((d) => ['pending', 'delivered', 'retry'].includes(d.state)).length
   const failed = st.devices.filter((d) => d.state === 'failed').length
+  const gaveUp = st.devices.filter((d) => d.state === 'gave-up').length
   return `
     <form class="config-form" id="day-night" method="post" action="/plugins/yey-boats-display-manager/ui/settings/day-night">
       <h2>Day / night</h2>
@@ -4647,7 +4646,7 @@ function renderDayNightSection (manager, req) {
         </div>
         <p class="muted">Sunrise / sunset uses the boat's position from SignalK${st.position ? '' : ' (none yet, so the fixed times apply)'}; the fixed times are this server's local time.</p>
       </fieldset>
-      <p>${status}${pending ? ` ${pending} display(s) still to switch.` : ''}${failed ? ` ${failed} display(s) refused the theme (firmware too old?).` : ''}</p>
+      <p>${status}${pending ? ` ${pending} display(s) still to switch.` : ''}${failed ? ` ${failed} display(s) refused the theme (firmware too old?).` : ''}${gaveUp ? ` ${gaveUp} display(s) did not keep the theme; they are sent it again at the next switch.` : ''}</p>
       <div class="actions">
         <button type="submit">Save day / night</button>
       </div>
