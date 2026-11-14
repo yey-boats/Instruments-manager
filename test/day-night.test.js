@@ -137,7 +137,7 @@ function setup (n = 2, opts = {}) {
   }
   const fws = []
   for (let i = 0; i < n; i++) {
-    const fw = new MockFirmware(manager, { deviceId: `yey-d-dn${i}`, auth, themes: opts.themes })
+    const fw = new MockFirmware(manager, { deviceId: `yey-d-dn${i}`, auth, themes: opts.themes, ackStrings: opts.ackStrings })
     fw.register()
     fw.fetchConfig()
     fws.push(fw)
@@ -147,6 +147,22 @@ function setup (n = 2, opts = {}) {
 
 const themeCmds = (manager, id) => manager.store.commands.commands
   .filter((c) => c.deviceId === id && c.type === 'theme.set')
+
+// Moves Date.now() (command timestamps, expiry, retry spacing) forward; the
+// phase itself is driven by the explicit instants passed to the manager.
+function clock (t) {
+  const real = Date.now
+  let off = 0
+  Date.now = () => real() + off
+  t.after(() => { Date.now = real })
+  return { advance (ms) { off += ms } }
+}
+
+// Retry spacing and per-switch send cap (lib/manager.js).
+const RETRY_MS = 60 * 1000
+const MAX_SENDS = 5
+
+const record = (manager, id) => manager.getDayNight().status.devices.find((d) => d.id === id)
 
 const dayNightDeltas = (deltas) => deltas
   .map((d) => d.updates[0].values[0])
@@ -213,7 +229,8 @@ test('no duplicate sends: same phase on later ticks and polls sends nothing', ()
   assert.strictEqual(themeCmds(manager, id).length, 1)
 })
 
-test('catch-up: an offline display gets the current theme on its next poll', () => {
+test('catch-up: an offline display gets the current theme on its next poll', (t) => {
+  const c = clock(t)
   const { manager, fws } = setup(2)
   const [online, offline] = fws
   manager.updateDayNight({ mode: 'schedule' }, local(12, 0))
@@ -223,9 +240,7 @@ test('catch-up: an offline display gets the current theme on its next poll', () 
   online.pollAndExecute()
   assert.strictEqual(online.theme, 'red-night')
   // The offline display never polls: its command expires.
-  for (const c of themeCmds(manager, offline.deviceId)) {
-    if (c.status === 'pending') c.expiresAt = new Date(Date.now() - 1000).toISOString()
-  }
+  c.advance(5 * MIN)
   manager.expireCommands()
   // Later ticks in the same phase do not re-queue for it (no spam while away).
   manager.dayNightTick(local(19, 45))
@@ -255,25 +270,145 @@ test('a display that rejects the theme is not re-sent it', () => {
   assert.strictEqual(manager.getDayNight().status.devices[0].state, 'failed')
 })
 
-test('generated config follows the phase without forcing a reload', () => {
+test('the generated config never carries the phase theme', () => {
+  // PR #70 review B1: the firmware persists a fetched config and re-applies
+  // it (ui.theme included) on every boot, so a phase theme in the config
+  // would come back after a power cycle in the other phase. The switch is
+  // delivered only by theme.set, which the firmware keeps in NVS.
   const { manager, fws } = setup(1)
   const id = fws[0].deviceId
-  const hashOff = manager.generateConfig(id).hash
+  const off = manager.generateConfig(id)
   manager.updateDayNight({ mode: 'schedule' }, local(20, 0))
-  let cfg = manager.generateConfig(id)
-  assert.strictEqual(cfg.settings.theme, 'red-night')
-  assert.strictEqual(cfg.ui.theme, 'red-night', 'ui.theme is what the firmware applies on config load')
-  assert.strictEqual(cfg.hash, hashOff, 'phase is not part of the config hash')
+  const cfg = manager.generateConfig(id)
+  assert.strictEqual(cfg.settings.theme, 'day', 'the display\'s own theme')
+  assert.ok(!cfg.ui || cfg.ui.theme === undefined, 'no ui.theme')
+  assert.strictEqual(cfg.hash, off.hash)
   assert.strictEqual(fws[0].heartbeat().desiredConfig.reload, false)
-  // A config.reload now lands on the night theme, not the per-device one.
+  fws[0].pollAndExecute()
   fws[0].fetchConfig()
-  assert.strictEqual(fws[0].theme, 'red-night')
+  assert.strictEqual(fws[0].theme, 'red-night', 'a config reload keeps the theme.set theme')
+})
+
+test('B1: a power cycle in the other phase does not bring back the old theme', () => {
+  const { manager, fws } = setup(1)
+  const fw = fws[0]
+  const id = fw.deviceId
+  manager.patchDevice(id, { overrides: { settings: { theme: 'classic' } } })
+  fw.fetchConfig()
+  fw.theme = 'classic'
+  manager.updateDayNight({ mode: 'schedule' }, local(12, 0))
+  fw.pollAndExecute()
+  assert.strictEqual(fw.theme, 'sun')
+  // A device setting edited during the day: the display fetches the new
+  // config and persists it to flash (the hash changed).
+  manager.patchDevice(id, { overrides: { settings: { theme: 'classic', brightness: 0.5 } } })
+  assert.strictEqual(fw.heartbeat().desiredConfig.reload, true)
+  fw.fetchConfig()
+  assert.strictEqual(fw.theme, 'sun')
+  assert.strictEqual(fw.persisted.hash, manager.generateConfig(id).hash)
+  manager.dayNightTick(local(20, 0))
+  fw.pollAndExecute()
+  assert.strictEqual(fw.theme, 'red-night')
+  // Power cycle at night: the persisted config is re-applied.
+  fw.reboot()
+  assert.strictEqual(fw.theme, 'red-night', 'boots on the night theme')
+  assert.strictEqual(fw.heartbeat().desiredConfig.reload, false)
+  assert.strictEqual(fw.pollAndExecute().length, 0)
+  // Switching turned off: the own theme comes back and survives a reboot.
+  manager.updateDayNight({ mode: 'off' }, local(23, 30))
+  fw.pollAndExecute()
+  assert.strictEqual(fw.theme, 'classic')
+  fw.reboot()
+  assert.strictEqual(fw.theme, 'classic')
+  assert.strictEqual(fw.heartbeat().desiredConfig.reload, false)
+  assert.strictEqual(fw.pollAndExecute().length, 0)
+})
+
+test('B1: a display that reports another theme after applying is re-sent it, rate-limited and capped', (t) => {
+  const c = clock(t)
+  const { manager, fws } = setup(1)
+  const fw = fws[0]
+  const id = fw.deviceId
+  manager.updateDayNight({ mode: 'schedule' }, local(20, 0))
+  fw.pollAndExecute()
+  fw.heartbeat()
+  assert.strictEqual(fw.theme, 'red-night')
+  // A persisted config with a ui.theme in it (another manager, #71...) is
+  // re-applied on boot and overwrites the NVS theme.
+  fw.persisted = Object.assign({}, fw.persisted, { ui: { theme: 'sun' } })
+  fw.reboot()
+  assert.strictEqual(fw.theme, 'sun')
+  fw.heartbeat()
+  c.advance(RETRY_MS)
+  let got = fw.pollAndExecute()
+  assert.strictEqual(got.length, 1)
+  assert.deepStrictEqual(got[0].command.payload, { theme: 'red-night' })
+  assert.strictEqual(fw.theme, 'red-night')
+  fw.heartbeat()
+  assert.strictEqual(fw.pollAndExecute().length, 0, 'reports the theme it was sent')
+  // Reverted again at once: nothing within the retry interval...
+  fw.reboot()
+  fw.heartbeat()
+  assert.strictEqual(fw.pollAndExecute().length, 0)
+  // ...then once more.
+  c.advance(RETRY_MS)
+  assert.strictEqual(fw.pollAndExecute().length, 1)
+  // A display that keeps reverting gets at most MAX_SENDS per switch.
+  for (let i = 0; i < 10; i++) {
+    fw.reboot()
+    fw.heartbeat()
+    c.advance(RETRY_MS)
+    fw.pollAndExecute()
+  }
+  assert.strictEqual(themeCmds(manager, id).length, MAX_SENDS)
+  assert.strictEqual(record(manager, id).state, 'gave-up')
+  // The next switch starts afresh.
   manager.dayNightTick(local(7, 0, 2))
-  cfg = manager.generateConfig(id)
-  assert.strictEqual(cfg.settings.theme, 'sun')
-  assert.strictEqual(cfg.hash, hashOff)
-  // The device form edits the display's own theme, not the phase theme.
-  assert.strictEqual(manager.generateConfig(id, { dayNight: false }).settings.theme, 'day')
+  got = fw.pollAndExecute()
+  assert.strictEqual(got.length, 1)
+  assert.strictEqual(fw.theme, 'sun')
+})
+
+test('B1: a heartbeat sent before the theme was applied does not count as a mismatch', (t) => {
+  const c = clock(t)
+  const { manager, fws } = setup(1)
+  const fw = fws[0]
+  manager.updateDayNight({ mode: 'schedule' }, local(20, 0))
+  fw.heartbeat() // still on 'day': the command is not applied yet
+  fw.pollAndExecute()
+  c.advance(RETRY_MS)
+  assert.strictEqual(fw.pollAndExecute().length, 0)
+  assert.strictEqual(themeCmds(manager, fw.deviceId).length, 1)
+})
+
+test('B1: a theme the operator set by hand is not fought until the next switch', (t) => {
+  const c = clock(t)
+  const { manager, fws } = setup(1)
+  const fw = fws[0]
+  manager.updateDayNight({ mode: 'schedule' }, local(20, 0))
+  fw.pollAndExecute()
+  manager.createCommand(fw.deviceId, { type: 'theme.set', payload: { theme: 'high-contrast' } })
+  fw.pollAndExecute()
+  fw.heartbeat()
+  c.advance(RETRY_MS)
+  assert.strictEqual(fw.pollAndExecute().length, 0)
+  assert.strictEqual(fw.theme, 'high-contrast')
+  manager.dayNightTick(local(7, 0, 2))
+  fw.pollAndExecute()
+  assert.strictEqual(fw.theme, 'sun')
+})
+
+test('S1: older firmware that rejects ui.theme is not sent into a config refetch loop', () => {
+  // Firmware rejecting an unknown ui.theme applies the valid subset but
+  // never records the new hash as applied, so a phase theme in the config
+  // would make every heartbeat ask for a reload.
+  const { manager, fws } = setup(1, { themes: ['day', 'night'] })
+  const fw = fws[0]
+  manager.updateDayNight({ mode: 'schedule' }, local(20, 0))
+  manager.patchDevice(fw.deviceId, { overrides: { settings: { brightness: 0.4 } } })
+  assert.strictEqual(fw.heartbeat().desiredConfig.reload, true)
+  fw.fetchConfig()
+  for (let i = 0; i < 3; i++) assert.strictEqual(fw.heartbeat().desiredConfig.reload, false)
 })
 
 test('override: Day now holds until the next scheduled transition', () => {
@@ -361,6 +496,135 @@ test('settings persist across a restart', () => {
     again.close()
   }
   assert.throws(() => manager.updateDayNight({ dayStart: '7am' }), (e) => e.status === 400)
+})
+
+test('S2: turning it off while a display is away restores its theme when it is back', (t) => {
+  const c = clock(t)
+  const { manager, fws } = setup(1)
+  const fw = fws[0]
+  const id = fw.deviceId
+  manager.patchDevice(id, { overrides: { settings: { theme: 'classic' } } })
+  fw.fetchConfig()
+  manager.updateDayNight({ mode: 'schedule' }, local(20, 0))
+  fw.pollAndExecute()
+  assert.strictEqual(fw.theme, 'red-night')
+  manager.updateDayNight({ mode: 'off' }, local(21, 0))
+  // Away for longer than the command lives.
+  c.advance(5 * MIN)
+  manager.expireCommands()
+  assert.ok(record(manager, id), 'the restore is still owed')
+  const hb = fw.heartbeat()
+  assert.strictEqual(hb.desiredConfig.reload, false)
+  const got = fw.pollAndExecute()
+  assert.strictEqual(got.length, 1)
+  assert.deepStrictEqual(got[0].command.payload, { theme: 'classic' })
+  assert.strictEqual(fw.theme, 'classic')
+  assert.strictEqual(record(manager, id), undefined, 'done once acknowledged')
+  c.advance(5 * MIN)
+  assert.strictEqual(fw.pollAndExecute().length, 0)
+})
+
+test('S2: a restore that is never confirmed is retried a bounded number of times', (t) => {
+  const c = clock(t)
+  const { manager, fws } = setup(1)
+  const fw = fws[0]
+  manager.updateDayNight({ mode: 'schedule' }, local(20, 0))
+  fw.pollAndExecute()
+  manager.updateDayNight({ mode: 'off' }, local(21, 0))
+  fw.busy = true
+  for (let i = 0; i < 20; i++) {
+    fw.pollAndExecute()
+    c.advance(RETRY_MS)
+  }
+  const restores = themeCmds(manager, fw.deviceId).filter((x) => x.payload.theme === 'day')
+  assert.strictEqual(restores.length, MAX_SENDS)
+  assert.strictEqual(record(manager, fw.deviceId), undefined, 'given up')
+})
+
+test('S3: a display that heartbeats but does not fetch commands is not queued more', (t) => {
+  const c = clock(t)
+  const { manager, fws } = setup(1)
+  const fw = fws[0]
+  manager.updateDayNight({ mode: 'schedule' }, local(20, 0))
+  for (let i = 0; i < 30; i++) {
+    c.advance(61000)
+    manager.dashboard()
+    fw.heartbeat()
+  }
+  assert.strictEqual(themeCmds(manager, fw.deviceId).length, 1)
+  // One that fetches but never acknowledges: bounded too.
+  for (let i = 0; i < 30; i++) {
+    c.advance(61000)
+    manager.getCommands(fw.deviceId, fw.auth, 10)
+    fw.heartbeat()
+  }
+  assert.strictEqual(themeCmds(manager, fw.deviceId).length, MAX_SENDS)
+  const created = auditTypes(manager).filter((e) => e.type === 'command.created')
+  assert.ok(created.length <= MAX_SENDS + 2, `audit stays small (${created.length})`)
+})
+
+test('nit: a command delivered but never acknowledged is sent again after it expires', (t) => {
+  const c = clock(t)
+  const { manager, fws } = setup(1)
+  const fw = fws[0]
+  manager.updateDayNight({ mode: 'schedule' }, local(20, 0))
+  assert.strictEqual(manager.getCommands(fw.deviceId, fw.auth, 10).commands.length, 1) // lost on the way
+  c.advance(RETRY_MS + 1000)
+  const got = fw.pollAndExecute()
+  assert.strictEqual(got.length, 1)
+  assert.strictEqual(fw.theme, 'red-night')
+  assert.strictEqual(record(manager, fw.deviceId).state, 'applied')
+})
+
+test('S4: firmware status strings: invalid_payload is a refusal, busy is retried', (t) => {
+  const c = clock(t)
+  // invalid_payload: older firmware without the theme.
+  {
+    const { manager, fws } = setup(1, { themes: ['day', 'night'], ackStrings: true })
+    const fw = fws[0]
+    manager.updateDayNight({ mode: 'schedule' }, local(20, 0))
+    const r = fw.pollAndExecute()
+    assert.strictEqual(r.length, 1)
+    assert.strictEqual(manager.getCommand(fw.deviceId, r[0].command.id).status, 'failed')
+    c.advance(RETRY_MS)
+    assert.strictEqual(fw.pollAndExecute().length, 0)
+    assert.strictEqual(record(manager, fw.deviceId).state, 'failed')
+  }
+  // busy: sent again after the retry interval.
+  {
+    const { manager, fws } = setup(1, { ackStrings: true })
+    const fw = fws[0]
+    manager.updateDayNight({ mode: 'schedule' }, local(20, 0))
+    fw.busy = true
+    assert.strictEqual(fw.pollAndExecute().length, 1)
+    assert.strictEqual(record(manager, fw.deviceId).state, 'retry')
+    assert.strictEqual(fw.pollAndExecute().length, 0, 'not straight away')
+    fw.busy = false
+    c.advance(RETRY_MS)
+    assert.strictEqual(fw.pollAndExecute().length, 1)
+    assert.strictEqual(fw.theme, 'red-night')
+    assert.strictEqual(record(manager, fw.deviceId).state, 'applied')
+  }
+})
+
+test('nit: a phase change while the manager was down applies at startup', (t) => {
+  const { manager, fws } = setup(1)
+  const fw = fws[0]
+  manager.updateDayNight({ mode: 'schedule' }, local(12, 0))
+  fw.pollAndExecute()
+  assert.strictEqual(fw.theme, 'sun')
+  manager.close()
+  const real = Date.now
+  const night = new Date(2027, 0, 1, 21, 0, 0, 0).getTime()
+  Date.now = () => night
+  t.after(() => { Date.now = real })
+  const { YeyBoatsDisplayManager } = require('../lib/manager')
+  const again = new YeyBoatsDisplayManager(manager.app, manager.options)
+  t.after(() => again.close())
+  assert.strictEqual(again.getDayNight().status.phase, 'night')
+  const pending = again.store.commands.commands.filter((x) => x.deviceId === fw.deviceId && x.type === 'theme.set' && x.status === 'pending')
+  assert.strictEqual(pending.length, 1)
+  assert.deepStrictEqual(pending[0].payload, { theme: 'red-night' })
 })
 
 // ---- routes + UI -------------------------------------------------------------

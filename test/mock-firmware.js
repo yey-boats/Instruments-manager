@@ -10,7 +10,16 @@ class MockFirmware {
     // builds took only day/night, instruments#76).
     this.themes = options.themes || ['day', 'night', 'high-contrast', 'red-night', 'classic', 'sun']
     this.brightness = 0.8
+    // Firmware acks carry a bare status string ("ok", "busy",
+    // "invalid_payload", ...); option ackStrings reproduces that.
+    this.ackStrings = Boolean(options.ackStrings)
+    // theme.set answers busy while set (the UI task queue is full).
+    this.busy = false
+    // The config last loaded, the one whose hash the display reports as
+    // applied, and the copy persisted to flash (re-applied on every boot).
     this.config = null
+    this.applied = null
+    this.persisted = null
     this.firmware = {
       name: 'yey-display',
       version: options.version || '0.5.0-dev',
@@ -87,9 +96,36 @@ class MockFirmware {
 
   fetchConfig () {
     this.config = this.manager.generateConfig(this.deviceId)
-    // Like the firmware, a loaded config's ui.theme is applied.
-    if (this.config.ui && typeof this.config.ui.theme === 'string') this.theme = this.config.ui.theme
+    this.applyConfig(this.config)
     return this.config
+  }
+
+  // Like apply_config_object(): a config's ui.theme is applied (and so
+  // overwrites the theme kept in NVS); an unknown one is rejected, and a
+  // config with a rejected field is applied as a valid subset only: its hash
+  // is not recorded as applied and it is not persisted.
+  applyConfig (cfg, booting) {
+    let ok = true
+    if (cfg.ui && typeof cfg.ui.theme === 'string') {
+      if (this.themes.includes(cfg.ui.theme)) this.theme = cfg.ui.theme
+      else ok = false
+    }
+    if (!ok) return false
+    const prevHash = this.applied && this.applied.hash
+    this.applied = { version: cfg.version, hash: cfg.hash }
+    // Flash-wear rule: persist only when the hash changed.
+    if (!booting && cfg.hash !== prevHash) this.persisted = JSON.parse(JSON.stringify(cfg))
+    return true
+  }
+
+  // Power cycle: the theme in NVS survives; load_persisted_config() then
+  // re-applies the persisted config (incl. its ui.theme) and reports its hash.
+  reboot () {
+    this.applied = null
+    if (this.persisted) {
+      this.config = JSON.parse(JSON.stringify(this.persisted))
+      this.applyConfig(this.config, true)
+    }
   }
 
   heartbeat () {
@@ -127,8 +163,8 @@ class MockFirmware {
         port: 3232,
         passwordSet: false
       },
-      config: this.config
-        ? { version: this.config.version, hash: this.config.hash, applied: true }
+      config: this.applied
+        ? { version: this.applied.version, hash: this.applied.hash, applied: true }
         : { version: 0, hash: null, applied: false },
       errors: []
     }, this.auth)
@@ -138,7 +174,8 @@ class MockFirmware {
     const polled = this.manager.getCommands(this.deviceId, this.auth, 10)
     return polled.commands.map((command) => {
       const result = this.execute(command)
-      this.manager.ackCommand(this.deviceId, command.id, { result }, this.auth)
+      const sent = this.ackStrings ? (result.ok === false ? result.code || 'failed' : 'ok') : result
+      this.manager.ackCommand(this.deviceId, command.id, { result: sent }, this.auth)
       return { command, result }
     })
   }
@@ -150,6 +187,7 @@ class MockFirmware {
           this.screen = command.payload.screen
           return { ok: true, message: 'screen changed' }
         case 'theme.set':
+          if (this.busy) return { ok: false, code: 'busy', message: 'busy' }
           if (!this.themes.includes(command.payload.theme)) {
             return { ok: false, code: 'invalid_payload', message: 'invalid_payload' }
           }
