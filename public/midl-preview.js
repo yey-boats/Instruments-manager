@@ -31,7 +31,7 @@
       { type: "button", bindings: [], attrs: ["title", "size", "color"] },
     ],
     sources: ["signalk"], actionKinds: ["nav", "command"],
-    presets: ["full", "hero-split"], themes: ["day", "night", "high-contrast"], fonts: [14, 20, 28, 48],
+    presets: ["full", "hero-split"], themes: ["sun", "day", "night", "red-night", "high-contrast", "classic"], fonts: [14, 20, 28, 48],
   };
 
   // Sample fallback values (SI source units, as SignalK delivers) for every path

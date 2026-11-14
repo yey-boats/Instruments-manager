@@ -3,6 +3,7 @@ const path = require('path')
 const { YeyBoatsDisplayManager, basicAuthHeaders } = require('./lib/manager')
 const presets = require('./lib/screen-presets')
 const fieldSchema = require('./lib/field-schema')
+const { THEMES } = require('./lib/themes')
 const midlAdapter = require('./lib/midl-adapter')
 const midlLib = require('./lib/midl')
 const cloudDashboards = require('./lib/cloud-dashboards')
@@ -3542,7 +3543,7 @@ function renderDeviceConfigForm (device, config, profiles, views) {
       <div class="form-grid">
         ${field('Preset', profileSelect(profiles, device.assignedProfile || config.profile))}
         ${field('Default screen', defaultScreenField)}
-        ${field('Theme', select('theme', settings.theme || 'day', [['day', 'Day'], ['night', 'Night'], ['high-contrast', 'High contrast']]))}
+        ${field('Theme', select('theme', settings.theme || 'day', THEMES.map((t) => [t.id, t.label])))}
         ${field('Brightness', input('brightness', settings.brightness == null ? 0.8 : settings.brightness, 'number', '0', '1', '0.05'))}
         ${field('Demo mode', checkbox('demoMode', settings.demoMode))}
         ${field('NMEA WiFi', checkbox('nmeaEnabled', nmea.enabled))}
