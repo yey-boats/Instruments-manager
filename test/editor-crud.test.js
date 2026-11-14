@@ -239,6 +239,144 @@ test('removeField reflows the remaining tiles to the new column count', () => {
   ])
 })
 
+// #49 second review: a screen with an explicit `grid` (always set by a MIDL
+// editor save) is hand-authored, gaps included. removeField must leave the
+// survivors exactly where they were, not compact them into a dense grid.
+test('removeField on a MIDL-authored screen (explicit grid) leaves survivors in place', () => {
+  const { manager, id, auth } = freshManager()
+  manager.updateStatus(id, { time: new Date().toISOString(), ui: { capabilities: REPORTED_MANIFEST } }, auth)
+  let layout = manager.addScreen(id, { title: 'Dash' })
+  const sid = layout.screens[0].id
+
+  const areas = { m0: { col: 0, row: 0 }, m1: { col: 2, row: 0 }, m2: { col: 1, row: 1 }, m3: { col: 0, row: 2 }, m4: { col: 2, row: 2 } }
+  manager.mutateEditorLayout(id, (cfg) => {
+    const s = cfg.layout.screens.find((x) => x.id === sid)
+    s.grid = { rows: 3, cols: 3 }
+    for (const [widgetId, area] of Object.entries(areas)) {
+      cfg.widgets.items[widgetId] = { type: 'numeric', paths: { value: widgetId }, path: widgetId }
+      s.tiles.push({ widget: widgetId, path: widgetId, area })
+    }
+  })
+
+  layout = manager.removeField(id, sid, 'm2')
+  const screen = layout.screens.find((s) => s.id === sid)
+  assert.deepStrictEqual(screen.grid, { rows: 3, cols: 3 }, 'grid is untouched')
+  const remaining = Object.fromEntries(screen.tiles.map((t) => [t.widget, t.area]))
+  assert.deepStrictEqual(remaining, { m0: areas.m0, m1: areas.m1, m3: areas.m3, m4: areas.m4 }, 'every survivor keeps its original area')
+})
+
+// #49 second review: a single-column layout (no explicit grid, but not the
+// dense auto-placed pattern either) is still hand-authored. addField must
+// slot the new tile into the next free cell of the grid that's already
+// there (derived from the existing tiles' extent) instead of reshaping it.
+test('addField on a hand-authored single-column screen extends it, does not reshape it', () => {
+  const { manager, id, auth } = freshManager()
+  manager.updateStatus(id, { time: new Date().toISOString(), ui: { capabilities: REPORTED_MANIFEST } }, auth)
+  let layout = manager.addScreen(id, { title: 'Dash' })
+  const sid = layout.screens[0].id
+
+  const original = { c0: { col: 0, row: 0 }, c1: { col: 0, row: 1 }, c2: { col: 0, row: 2 } }
+  manager.mutateEditorLayout(id, (cfg) => {
+    const s = cfg.layout.screens.find((x) => x.id === sid)
+    for (const [widgetId, area] of Object.entries(original)) {
+      cfg.widgets.items[widgetId] = { type: 'numeric', paths: { value: widgetId }, path: widgetId }
+      s.tiles.push({ widget: widgetId, path: widgetId, area })
+    }
+  })
+
+  layout = manager.addField(id, sid, { type: 'numeric', paths: { value: 'path.new' } })
+  const tiles = layout.screens.find((s) => s.id === sid).tiles
+  const byId = Object.fromEntries(tiles.map((t) => [t.widget, t.area]))
+  assert.deepStrictEqual(byId.c0, original.c0, 'c0 untouched')
+  assert.deepStrictEqual(byId.c1, original.c1, 'c1 untouched')
+  assert.deepStrictEqual(byId.c2, original.c2, 'c2 untouched')
+  const newTile = tiles.find((t) => !(t.widget in original))
+  // Column width stays 1 (the existing tiles' extent); the new tile extends
+  // the column to row 3, it does not reshape the screen into 2 columns.
+  assert.deepStrictEqual(newTile.area, { col: 0, row: 3 })
+})
+
+// Mirror case: a single-row (4x1) hand-authored layout extends by wrapping
+// into a second row at the SAME width, not by regrouping into 2x2.
+test('addField on a hand-authored single-row screen extends it, does not reshape it', () => {
+  const { manager, id, auth } = freshManager()
+  manager.updateStatus(id, { time: new Date().toISOString(), ui: { capabilities: REPORTED_MANIFEST } }, auth)
+  let layout = manager.addScreen(id, { title: 'Dash' })
+  const sid = layout.screens[0].id
+
+  const original = { r0: { col: 0, row: 0 }, r1: { col: 1, row: 0 }, r2: { col: 2, row: 0 }, r3: { col: 3, row: 0 } }
+  manager.mutateEditorLayout(id, (cfg) => {
+    const s = cfg.layout.screens.find((x) => x.id === sid)
+    for (const [widgetId, area] of Object.entries(original)) {
+      cfg.widgets.items[widgetId] = { type: 'numeric', paths: { value: widgetId }, path: widgetId }
+      s.tiles.push({ widget: widgetId, path: widgetId, area })
+    }
+  })
+
+  layout = manager.addField(id, sid, { type: 'numeric', paths: { value: 'path.new' } })
+  const tiles = layout.screens.find((s) => s.id === sid).tiles
+  const byId = Object.fromEntries(tiles.map((t) => [t.widget, t.area]))
+  for (const widgetId of Object.keys(original)) {
+    assert.deepStrictEqual(byId[widgetId], original[widgetId], `${widgetId} untouched`)
+  }
+  const newTile = tiles.find((t) => !(t.widget in original))
+  assert.deepStrictEqual(newTile.area, { col: 0, row: 1 })
+})
+
+// #49 second review ("spans are dropped"): a tile's colSpan must both
+// survive untouched AND be honoured when another tile is placed next to it.
+test('addField honours an existing tile\'s colSpan when picking a free cell', () => {
+  const { manager, id, auth } = freshManager()
+  manager.updateStatus(id, { time: new Date().toISOString(), ui: { capabilities: REPORTED_MANIFEST } }, auth)
+  let layout = manager.addScreen(id, { title: 'Dash' })
+  const sid = layout.screens[0].id
+
+  manager.mutateEditorLayout(id, (cfg) => {
+    const s = cfg.layout.screens.find((x) => x.id === sid)
+    cfg.widgets.items.wide = { type: 'numeric', paths: { value: 'wide' }, path: 'wide' }
+    s.tiles.push({ widget: 'wide', path: 'wide', area: { col: 0, row: 0, colSpan: 2 } })
+  })
+
+  layout = manager.addField(id, sid, { type: 'numeric', paths: { value: 'path.new' } })
+  const tiles = layout.screens.find((s) => s.id === sid).tiles
+  const wide = tiles.find((t) => t.widget === 'wide')
+  assert.deepStrictEqual(wide.area, { col: 0, row: 0, colSpan: 2 }, 'the spanning tile is untouched')
+  const newTile = tiles.find((t) => t.widget !== 'wide')
+  // The wide tile's own extent (col 0 + span 2 = width 2) covers both cells
+  // of row 0; the new tile must not land on either one.
+  assert.deepStrictEqual(newTile.area, { col: 0, row: 1 })
+})
+
+// #49 second review ("a stale s.grid splits MIDL from the device"): when a
+// hand-authored grid is already full, addField must grow it by a row AND
+// keep `s.grid` in sync, or a MIDL conversion of this screen would disagree
+// with what the device actually shows.
+test('addField grows a full hand-authored grid by a row and keeps s.grid in sync', () => {
+  const { manager, id, auth } = freshManager()
+  manager.updateStatus(id, { time: new Date().toISOString(), ui: { capabilities: REPORTED_MANIFEST } }, auth)
+  let layout = manager.addScreen(id, { title: 'Dash' })
+  const sid = layout.screens[0].id
+
+  const original = { g0: { col: 0, row: 0 }, g1: { col: 1, row: 0 }, g2: { col: 0, row: 1 }, g3: { col: 1, row: 1 } }
+  manager.mutateEditorLayout(id, (cfg) => {
+    const s = cfg.layout.screens.find((x) => x.id === sid)
+    s.grid = { rows: 2, cols: 2 }
+    for (const [widgetId, area] of Object.entries(original)) {
+      cfg.widgets.items[widgetId] = { type: 'numeric', paths: { value: widgetId }, path: widgetId }
+      s.tiles.push({ widget: widgetId, path: widgetId, area })
+    }
+  })
+
+  layout = manager.addField(id, sid, { type: 'numeric', paths: { value: 'path.new' } })
+  const screen = layout.screens.find((s) => s.id === sid)
+  for (const widgetId of Object.keys(original)) {
+    assert.deepStrictEqual(Object.fromEntries(screen.tiles.map((t) => [t.widget, t.area]))[widgetId], original[widgetId])
+  }
+  const newTile = screen.tiles.find((t) => !(t.widget in original))
+  assert.deepStrictEqual(newTile.area, { col: 0, row: 2 })
+  assert.deepStrictEqual(screen.grid, { rows: 3, cols: 2 }, 'grid.rows grew to fit; cols stayed')
+})
+
 test('range/zones only persist on gauge/bar; save limits writes them', () => {
   const { manager, id, auth } = freshManager()
   manager.updateStatus(id, { time: new Date().toISOString(), ui: { capabilities: REPORTED_MANIFEST } }, auth)
