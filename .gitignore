@@ -10,3 +10,5 @@ e2e/editor-demo/*.mp4
 e2e/editor-demo/video/
 # Temporary mockup screenshots from demo script
 e2e/editor-demo/mockup-*.png
+# MIDL runtime staged by `prepack` (tools/stage-midl-runtime.js)
+lib/midl-runtime/
