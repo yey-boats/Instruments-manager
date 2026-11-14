@@ -67,7 +67,8 @@ const NODE_TEST_FILES = [
   'layout-push-validation.test.js',
   'cloud-dashboards.test.js',
   'themes.test.js',
-  'day-night.test.js'
+  'day-night.test.js',
+  'package-midl-runtime.test.js'
 ]
 function runNodeTestSuites () {
   if (!NODE_TEST_FILES.length) return

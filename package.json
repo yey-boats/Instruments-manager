@@ -21,6 +21,7 @@
     "midl:build": "npm --prefix midl/ts install --no-audit --no-fund && npm --prefix midl/ts run build",
     "build:midl-bundle": "node tools/build-midl-bundle.js",
     "pretest": "node tools/ensure-midl-build.js",
+    "prepack": "node tools/stage-midl-runtime.js",
     "test": "node test/run.js",
     "test:playwright": "playwright test"
   },
@@ -35,6 +36,7 @@
     "node": ">=20.10"
   },
   "dependencies": {
-    "@yeyboats/proto": "file:vendor/proto/js"
+    "@yeyboats/proto": "file:vendor/proto/js",
+    "yaml": "^2.4.5"
   }
 }
