@@ -77,3 +77,26 @@ test('field-editor has a colour scheme preset for every theme', () => {
     assert.ok(block[1].includes(`${key}: {`), `scheme for ${id}`)
   }
 })
+
+test('#69: a current theme the picker does not know stays selected', () => {
+  const { manager, auth } = makeManager({ auth: { mode: 'dev-shared-token', devToken: 'test-token' } })
+  const id = 'yey-d-themetheme02'
+  manager.registerDevice({
+    device: { id, name: 'Bench', role: 'display', board: 'sunton_4848s040', display: { width: 480, height: 480, shape: 'square' } }
+  }, auth)
+  manager.assignProfile(id, { profileId: 'default', overrides: { settings: { theme: 'auto' } } })
+  const html = indexPlugin.__renderDevicePage(manager, id)
+  const m = html.match(/<select name="theme"[^>]*>([\s\S]*?)<\/select>/)
+  const opts = [...m[1].matchAll(/<option value="([^"]+)"([^>]*)>([^<]+)<\/option>/g)]
+  const selected = opts.filter((o) => /selected/.test(o[2]))
+  assert.strictEqual(selected.length, 1)
+  assert.strictEqual(selected[0][1], 'auto', 'unknown current theme kept, not defaulted to Day')
+  assert.deepStrictEqual(opts.slice(0, 6).map((o) => o[1]), THEME_IDS)
+})
+
+test('#69: saving the device form keeps the submitted theme', () => {
+  const { configOverridesFromForm } = indexPlugin._test
+  for (const t of [...THEME_IDS, 'auto']) {
+    assert.strictEqual(configOverridesFromForm({ theme: t }).settings.theme, t)
+  }
+})
