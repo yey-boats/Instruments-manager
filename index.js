@@ -5,6 +5,7 @@ const presets = require('./lib/screen-presets')
 const fieldSchema = require('./lib/field-schema')
 const midlAdapter = require('./lib/midl-adapter')
 const midlLib = require('./lib/midl')
+const cloudDashboards = require('./lib/cloud-dashboards')
 const pluginPackage = require('./package.json')
 
 module.exports = function yeyBoatsDisplayManagerPlugin (app) {
@@ -316,6 +317,12 @@ module.exports = function yeyBoatsDisplayManagerPlugin (app) {
         },
         '/plugins/yey-boats-display-manager/profiles/{profileId}/apply': {
           post: { summary: 'Apply profile to one or more devices' }
+        },
+        '/plugins/yey-boats-display-manager/cloud-dashboards': {
+          get: { summary: 'List dashboards saved on yey.boats (via the yey connector)' }
+        },
+        '/plugins/yey-boats-display-manager/cloud-dashboards/{dashboardId}/import': {
+          post: { summary: 'Import (or update) a yey.boats dashboard as a profile' }
         },
         '/plugins/yey-boats-display-manager/groups/{groupId}/command': {
           post: { summary: 'Create command for a device group' }
@@ -639,14 +646,7 @@ function registerRoutes (baseRouter, getManager) {
     // in this install the save proceeds, flagged `unavailable`.
     const device = manager.getDevice(req.params.id)
     const className = midlLib.classForDisplay(manager.resolveDisplay(device)).id
-    const validation = midlLib.checkMidlDoc(doc, className)
-    if (!validation.unavailable && !validation.ok) {
-      throw midlLib.httpError(422, 'midl_invalid', `MIDL document fails validation for ${className}`, { className, issues: validation.issues })
-    }
-    const lost = midlLib.roundTripLoss(doc)
-    if (lost.length) {
-      throw midlLib.httpError(422, 'midl_unsupported', 'parts of this MIDL document cannot be saved to a device dashboard', { className, issues: lost })
-    }
+    const validation = midlLib.requireStorableMidlDoc(doc, className)
     // mutateEditorLayout persists and calls queueConfigReload internally.
     const saved = manager.mutateEditorLayout(req.params.id, (cfg) => {
       // #38: merge into the stored dashboard so what MIDL cannot express
@@ -953,9 +953,10 @@ function registerRoutes (baseRouter, getManager) {
     res.end()
   }))
 
-  router.get('/ui/profiles', wrap(getManager, (manager, req, res) => {
+  router.get('/ui/profiles', wrap(getManager, async (manager, req, res) => {
+    const cloud = await cloudDashboards.listCloudDashboards(manager.app, manager.listProfiles().profiles)
     res.setHeader('content-type', 'text/html; charset=utf-8')
-    res.end(renderUi(manager, 'profiles', req))
+    res.end(renderUi(manager, 'profiles', req, { cloud }))
   }))
 
   // Layout editor lives in public/layout-editor.html. We serve it
@@ -1225,8 +1226,34 @@ function registerRoutes (baseRouter, getManager) {
       res.end()
       return
     }
-    const midlValidation = require('./lib/midl').validateV2AsMidl(imported.config)
+    const midlValidation = imported.midlValidation || require('./lib/midl').validateV2AsMidl(imported.config)
     res.json(Object.assign({}, imported, { midlValidation }))
+  }))
+
+  // Dashboards saved on yey.boats (via the yey connector's resource
+  // provider). The listing never fails: without the connector it answers
+  // {available: false, reason, message}.
+  router.get('/cloud-dashboards', wrap(getManager, async (manager, req, res) => {
+    res.json(await cloudDashboards.listCloudDashboards(manager.app, manager.listProfiles().profiles))
+  }))
+
+  router.post('/cloud-dashboards/:id/import', wrap(getManager, async (manager, req, res) => {
+    if (String(req.headers['content-type'] || '').includes('application/x-www-form-urlencoded')) {
+      let imported
+      try {
+        imported = await importCloudDashboard(manager, req.params.id)
+      } catch (err) {
+        res.statusCode = 303
+        res.setHeader('location', `${PLUGIN_BASE}/ui/profiles?cloudError=${encodeURIComponent(importErrorText(err))}#yey-boats`)
+        res.end()
+        return
+      }
+      res.statusCode = 303
+      res.setHeader('location', `${PLUGIN_BASE}/ui/profiles/${encodeURIComponent(imported.id)}?status=${imported.updated ? 'cloud-updated' : 'cloud-imported'}`)
+      res.end()
+      return
+    }
+    res.json(await importCloudDashboard(manager, req.params.id))
   }))
 
   router.post('/profiles', wrap(getManager, (manager, req, res) => {
@@ -1806,26 +1833,63 @@ function importDashboardPreset (manager, body, headers) {
   const contentType = String(headers['content-type'] || '')
   const doc = body.raw
     ? parseDashboardImport(body.raw, body.format === 'json' ? 'application/json' : contentType)
-    : (body.dashboard || body.preset ? body : { dashboard: body })
-  if (doc.kind && doc.kind !== 'yeyboats.dashboard.v2') {
-    throw statusError(400, 'unsupported dashboard config kind')
-  }
-  const preset = doc.preset || {}
-  const id = sanitizePresetId(body.presetId || doc.presetId || preset.id || preset.name)
-  if (!id) throw statusError(400, 'preset id is required')
-  const config = doc.dashboard || doc.config
-  if (!config || typeof config !== 'object' || Array.isArray(config)) {
+    : (isMidlDocument(body) || body.dashboard || body.preset ? body : { dashboard: body })
+  return importDashboardDocument(manager, doc, { presetId: body.presetId })
+}
+
+// A MIDL document (what the MIDL editor and yey.boats save) rather than a
+// yeyboats.dashboard.v2 export.
+function isMidlDocument (doc) {
+  return !!doc && typeof doc === 'object' && !Array.isArray(doc) &&
+    doc.midl !== undefined && Array.isArray(doc.screens) && !doc.kind
+}
+
+// The one way a dashboard document becomes a profile (preset): the file
+// import (/profiles/import-dashboard) and the yey.boats import both land
+// here. A yeyboats.dashboard.v2 document is stored as is; a MIDL document is
+// first checked like a MIDL editor save (midl's validator for the class,
+// then what the v2 model cannot hold) and translated to v2. Either way the
+// store-time validator checks the displays that use the profile.
+// opts: presetId, name, version, targetClass (MIDL class to validate
+// against), extra (fields stored on the profile, e.g. its origin).
+function importDashboardDocument (manager, doc, opts) {
+  opts = opts || {}
+  if (!doc || typeof doc !== 'object' || Array.isArray(doc)) {
     throw statusError(400, 'dashboard object is required')
   }
+  let id, name, version, config, midlValidation
+  if (isMidlDocument(doc)) {
+    const known = midlLib.MIDL_CLASSES.find((c) => c.id === opts.targetClass)
+    const className = known ? known.id : 'square-480'
+    midlValidation = midlLib.requireStorableMidlDoc(doc, className)
+    config = midlAdapter.midlToV2(doc, null)
+    const title = doc.meta && typeof doc.meta.title === 'string' ? doc.meta.title : ''
+    id = sanitizePresetId(opts.presetId || title)
+    name = opts.name || title || id
+    version = Number(opts.version || 1)
+  } else {
+    if (doc.kind && doc.kind !== 'yeyboats.dashboard.v2') {
+      throw statusError(400, 'unsupported dashboard config kind')
+    }
+    const preset = doc.preset || {}
+    id = sanitizePresetId(opts.presetId || doc.presetId || preset.id || preset.name)
+    config = doc.dashboard || doc.config
+    if (!config || typeof config !== 'object' || Array.isArray(config)) {
+      throw statusError(400, 'dashboard object is required')
+    }
+    name = opts.name || preset.name || doc.name || id
+    version = Number(opts.version || preset.version || doc.version || 1)
+  }
+  if (!id) throw statusError(400, 'preset id is required')
   // Validator on store: an import that replaces a preset displays use is
   // checked for them.
-  const { profile, layoutValidation } = manager.saveProfileChecked({
+  const { profile, layoutValidation } = manager.saveProfileChecked(Object.assign({}, opts.extra || {}, {
     id,
-    name: preset.name || doc.name || id,
-    version: Number(preset.version || doc.version || 1),
+    name,
+    version,
     config
-  })
-  return Object.assign({}, profile, { layoutValidation })
+  }))
+  return Object.assign({}, profile, { layoutValidation }, midlValidation ? { midlValidation } : {})
 }
 
 function parseDashboardImport (raw, contentType) {
@@ -1838,10 +1902,63 @@ function parseDashboardImport (raw, contentType) {
       throw statusError(400, 'invalid dashboard JSON')
     }
   }
+  // MIDL YAML (flow maps, lists of maps) needs a full YAML parser: midl's
+  // own, when it is built into this install.
+  if (/^midl\s*:/m.test(text)) {
+    let parseDoc
+    try { parseDoc = midlLib.lib().parseDoc } catch (e) { parseDoc = null }
+    if (!parseDoc) throw statusError(400, 'this install cannot read MIDL YAML (midl is not built in); import the MIDL document as JSON')
+    try {
+      return parseDoc(text)
+    } catch (err) {
+      throw statusError(400, `invalid MIDL YAML: ${String(err.message || err).split('\n')[0]}`)
+    }
+  }
   return fromYaml(text)
 }
 
-function renderUi (manager, page, req) {
+// yey.boats dashboard `id` -> a profile. The profile records where it came
+// from (source, sourceId, sourceUpdatedAt), so importing the same dashboard
+// again updates that profile instead of adding another one.
+async function importCloudDashboard (manager, cloudId) {
+  const cloud = await cloudDashboards.fetchCloudDashboard(manager.app, cloudId)
+  const doc = typeof cloud.doc === 'string' ? parseDashboardImport(cloud.doc, '') : cloud.doc
+  const profiles = manager.listProfiles().profiles
+  const existing = cloudDashboards.profileForSource(profiles, cloud.id)
+  let id = existing && existing.id
+  if (!id) {
+    const base = `yey-${sanitizePresetId(cloud.title) || sanitizePresetId(cloud.id) || 'dashboard'}`.slice(0, 64)
+    const taken = new Set(profiles.map((p) => p.id))
+    id = base
+    for (let n = 2; taken.has(id); n++) id = `${base}-${n}`
+  }
+  const imported = importDashboardDocument(manager, doc, {
+    presetId: id,
+    name: cloud.title,
+    version: existing ? Number(existing.version || 1) + 1 : 1,
+    targetClass: cloud.targetClass,
+    extra: {
+      source: cloudDashboards.SOURCE,
+      sourceId: cloud.id,
+      sourceUpdatedAt: cloud.updatedAt || null,
+      sourceTargetClass: cloud.targetClass || null,
+      importedAt: new Date().toISOString()
+    }
+  })
+  return Object.assign(imported, { updated: !!existing })
+}
+
+// An import refusal as one line for the UI: the message plus the first
+// validator issues.
+function importErrorText (err) {
+  const e = err && err.payload && err.payload.error
+  const issues = (e && e.details && Array.isArray(e.details.issues)) ? e.details.issues : []
+  const listed = issues.slice(0, 5).map((i) => [i.path, i.message].filter(Boolean).join(': ')).filter(Boolean)
+  const more = issues.length > listed.length ? ` (+${issues.length - listed.length} more)` : ''
+  return [String((e && e.message) || (err && err.message) || 'import failed')].concat(listed).join(' \u2014 ') + more
+}
+
+function renderUi (manager, page, req, extra) {
   const dashboard = manager.dashboard()
   const title = {
     devices: 'Devices',
@@ -1853,7 +1970,7 @@ function renderUi (manager, page, req) {
     firmware: 'Firmware',
     settings: 'Settings'
   }[page] || 'Overview'
-  return renderUiShell(title, renderPage(manager, dashboard, page, req), dashboard, page)
+  return renderUiShell(title, renderPage(manager, dashboard, page, req, extra), dashboard, page)
 }
 
 function renderUiShell (title, body, dashboard, page = '') {
@@ -2056,7 +2173,7 @@ function renderUiShell (title, body, dashboard, page = '') {
 </html>`
 }
 
-function renderPage (manager, dashboard, page, req) {
+function renderPage (manager, dashboard, page, req, extra) {
   // Overview and Devices merged into one home page (2026-06). Both the
   // default/overview case and /ui/devices render the same merged view.
   if (page === 'devices') return renderHomePage(dashboard, dashboard.devices, req, manager)
@@ -2068,8 +2185,8 @@ function renderPage (manager, dashboard, page, req) {
   // Legacy /ui/discovery URL stays valid; it just renders the same
   // page as /ui/devices now. Old bookmarks keep working.
   if (page === 'discovery') return renderHomePage(dashboard, dashboard.devices, req, manager)
-  if (page === 'profiles') return renderProfilesPage(manager.listProfiles().profiles, dashboard.devices)
-  if (page === 'preset') return renderPresetPage(manager, req.params.id, dashboard.devices)
+  if (page === 'profiles') return renderProfilesPage(manager.listProfiles().profiles, dashboard.devices, extra && extra.cloud, req)
+  if (page === 'preset') return renderPresetPage(manager, req.params.id, dashboard.devices, req)
   if (page === 'firmware') return renderFirmwarePage(manager.listFirmware(), dashboard.recentFirmwareJobs, manager.firmwareUpgradeMatrix())
   return renderHomePage(dashboard, dashboard.devices, req, manager)
 }
@@ -4050,10 +4167,10 @@ function refusedNote (device) {
   return `<p class="status bad">Too many addresses seen for this id \u2014 possible spoofing. ${escapeHtml(n)} more address${n === 1 ? ' was' : 'es were'} refused (last ${escapeHtml(device.lastRefusedAt || '?')}). If your display's address is not listed below, do not claim this id.</p>`
 }
 
-function renderProfilesPage (profiles, devices) {
+function renderProfilesPage (profiles, devices, cloud, req) {
   const rows = profiles.map((profile) => `
         <tr>
-          <td><strong><a href="/plugins/yey-boats-display-manager/ui/profiles/${encodeURIComponent(profile.id)}">${escapeHtml(profile.name || profile.id)}</a></strong><br><span>${escapeHtml(profile.id)}</span></td>
+          <td><strong><a href="/plugins/yey-boats-display-manager/ui/profiles/${encodeURIComponent(profile.id)}">${escapeHtml(profile.name || profile.id)}</a></strong><br><span>${escapeHtml(profile.id)}</span>${profile.source === cloudDashboards.SOURCE ? '<br><span class="muted">from yey.boats</span>' : ''}</td>
           <td>${escapeHtml(profile.version)}</td>
           <td>${escapeHtml(profile.updatedAt || '')}</td>
           <td>${escapeHtml(devices.filter((device) => device.profile === profile.id).length)}</td>
@@ -4070,19 +4187,70 @@ function renderProfilesPage (profiles, devices) {
           ${field('Preset id', input('presetId', 'imported-dashboard'))}
           ${field('Format', select('format', 'json', [['json', 'JSON'], ['yaml', 'YAML']]))}
         </div>
-        <textarea name="raw" rows="10" placeholder="Paste yeyboats.dashboard.v2 JSON or YAML here"></textarea>
+        <textarea name="raw" rows="10" placeholder="Paste a MIDL document or a yeyboats.dashboard.v2 export (JSON or YAML) here"></textarea>
         <div class="actions"><button type="submit">Import preset</button></div>
       </form>
       <table>
         <thead><tr><th>Preset</th><th>Version</th><th>Updated</th><th>Devices</th><th>Summary</th><th>Hash</th></tr></thead>
         <tbody>${rows || '<tr><td colspan="6">No presets configured.</td></tr>'}</tbody>
       </table>
+    </section>${cloud ? renderCloudDashboardsPanel(cloud, req) : ''}`
+}
+
+// "From yey.boats": the owner's dashboards saved on yey.boats, each one
+// importable as a preset in one click. Every string here comes from the
+// cloud (titles are user-written) and is escaped.
+function renderCloudDashboardsPanel (cloud, req) {
+  const q = (req && req.query) || {}
+  const error = q.cloudError ? `<p class="status bad" role="alert">Import failed: ${escapeHtml(String(q.cloudError).slice(0, 1000))}</p>` : ''
+  let body
+  if (!cloud.available) {
+    body = `
+      <p class="muted" data-cloud-state="unavailable" data-cloud-reason="${escapeHtml(cloud.reason || '')}">${escapeHtml(cloudDashboards.CONNECT_HINT)}</p>
+      ${cloud.message && cloud.message !== cloudDashboards.CONNECT_HINT ? `<p class="muted">${escapeHtml(cloud.message)}</p>` : ''}`
+  } else if (!cloud.dashboards.length) {
+    body = `
+      <p class="muted" data-cloud-state="empty">No dashboards saved on yey.boats yet. Dashboards you save there show up here, ready to import as a preset.</p>`
+  } else {
+    const label = { new: 'Import', update: 'Update', current: 'Re-import' }
+    const rows = cloud.dashboards.map((d) => {
+      const action = `/plugins/yey-boats-display-manager/cloud-dashboards/${encodeURIComponent(d.id)}/import`
+      const imported = d.profileId
+        ? `<a href="/plugins/yey-boats-display-manager/ui/profiles/${encodeURIComponent(d.profileId)}">${escapeHtml(d.profileId)}</a>${d.state === 'update' ? ' <span class="pill">newer on yey.boats</span>' : ''}`
+        : '<span class="muted">not imported</span>'
+      return `
+        <tr data-cloud-id="${escapeHtml(d.id)}">
+          <td><strong>${escapeHtml(d.title)}</strong>${d.name && d.name !== d.title ? `<br><span>${escapeHtml(d.name)}</span>` : ''}</td>
+          <td>${escapeHtml(d.targetClass || 'any')}</td>
+          <td>${d.updatedAt ? `<time datetime="${escapeHtml(d.updatedAt)}">${escapeHtml(d.updatedAt)}</time>` : ''}</td>
+          <td>${imported}</td>
+          <td><form method="post" action="${escapeHtml(action)}"><button type="submit">${label[d.state] || 'Import'}</button></form></td>
+        </tr>`
+    }).join('')
+    body = `
+      <table>
+        <thead><tr><th>Dashboard</th><th>Target class</th><th>Updated</th><th>Preset</th><th></th></tr></thead>
+        <tbody>${rows}</tbody>
+      </table>`
+  }
+  return `
+    <section class="panel" id="yey-boats">
+      <h2>From yey.boats</h2>
+      <p class="muted">Dashboards you saved on yey.boats. Import one to make it a preset, then assign it to a screen from the preset page.</p>
+      ${error}${body}
     </section>`
 }
 
-function renderPresetPage (manager, profileId, devices) {
+function renderPresetPage (manager, profileId, devices, req) {
   const profile = manager.store.profiles.profiles[profileId]
   if (!profile) throw statusError(404, 'preset not found')
+  const status = req && req.query && req.query.status
+  const notice = status === 'cloud-imported' || status === 'cloud-updated'
+    ? `<p class="status ok">${status === 'cloud-updated' ? 'Updated from yey.boats.' : 'Imported from yey.boats.'} Pick the displays below and apply it.</p>`
+    : ''
+  const origin = profile.source === cloudDashboards.SOURCE
+    ? `<tr><th>Source</th><td>yey.boats dashboard <code>${escapeHtml(profile.sourceId || '')}</code>${profile.sourceUpdatedAt ? `, saved there ${escapeHtml(profile.sourceUpdatedAt)}` : ''}</td></tr>`
+    : ''
   const assigned = devices.filter((device) => device.profile === profile.id)
   const rows = devices.map((device) => {
     const checked = device.profile === profile.id ? ' checked' : ''
@@ -4101,9 +4269,10 @@ function renderPresetPage (manager, profileId, devices) {
       <h2>${escapeHtml(profile.name || profile.id)}</h2>
       <p class="muted">${escapeHtml(profile.id)} · version ${escapeHtml(profile.version)} · ${escapeHtml(assigned.length)} device(s)</p>
       <p><a href="/plugins/yey-boats-display-manager/ui/profiles">Back to presets</a></p>
+      ${notice}
       <table>
         <tbody>
-          <tr><th>Updated</th><td>${escapeHtml(profile.updatedAt || '')}</td></tr>
+          <tr><th>Updated</th><td>${escapeHtml(profile.updatedAt || '')}</td></tr>${origin}
           <tr><th>Summary</th><td>${escapeHtml(configSummary(profile.config || {}))}</td></tr>
           <tr><th>Hash</th><td><code>${escapeHtml(profile.hash || '')}</code></td></tr>
         </tbody>
@@ -4531,6 +4700,9 @@ module.exports._test = {
   fromYaml,
   renderUi,
   importDashboardPreset,
+  importDashboardDocument,
+  importCloudDashboard,
+  renderCloudDashboardsPanel,
   applyPresetForm,
   configOverridesFromForm,
   formatFromForm,
