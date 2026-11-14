@@ -130,7 +130,15 @@
     const m = W.resolveElement(el, makeProvider(values, stamps))
     return (m && m.text && m.text !== '--') ? m.text : '—'
   }
-  window.YeyDevicePreview = { displayUnitFor, sourceUnitFor, formatFor, makeProvider, midlDocFor, liveValueFor }
+  // A delta belongs to this boat when it has no context (SignalK's default is
+  // self), says 'vessels.self', or names the self URN from the hello message.
+  // Everything else (AIS targets, other vessels) must not reach the preview:
+  // their speedOverGround/position would overwrite the boat's own values.
+  function isSelfDelta (msg, selfContext) {
+    const c = msg && msg.context
+    return !c || c === 'vessels.self' || (!!selfContext && c === selfContext)
+  }
+  window.YeyDevicePreview = { displayUnitFor, sourceUnitFor, formatFor, makeProvider, midlDocFor, liveValueFor, isSelfDelta }
 
   const cfg = window.__yeyboatsPreview || {}
   const root = document.getElementById('lp-root')
@@ -626,11 +634,14 @@
   function connect () {
     const proto = location.protocol === 'https:' ? 'wss:' : 'ws:'
     let ws
-    try { ws = new WebSocket(proto + '//' + location.host + '/signalk/v1/stream?subscribe=all') } catch (e) { return }
+    // subscribe=self: the device shows this boat only, so the preview must too.
+    let selfContext = null
+    try { ws = new WebSocket(proto + '//' + location.host + '/signalk/v1/stream?subscribe=self') } catch (e) { return }
     ws.onmessage = (e) => {
       let msg
       try { msg = JSON.parse(e.data) } catch (_) { return }
-      if (!msg.updates) return
+      if (msg && typeof msg.self === 'string') selfContext = msg.self.startsWith('vessels.') ? msg.self : 'vessels.' + msg.self
+      if (!msg.updates || !isSelfDelta(msg, selfContext)) return
       msg.updates.forEach((u) => (u.values || []).forEach((val) => {
         if (val && typeof val.path === 'string') {
           values[val.path] = val.value
