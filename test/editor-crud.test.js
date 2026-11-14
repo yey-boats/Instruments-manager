@@ -157,9 +157,13 @@ test('addField auto-flows tile areas row-major (#49)', () => {
   assert.strictEqual(new Set(keys).size, keys.length, 'every tile gets a distinct cell')
   assert.ok(keys.some((k) => k !== '0,0'), 'tiles do not all stack at col 0 / row 0')
 
-  // Flow is row-major: the first tile anchors at the origin, and later
-  // tiles advance by column before wrapping to the next row.
-  assert.deepStrictEqual(tiles[0].area, { col: 0, row: 0 })
+  // Flow is row-major in a 3-column grid (autoCols(5) === 3), matching both
+  // midl-adapter's v2ToMidl sizing for unanchored tiles and the index-based
+  // layout public/device-preview.js already shows: 1,2,3 / 4,5,_.
+  assert.deepStrictEqual(tiles.map((t) => t.area), [
+    { col: 0, row: 0 }, { col: 1, row: 0 }, { col: 2, row: 0 },
+    { col: 0, row: 1 }, { col: 1, row: 1 }
+  ])
 
   // updateField must not disturb the tile's position.
   const widgetId = tiles[2].widget
@@ -167,6 +171,72 @@ test('addField auto-flows tile areas row-major (#49)', () => {
   layout = manager.updateField(id, sid, widgetId, { type: 'numeric', paths: { value: 'path.2' }, unit: 'kn' })
   const after = layout.screens.find((s) => s.id === sid).tiles.find((t) => t.widget === widgetId)
   assert.deepStrictEqual(after.area, before, 'updateField preserves the existing area')
+})
+
+// #49 review (blocker 1): a screen saved before this fix has tiles with no
+// `area` at all. Adding one more field must backfill areas for ALL of them,
+// not just the new tile — otherwise the new tile is the only "anchored" one,
+// which makes midl-adapter's v2ToMidl size the grid from it alone (a 1-wide
+// column) and squash every legacy tile into that single column.
+test('addField backfills pre-#49 area-less tiles on the same screen', () => {
+  const { manager, id, auth } = freshManager()
+  manager.updateStatus(id, { time: new Date().toISOString(), ui: { capabilities: REPORTED_MANIFEST } }, auth)
+  let layout = manager.addScreen(id, { title: 'Dash' })
+  const sid = layout.screens[0].id
+
+  // Directly inject 4 "legacy" tiles the way pre-#49 addField left them:
+  // a widget item each, and a tile with no `area` key at all.
+  manager.mutateEditorLayout(id, (cfg) => {
+    const s = cfg.layout.screens.find((x) => x.id === sid)
+    for (let n = 0; n < 4; n++) {
+      const widgetId = `legacy-${n}`
+      cfg.widgets.items[widgetId] = { type: 'numeric', paths: { value: `legacy.${n}` }, path: `legacy.${n}` }
+      s.tiles.push({ widget: widgetId, path: `legacy.${n}` })
+    }
+  })
+
+  layout = manager.addField(id, sid, { type: 'numeric', paths: { value: 'path.new' } })
+  const tiles = layout.screens.find((s) => s.id === sid).tiles
+  assert.strictEqual(tiles.length, 5)
+
+  for (const t of tiles) {
+    assert.ok(t.area && Number.isInteger(t.area.col) && Number.isInteger(t.area.row), `tile ${t.widget} has a numeric area`)
+  }
+  const keys = tiles.map((t) => `${t.area.col},${t.area.row}`)
+  assert.strictEqual(new Set(keys).size, keys.length, 'every tile, legacy or new, gets a distinct cell')
+  // Same dense 3-column grid as the all-new-tiles case above — the legacy
+  // tiles must be sized in, not left out as if only the new tile existed.
+  assert.deepStrictEqual(tiles.map((t) => t.area), [
+    { col: 0, row: 0 }, { col: 1, row: 0 }, { col: 2, row: 0 },
+    { col: 0, row: 1 }, { col: 1, row: 1 }
+  ])
+})
+
+// #49 review (blocker 2): removing a tile can cross an autoCols threshold
+// (5 tiles -> 3 columns, 4 tiles -> 2 columns). The survivors must reflow to
+// the new, denser grid rather than keeping stale areas sized for the old
+// column count, which is what public/device-preview.js's index-based layout
+// already assumes and what the device would otherwise disagree with.
+test('removeField reflows the remaining tiles to the new column count', () => {
+  const { manager, id, auth } = freshManager()
+  manager.updateStatus(id, { time: new Date().toISOString(), ui: { capabilities: REPORTED_MANIFEST } }, auth)
+  let layout = manager.addScreen(id, { title: 'Dash' })
+  const sid = layout.screens[0].id
+
+  for (let n = 0; n < 5; n++) {
+    layout = manager.addField(id, sid, { type: 'numeric', paths: { value: `path.${n}` } })
+  }
+  const tiles = layout.screens.find((s) => s.id === sid).tiles
+  const middle = tiles[2].widget // remove the middle tile, not an edge case
+
+  layout = manager.removeField(id, sid, middle)
+  const after = layout.screens.find((s) => s.id === sid).tiles
+  assert.strictEqual(after.length, 4)
+  // autoCols(4) === 2: a dense 2-column grid, no gap left where the removed
+  // tile used to be.
+  assert.deepStrictEqual(after.map((t) => t.area), [
+    { col: 0, row: 0 }, { col: 1, row: 0 }, { col: 0, row: 1 }, { col: 1, row: 1 }
+  ])
 })
 
 test('range/zones only persist on gauge/bar; save limits writes them', () => {
