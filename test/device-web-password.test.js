@@ -18,7 +18,7 @@ const assert = require('assert')
 const fs = require('fs')
 const http = require('http')
 const path = require('path')
-const { makeManager } = require('./test-utils')
+const { makeManager, makeSecureManager } = require('./test-utils')
 const makePlugin = require('../index')
 
 const { LEGACY_SHARED_WEB_PASSWORD: LEGACY } = require('../lib/device-secrets')
@@ -249,6 +249,82 @@ module.exports = (async () => {
     assert.notStrictEqual(manager.generateConfig('yey-d-ui').webAuth.password, pass)
     const api = routes.find((x) => x.method === 'POST' && x.p === '/devices/:id/web-auth/rotate')
     assert.ok(api, 'POST /devices/:id/web-auth/rotate registered')
+  }
+
+  // ---- 5b. owner "show password": operator-only POST, no-store, audited ----
+  {
+    const { manager, dataDir } = makeSecureManager()
+    const api = manager.apiToken.pendingReveal()
+    const reg = manager.registerDevice({ device: { id: 'yey-d-show' } }, { bearer: api })
+    const dev = { bearer: reg.deviceToken }
+    // The display reports the username it enforces and its address.
+    manager.updateStatus('yey-d-show', { network: { ip: '10.0.0.7' }, webAuth: { username: 'yeyboats-x', enabled: true } }, dev)
+    const pass = manager.generateConfig('yey-d-show').webAuth.password
+
+    const routes = []
+    const add = (method) => (p, ...h) => routes.push({ method, p, h: h[h.length - 1] })
+    const router = { use () {}, get: add('GET'), post: add('POST'), put: add('PUT'), patch: add('PATCH'), delete: add('DELETE') }
+    makePlugin._test.registerRoutes(router, () => manager)
+    const reveal = routes.find((x) => x.method === 'POST' && x.p === '/devices/:id/web-auth/reveal')
+    assert.ok(reveal, 'POST /devices/:id/web-auth/reveal registered')
+    assert.ok(!routes.some((x) => x.method === 'GET' && /reveal/.test(x.p)), 'no GET reveal route')
+    const call = (headers) => new Promise((resolve, reject) => {
+      const out = {}
+      const res = {
+        statusCode: 200,
+        setHeader (k, v) { out[k.toLowerCase()] = v },
+        status (c) { this.statusCode = c; return this },
+        json (b) { resolve({ status: this.statusCode, json: b, headers: out }) },
+        end (b) { resolve({ status: this.statusCode, body: b, headers: out }) }
+      }
+      const lower = {}
+      for (const [k, v] of Object.entries(headers || {})) lower[k.toLowerCase()] = v
+      const req = { method: 'POST', params: { id: 'yey-d-show' }, headers: lower, body: {}, query: {}, socket: { remoteAddress: '127.0.0.1' }, get: (k) => lower[String(k).toLowerCase()] || '' }
+      Promise.resolve(reveal.h(req, res)).catch(reject)
+    })
+    const auditText = () => fs.existsSync(path.join(dataDir, 'audit.jsonl')) ? fs.readFileSync(path.join(dataDir, 'audit.jsonl'), 'utf8') : ''
+
+    // Not an operator: refused, nothing revealed, nothing audited.
+    for (const headers of [{}, { 'x-yeyboats-authorization': 'Bearer yeyboats-dev' }, { 'x-yeyboats-authorization': `Bearer ${reg.deviceToken}` }]) {
+      const r = await call(headers)
+      assert.ok(r.status === 401 || r.status === 403, `non-operator refused (${r.status})`)
+      assert.ok(!JSON.stringify(r).includes(pass), 'password not in refusal')
+    }
+    assert.ok(!auditText().includes('device.webPassword.revealed'), 'no audit for refused reveals')
+    // Cross-site POST with an operator token is still refused (CSRF).
+    const xs = await call({ 'x-yeyboats-authorization': `Bearer ${api}`, 'sec-fetch-site': 'cross-site' })
+    assert.strictEqual(xs.status, 403)
+    assert.ok(!JSON.stringify(xs).includes(pass))
+
+    // Operator: the password, no-store, audited without the value.
+    const logs = await captureLogs(async () => {
+      const ok = await call({ 'x-yeyboats-authorization': `Bearer ${api}` })
+      assert.strictEqual(ok.status, 200)
+      assert.strictEqual(ok.json.password, pass)
+      assert.strictEqual(ok.json.username, 'yeyboats-x', 'username the display reports')
+      assert.strictEqual(ok.json.editorUrl, 'http://10.0.0.7/editor')
+      assert.strictEqual(ok.headers['cache-control'], 'no-store')
+    })
+    assert.ok(!logs.some((l) => l.includes(pass)), 'password logged')
+    const audit = auditText()
+    assert.ok(audit.includes('"device.webPassword.revealed"'), 'reveal audited')
+    assert.ok(!audit.includes(pass), 'password not in audit trail')
+    for (const f of allFiles(dataDir)) {
+      if (f.name === 'device-secrets.json') continue
+      assert.ok(!f.text.includes(pass), `password leaked into ${f.name}`)
+    }
+
+    // Status (GET) and the page show username + editor but never the password.
+    const st = manager.webAuthStatus('yey-d-show')
+    assert.strictEqual(st.username, 'yeyboats-x')
+    assert.strictEqual(st.editorUrl, 'http://10.0.0.7/editor')
+    assert.ok(!JSON.stringify(st).includes(pass))
+    const html = makePlugin.__renderDevicePage(manager, 'yey-d-show')
+    assert.ok(!html.includes(pass), 'device page never renders the password')
+    assert.ok(html.includes('Show password'), 'show control on the page')
+    assert.ok(html.includes('/devices/yey-d-show/web-auth/reveal'), 'reveal via POST endpoint')
+    assert.ok(html.includes('yeyboats-x'), 'reported username on the page')
+    assert.ok(html.includes('http://10.0.0.7/editor'), 'editor link on the page')
   }
 
   // ---- 6. the hard-coded shared password is gone from the plugin --------
