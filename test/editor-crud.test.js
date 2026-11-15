@@ -377,6 +377,137 @@ test('addField grows a full hand-authored grid by a row and keeps s.grid in sync
   assert.deepStrictEqual(screen.grid, { rows: 3, cols: 2 }, 'grid.rows grew to fit; cols stayed')
 })
 
+// #65 (follow-up to #49/#62): a MIXED screen — some tiles anchored with a
+// real `area`, some with none at all — is not purely auto-placed
+// (_canReflowFieldEditorTiles correctly says no, so reflow never runs), but
+// the non-reflow path must still backfill the area-less survivors instead
+// of leaving them stacked at the firmware's implicit (0,0).
+test('addField backfills area-less tiles on a mixed anchored/area-less screen (#65)', () => {
+  const { manager, id, auth } = freshManager()
+  manager.updateStatus(id, { time: new Date().toISOString(), ui: { capabilities: REPORTED_MANIFEST } }, auth)
+  let layout = manager.addScreen(id, { title: 'Dash' })
+  const sid = layout.screens[0].id
+
+  manager.mutateEditorLayout(id, (cfg) => {
+    const s = cfg.layout.screens.find((x) => x.id === sid)
+    cfg.widgets.items.a = { type: 'numeric', paths: { value: 'a' }, path: 'a' }
+    s.tiles.push({ widget: 'a', path: 'a', area: { col: 1, row: 0 } })
+    for (const widgetId of ['l0', 'l1']) {
+      cfg.widgets.items[widgetId] = { type: 'numeric', paths: { value: widgetId }, path: widgetId }
+      s.tiles.push({ widget: widgetId, path: widgetId }) // legacy, no area at all
+    }
+  })
+
+  layout = manager.addField(id, sid, { type: 'numeric', paths: { value: 'path.new' } })
+  const tiles = layout.screens.find((s) => s.id === sid).tiles
+  assert.strictEqual(tiles.length, 4)
+  for (const t of tiles) {
+    assert.ok(t.area && Number.isInteger(t.area.col) && Number.isInteger(t.area.row), `tile ${t.widget} has a numeric area`)
+  }
+  const byId = Object.fromEntries(tiles.map((t) => [t.widget, t.area]))
+  // The anchored tile is untouched.
+  assert.deepStrictEqual(byId.a, { col: 1, row: 0 }, 'anchored tile a untouched')
+  // No two tiles share a cell, and none of the legacy/new tiles sit on `a`'s
+  // cell or on each other.
+  const keys = tiles.map((t) => `${t.area.col},${t.area.row}`)
+  assert.strictEqual(new Set(keys).size, keys.length, 'every tile gets a distinct cell')
+  assert.ok(!(byId.l0.col === byId.a.col && byId.l0.row === byId.a.row), 'l0 does not overlap a')
+})
+
+// #65: a hand-authored `s.grid` (2x2) with every tile area-less (producible
+// pre-#49, or by any writer that sets `grid` but never filled in `area`)
+// must backfill all of them into the grid's own cells, not stack them.
+test('addField backfills area-less tiles into an explicit grid (#65)', () => {
+  const { manager, id, auth } = freshManager()
+  manager.updateStatus(id, { time: new Date().toISOString(), ui: { capabilities: REPORTED_MANIFEST } }, auth)
+  let layout = manager.addScreen(id, { title: 'Dash' })
+  const sid = layout.screens[0].id
+
+  manager.mutateEditorLayout(id, (cfg) => {
+    const s = cfg.layout.screens.find((x) => x.id === sid)
+    s.grid = { rows: 2, cols: 2 }
+    for (const widgetId of ['g0', 'g1', 'g2']) {
+      cfg.widgets.items[widgetId] = { type: 'numeric', paths: { value: widgetId }, path: widgetId }
+      s.tiles.push({ widget: widgetId, path: widgetId }) // no area
+    }
+  })
+
+  layout = manager.addField(id, sid, { type: 'numeric', paths: { value: 'path.new' } })
+  const screen = layout.screens.find((s) => s.id === sid)
+  assert.strictEqual(screen.tiles.length, 4)
+  for (const t of screen.tiles) {
+    assert.ok(t.area && Number.isInteger(t.area.col) && Number.isInteger(t.area.row), `tile ${t.widget} has a numeric area`)
+  }
+  const keys = screen.tiles.map((t) => `${t.area.col},${t.area.row}`)
+  assert.strictEqual(new Set(keys).size, keys.length, 'every tile gets a distinct cell')
+  // All four fit exactly in the existing 2x2 grid; grid itself is untouched
+  // (it was already big enough).
+  assert.deepStrictEqual(new Set(keys), new Set(['0,0', '1,0', '0,1', '1,1']))
+  assert.deepStrictEqual(screen.grid, { rows: 2, cols: 2 })
+})
+
+// #65 (bug 2): a partial area like `{col:1}` — producible by the preset
+// form, which allows Column/Row independently — fails `isCell` (no `row`),
+// so it must be treated as "needs placement", not as a free cell the
+// firmware would coincidentally also land it on.
+test('addField treats a partial area ({col} but no row) as needing placement (#65)', () => {
+  const { manager, id, auth } = freshManager()
+  manager.updateStatus(id, { time: new Date().toISOString(), ui: { capabilities: REPORTED_MANIFEST } }, auth)
+  let layout = manager.addScreen(id, { title: 'Dash' })
+  const sid = layout.screens[0].id
+
+  manager.mutateEditorLayout(id, (cfg) => {
+    const s = cfg.layout.screens.find((x) => x.id === sid)
+    cfg.widgets.items.partial = { type: 'numeric', paths: { value: 'partial' }, path: 'partial' }
+    s.tiles.push({ widget: 'partial', path: 'partial', area: { col: 1 } }) // no row: invalid
+    cfg.widgets.items.anchored = { type: 'numeric', paths: { value: 'anchored' }, path: 'anchored' }
+    s.tiles.push({ widget: 'anchored', path: 'anchored', area: { col: 0, row: 0 } })
+  })
+
+  layout = manager.addField(id, sid, { type: 'numeric', paths: { value: 'path.new' } })
+  const tiles = layout.screens.find((s) => s.id === sid).tiles
+  assert.strictEqual(tiles.length, 3)
+  const byId = Object.fromEntries(tiles.map((t) => [t.widget, t.area]))
+  // The valid anchored tile is untouched.
+  assert.deepStrictEqual(byId.anchored, { col: 0, row: 0 })
+  // The partial-area tile got a real, valid area — not left as {col:1} (row
+  // defaulting to 0 on the device, overlapping `anchored`'s cell).
+  assert.ok(Number.isInteger(byId.partial.row), 'partial tile got a real row')
+  const keys = tiles.map((t) => `${t.area.col},${t.area.row}`)
+  assert.strictEqual(new Set(keys).size, keys.length, 'no two tiles share a cell')
+})
+
+// #65 (test gap 3): add-after-remove on a screen that started mixed.
+// Removing the anchored tile leaves only area-less survivors (still not
+// purely auto-placed per _canReflowFieldEditorTiles's definition, since
+// that's about the CURRENT tiles — which now have none with an area, so it
+// in fact reports reflow-safe). Either way, every tile must end up with a
+// distinct real area after the subsequent add.
+test('addField after removeField on a screen that started mixed (#65)', () => {
+  const { manager, id, auth } = freshManager()
+  manager.updateStatus(id, { time: new Date().toISOString(), ui: { capabilities: REPORTED_MANIFEST } }, auth)
+  let layout = manager.addScreen(id, { title: 'Dash' })
+  const sid = layout.screens[0].id
+
+  manager.mutateEditorLayout(id, (cfg) => {
+    const s = cfg.layout.screens.find((x) => x.id === sid)
+    cfg.widgets.items.a = { type: 'numeric', paths: { value: 'a' }, path: 'a' }
+    s.tiles.push({ widget: 'a', path: 'a', area: { col: 1, row: 1 } })
+    cfg.widgets.items.l0 = { type: 'numeric', paths: { value: 'l0' }, path: 'l0' }
+    s.tiles.push({ widget: 'l0', path: 'l0' }) // legacy, no area
+  })
+
+  layout = manager.removeField(id, sid, 'a')
+  layout = manager.addField(id, sid, { type: 'numeric', paths: { value: 'path.new' } })
+  const tiles = layout.screens.find((s) => s.id === sid).tiles
+  assert.strictEqual(tiles.length, 2)
+  for (const t of tiles) {
+    assert.ok(t.area && Number.isInteger(t.area.col) && Number.isInteger(t.area.row), `tile ${t.widget} has a numeric area`)
+  }
+  const keys = tiles.map((t) => `${t.area.col},${t.area.row}`)
+  assert.strictEqual(new Set(keys).size, keys.length, 'no two tiles share a cell')
+})
+
 test('range/zones only persist on gauge/bar; save limits writes them', () => {
   const { manager, id, auth } = freshManager()
   manager.updateStatus(id, { time: new Date().toISOString(), ui: { capabilities: REPORTED_MANIFEST } }, auth)
