@@ -59,6 +59,7 @@ const NODE_TEST_FILES = [
   'v2-migration.test.js',
   'midl-diff.test.js',
   'device-preview-midl.test.js',
+  'signalk-history.test.js',
   'cloud-dashboards.test.js',
   'midl-records.test.js',
   'themes.test.js',

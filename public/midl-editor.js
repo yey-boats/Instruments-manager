@@ -30,7 +30,7 @@
       { type: "bar", bindings: ["value"], attrs: ["title", "size", "unit", "color", "range", "zones"] },
       { type: "compass", bindings: ["value", "dir"], attrs: ["title", "size", "color"] },
       { type: "windrose", bindings: ["value", "dir"], attrs: ["title", "format", "size", "unit", "color"] },
-      { type: "trend", bindings: ["value"], attrs: ["title", "size", "unit", "color"] },
+      { type: "trend", bindings: ["value"], attrs: ["title", "format", "size", "unit", "color", "range", "history"] },
       { type: "autopilot", bindings: ["value"], attrs: ["title", "size", "color"] },
       { type: "button", bindings: [], attrs: ["title", "size", "color"] },
     ],
@@ -39,6 +39,7 @@
     presets: ["full", "hero-split"],
     themes: ["sun", "day", "night", "red-night", "high-contrast", "classic"],
     fonts: [14, 20, 28, 48],
+    history: { points: 120, maxSeries: 6, maxWindowS: 86400, windows: ["10m", "30m", "1h", "6h", "24h"], backfill: true },
   };
 
   const manifestSource = { get: async function () { return MANIFEST; } };
@@ -50,6 +51,8 @@
   // keepalive re-subscribe every 25 s — the exact fix for the old "never
   // connects" bug where the socket was opened but no subscribe was sent.
   const provider = window.MidlEditor.createSignalKProvider({ paths: "all" });
+  // Trend backfill from the SignalK History API (public/signalk-history.js).
+  if (window.YeySignalkHistory && typeof provider.history !== "function") provider.history = window.YeySignalkHistory.history;
 
   // --- DOM ---
   const deviceSel = document.getElementById("deviceSel");

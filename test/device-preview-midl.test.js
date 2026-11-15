@@ -45,6 +45,8 @@ test('the device page mounts the shared MIDL device bundle, not live-preview.js'
   const glue = html.indexOf('<script src="/yey-boats-display-manager/device-preview.js"></script>')
   assert.ok(bundle >= 0, 'shared bundle mounted')
   assert.ok(glue > bundle, 'device-preview glue loads after the bundle')
+  const hist = html.indexOf('<script src="/yey-boats-display-manager/signalk-history.js"></script>')
+  assert.ok(hist > bundle && hist < glue, 'trend backfill helper loads before the glue')
   assert.ok(fs.existsSync(path.join(PUBLIC, 'midl-device.global.js')), 'bundle is served from public/')
 })
 

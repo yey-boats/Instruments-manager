@@ -2516,6 +2516,7 @@ function renderDevicePage (manager, id, live = {}, opts = {}) {
       </style>
       <script>window.__yeyboatsPreview=${previewJson};window.__yeyboatsDeviceId=${JSON.stringify(id)};</script>
       <script src="/yey-boats-display-manager/midl-device.global.js"></script>
+      <script src="/yey-boats-display-manager/signalk-history.js"></script>
       <script src="/yey-boats-display-manager/device-preview.js"></script>
       <div class="config-grid">
         ${renderLiveSectionPlaceholder('status', 'Live status', 'Loading status…')}
