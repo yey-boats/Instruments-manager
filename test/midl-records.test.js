@@ -333,7 +333,7 @@ test('push: an assigned profile\'s records + index go to the display with its de
     manager.assignProfile('yey-d-push', { profileId: 'p' })
     const [result] = await manager._lastMidlDelivery
     assert.strictEqual(result.state, 'pushed', JSON.stringify(result))
-    assert.deepStrictEqual(fw.httpLog.map((l) => `${l.method} ${l.path}`), ['PUT /api/midl/records/passage', 'PUT /api/midl/index'])
+    assert.deepStrictEqual(fw.httpLog.map((l) => `${l.method} ${l.path}`), ['PUT /api/midl/records/passage?activate=1&screen=passage', 'PUT /api/midl/index'], 'assigning shows the preset (activate)')
     assert.strictEqual(fw.httpLog[0].auth.bearer, token, 'X-YeyBoats-Authorization: Bearer <device token>')
     assert.deepStrictEqual(JSON.parse(fw.httpLog[0].body), { title: 'Passage', doc, hash: sha(SPAN_DOC_TEXT) })
     const stored = fw.records.get('passage')
@@ -364,6 +364,28 @@ test('push: an assigned profile\'s records + index go to the display with its de
 // Bench: the display accepted the push but stored it as a local write (the
 // Bearer token DM holds is stale; its web Basic credentials were valid). DM
 // must stop pushing to it, pull instead, and say so on the device page.
+test('assigning a preset the display already holds still shows it (activate, no changed record)', needsBuild, async () => {
+  const { manager, fw, auth } = pushRig()
+  try {
+    const doc = JSON.parse(SPAN_DOC_TEXT)
+    manager.upsertProfile({ id: 'p', name: 'P', config: {}, midl: { records: [{ id: 'passage', doc }], index: { order: ['passage'] } } })
+    manager.upsertProfile({ id: 'other', name: 'Other', config: {}, midl: { records: [] } })
+    manager.assignProfile('yey-d-push', { profileId: 'p' })
+    await manager._lastMidlDelivery
+    // The display reports the record (same hash), then shows something else.
+    manager.updateStatus('yey-d-push', { network: { ip: '10.9.8.7' }, midl: { version: '1.0.0', class: 'square-480', records: [...fw.records.values()].map((r) => ({ id: r.id || 'passage', hash: r.hash, source: r.source })) } }, auth)
+    fw.httpLog.length = 0
+    manager.assignProfile('yey-d-push', { profileId: 'p' })
+    const [result] = await manager._lastMidlDelivery
+    assert.strictEqual(result.state, 'pushed', JSON.stringify(result))
+    assert.deepStrictEqual(fw.httpLog.map((l) => `${l.method} ${l.path}`),
+      ['PUT /api/midl/index', 'PUT /api/midl/records/passage?activate=1&screen=passage'],
+      'nothing changed to push, but the preset\'s screen is activated')
+  } finally {
+    manager.close()
+  }
+})
+
 test('stale device token: a push stored as "local" stops the pushes, falls back to pull and shows on the device page', needsBuild, async () => {
   const { manager, fw, auth } = pushRig()
   try {
@@ -378,7 +400,7 @@ test('stale device token: a push stored as "local" stops the pushes, falls back 
     assert.strictEqual(result.state, 'token_mismatch', JSON.stringify(result))
     assert.strictEqual(result.via, 'pull')
     assert.strictEqual(fw.records.get('passage').source, 'local', 'the display took it as a local write')
-    assert.deepStrictEqual(fw.httpLog.map((l) => `${l.method} ${l.path}`), ['PUT /api/midl/records/passage'], 'stopped after the first local write')
+    assert.deepStrictEqual(fw.httpLog.map((l) => `${l.method} ${l.path}`), ['PUT /api/midl/records/passage?activate=1&screen=passage'], 'stopped after the first local write')
     assert.strictEqual(manager.getDevice('yey-d-push').midlDelivery.state, 'token_mismatch')
     assert.strictEqual(manager.pendingCommands('yey-d-push').filter((c) => c.type === 'config.reload').length, 1, 'config.reload queued (pull)')
     // Heartbeats report the record as local: no push, no extra reloads.
