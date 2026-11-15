@@ -1243,6 +1243,17 @@ function registerRoutes (baseRouter, getManager) {
     res.json(manager.rotateDeviceWebPassword(req.params.id))
   }))
 
+  // Owner "show password" (device Configuration page). A POST, so the
+  // operator guard applies (manager API token / UI sign-in, or a SignalK
+  // admin with security on); never in page HTML or a GET, never cached, and
+  // audit-logged by the manager without the value.
+  router.post('/devices/:id/web-auth/reveal', wrap(getManager, (manager, req, res) => {
+    const result = manager.revealDeviceWebPassword(req.params.id)
+    res.setHeader('cache-control', 'no-store')
+    res.setHeader('pragma', 'no-cache')
+    res.json(result)
+  }))
+
   router.post('/devices/:id/tokens/revoke', wrap(getManager, (manager, req, res) => {
     res.json(manager.revokeDeviceToken(req.params.id))
   }))
@@ -2542,27 +2553,81 @@ function safeWebAuthStatus (manager, id) {
   try { return manager.webAuthStatus(id) } catch (e) { return null }
 }
 
-// Device web API password (instruments-manager#19): state only, never the
-// password itself, plus the rotate action.
+// Device web API password (instruments-manager#19): state, the username the
+// display enforces, its editor link, the rotate action and an operator-only
+// "Show password" that fetches the password with an explicit POST (it is
+// never part of this HTML).
 function renderWebPasswordSection (id, web) {
   if (!web) return ''
   const stateLabel = web.state === 'verified'
     ? 'verified on device'
-    : 'pending: device has not confirmed it yet'
+    : 'pending: device has not confirmed it yet (it may still use the previous one)'
+  const devPath = `${PLUGIN_BASE}/devices/${encodeURIComponent(id)}/web-auth/reveal`
+  const editor = web.editorUrl
+    ? `<a href="${escapeHtml(web.editorUrl)}" target="_blank" rel="noopener">${escapeHtml(web.editorUrl)}</a>`
+    : '<span class="muted">address unknown until the display reports in</span>'
   return `
           <section class="config-section" id="web-password">
             <h3>Device web password</h3>
-            ${keyValueTable([
-              ['Basic auth', web.enabled ? 'yes' : 'no'],
-              ['Username', web.username],
-              ['Password', `per-device, ${stateLabel}`],
-              ['Last issued', web.rotatedAt || ''],
-              ['Verified', web.verifiedAt || '']
-            ])}
+            <p class="muted">Login for the display's own web UI and its MIDL editor (HTTP Basic auth).</p>
+            <table><tbody>
+              <tr><th>Basic auth</th><td>${web.enabled ? 'yes' : 'no'}</td></tr>
+              <tr><th>Username</th><td><code>${escapeHtml(web.username)}</code></td></tr>
+              <tr><th>Password</th><td>per-device, ${escapeHtml(stateLabel)}
+                <div class="web-pw-reveal" data-url="${escapeHtml(devPath)}">
+                  <button type="button" class="web-pw-show">Show password</button>
+                  <span class="web-pw-box" hidden>
+                    <input type="text" class="web-pw-value" readonly autocomplete="off" spellcheck="false" size="40" aria-label="Device web password">
+                    <button type="button" class="web-pw-copy">Copy</button>
+                    <button type="button" class="web-pw-hide">Hide</button>
+                  </span>
+                  <span class="web-pw-msg muted"></span>
+                </div>
+              </td></tr>
+              <tr><th>Editor</th><td>${editor}</td></tr>
+              <tr><th>Last issued</th><td>${escapeHtml(web.rotatedAt || '')}</td></tr>
+              <tr><th>Verified</th><td>${escapeHtml(web.verifiedAt || '')}</td></tr>
+            </tbody></table>
             <form method="post" action="/plugins/yey-boats-display-manager/ui/devices/${encodeURIComponent(id)}/web-auth/rotate"
                   onsubmit="return confirm('Rotate the web password for this device? It is pushed with the next config pull.')">
               <div class="actions"><button type="submit">Rotate web password</button></div>
             </form>
+            <script>
+              (function () {
+                var root = document.currentScript.parentNode.querySelector('.web-pw-reveal')
+                if (!root) return
+                var box = root.querySelector('.web-pw-box')
+                var input = root.querySelector('.web-pw-value')
+                var show = root.querySelector('.web-pw-show')
+                var msg = root.querySelector('.web-pw-msg')
+                function hide () { input.value = ''; box.hidden = true; show.hidden = false; msg.textContent = '' }
+                show.addEventListener('click', function () {
+                  msg.textContent = ''
+                  fetch(root.getAttribute('data-url'), { method: 'POST', credentials: 'same-origin', cache: 'no-store', headers: { accept: 'application/json' } })
+                    .then(function (r) { return r.json().then(function (b) { return { ok: r.ok, status: r.status, b: b } }) })
+                    .then(function (x) {
+                      if (!x.ok) {
+                        msg.textContent = x.status === 401 || x.status === 403
+                          ? 'Operator sign-in needed (SignalK admin, or sign in with the manager API token).'
+                          : ((x.b && x.b.error && x.b.error.message) || ('failed: ' + x.status))
+                        return
+                      }
+                      input.value = x.b.password || ''
+                      box.hidden = false
+                      show.hidden = true
+                      input.focus(); input.select()
+                    })
+                    .catch(function (e) { msg.textContent = 'failed: ' + e.message })
+                })
+                root.querySelector('.web-pw-hide').addEventListener('click', hide)
+                root.querySelector('.web-pw-copy').addEventListener('click', function () {
+                  input.select()
+                  var done = function () { msg.textContent = 'copied' }
+                  if (navigator.clipboard && window.isSecureContext) navigator.clipboard.writeText(input.value).then(done, function () { document.execCommand('copy'); done() })
+                  else { document.execCommand('copy'); done() }
+                })
+              })()
+            </script>
           </section>`
 }
 
