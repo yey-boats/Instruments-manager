@@ -168,13 +168,16 @@ test('operator creates a missing dashboard preset and applies populated real-dat
     const pickers = page.locator('select[name="profileId"]')
     await expect(pickers).toHaveCount(2)
     for (const picker of await pickers.all()) await expect(picker).toHaveValue('playwright-real-data')
-    await expect(page.getByText('navigation.speedOverGround')).toBeVisible()
-    await expect(page.getByText('environment.wind.angleApparent')).toBeVisible()
-    await expect(page.getByText('environment.wind.speedApparent')).toBeVisible()
-    await expect(page.getByText('SOG').first()).toBeVisible()
-    await expect(page.getByText('AWA').first()).toBeVisible()
-    await expect(page.getByText('AWS').first()).toBeVisible()
-    await expect(page.getByText('dashboard').filter({ visible: true }).first()).toBeVisible()
+    // MIDL-only screens: the v2 export was migrated to a MIDL record (it
+    // overrides the built-in dashboard) and the display pulled it.
+    const rec = harness.firmware.records.get('dashboard')
+    expect(rec && rec.source).toBe('manager')
+    for (const p of ['navigation.speedOverGround', 'environment.wind.angleApparent', 'environment.wind.speedApparent']) {
+      expect(rec.docText).toContain(p)
+    }
+    const records = page.locator('section.config-section', { has: page.getByRole('heading', { name: 'MIDL records' }) })
+    await expect(records).toBeVisible()
+    await expect(records.locator('td').filter({ hasText: 'dashboard' }).first()).toBeVisible()
   } finally {
     await harness.close()
   }
