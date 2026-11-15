@@ -17,7 +17,7 @@ test('validateMidl accepts a valid doc for square-480', () => {
   const { validateMidl } = require('../lib/midl')
   const doc = JSON.stringify({
     midl: '1.0.0',
-    screens: [{ id: 'd', elements: { a: { type: 'single-value' } }, layout: { element: 'a' } }],
+    screens: [{ id: 'd', elements: { a: { type: 'single-value', bindings: { value: { kind: 'signalk', path: 'navigation.speedOverGround' } } } }, layout: { element: 'a' } }],
   })
   const r = validateMidl(doc, 'square-480')
   assert.strictEqual(r.ok, true, JSON.stringify(r.issues))

@@ -48,23 +48,7 @@ const registration = manager.registerDevice({
       pullOta: true,
       nmea0183Wifi: true,
       autopilotControls: true,
-      widgets: {
-        numeric: true,
-        text: true,
-        gauge: true,
-        compass: true,
-        windRose: true,
-        trend: true,
-        bar: true,
-        button: true,
-        autopilot: true,
-        map: false
-      },
-      fonts: {
-        scalable: false,
-        sizes: [10, 12, 14, 16, 18, 20, 24, 28, 32, 36, 42, 48, 56],
-        families: ['default']
-      }
+      midl: { version: '1.0.0', class: 'square-480', push: true, pull: true }
     }
   }
 }, auth)

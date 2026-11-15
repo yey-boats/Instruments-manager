@@ -1,10 +1,7 @@
 const fs = require('fs')
 const path = require('path')
 const { YeyBoatsDisplayManager, basicAuthHeaders } = require('./lib/manager')
-const presets = require('./lib/screen-presets')
-const fieldSchema = require('./lib/field-schema')
 const { THEMES, isTheme, themeLabel } = require('./lib/themes')
-const midlAdapter = require('./lib/midl-adapter')
 const midlLib = require('./lib/midl')
 const midlRecords = require('./lib/midl-records')
 const cloudDashboards = require('./lib/cloud-dashboards')
@@ -359,120 +356,6 @@ module.exports = function yeyBoatsDisplayManagerPlugin (app) {
   return plugin
 }
 
-// Apply a list of live-preview field edits onto a profile config, in place.
-// Each edit is { widgetId?, screenId, tileIndex, widget, title, unit, precision,
-// path, color }. Two shapes:
-//   (1) widgetId references an existing widgets.items entry -> rebind in place,
-//       round-tripping path + KIND (widget type) + per-element color.
-//   (2) no/unknown widgetId -> materialize a stable synthetic widget
-//       (w_<screen>_<tileIndex>) and author the screen tile to reference it, so
-//       a PRESET grid tile (steering/route/trip/dashboard) edit reaches the
-//       device on the next config reload exactly like a Nav tile does.
-// Pure over `cfg` (mutates the object it is handed); extracted from the
-// save-screen route so the KIND+color round-trip is node-testable.
-function applyScreenEdits (cfg, edits) {
-  cfg.widgets = cfg.widgets || {}
-  cfg.widgets.items = cfg.widgets.items || {}
-  const items = cfg.widgets.items
-  cfg.layout = cfg.layout || {}
-  cfg.layout.screens = Array.isArray(cfg.layout.screens) ? cfg.layout.screens : []
-  const screens = cfg.layout.screens
-  // Reject keys that are not safe own-property names (blocks
-  // __proto__/constructor/prototype prototype-pollution).
-  const SAFE_KEY = (k) => typeof k === 'string' && k && !['__proto__', 'constructor', 'prototype'].includes(k)
-  // `color` is a map of element->#rrggbb (theme-default when unset).
-  // normalizeColor keeps only valid #rrggbb element entries so a cleared swatch
-  // persists as "unset" (key dropped) rather than freezing a tile to one theme.
-  const HEX = /^#[0-9a-fA-F]{6}$/
-  const normalizeColor = (c) => {
-    if (!c || typeof c !== 'object' || Array.isArray(c)) return null
-    const out = {}
-    for (const k of Object.keys(c)) {
-      if (!SAFE_KEY(k)) continue
-      if (typeof c[k] === 'string' && HEX.test(c[k])) out[k] = c[k]
-    }
-    return Object.keys(out).length ? out : null
-  }
-  ;(Array.isArray(edits) ? edits : []).forEach((e) => {
-    if (!e) return
-    // (0) Fullscreen HUD field overrides: a HUD screen has no per-tile slots —
-    // it reads a fixed set of LOGICAL fields, each bindable to a SignalK path
-    // (+ optional colour). Persist them under the authored screen's config as
-    // `hud.fields[key] = {path,color}` so they round-trip to the assigned
-    // profile and reload into the editor. (Built-in HUD screens ignore these on
-    // the current firmware — preview/stored only; surfaced in the editor note.)
-    if (e.hud === true) {
-      const sid = typeof e.screenId === 'string' ? e.screenId : null
-      if (!sid) return
-      const fields = (e.fields && typeof e.fields === 'object' && !Array.isArray(e.fields)) ? e.fields : {}
-      const clean = {}
-      for (const k of Object.keys(fields)) {
-        if (!SAFE_KEY(k)) continue
-        const f = fields[k]
-        if (!f || typeof f !== 'object') continue
-        const entry = {}
-        if (typeof f.path === 'string' && f.path.trim()) entry.path = f.path.trim()
-        if (typeof f.color === 'string' && HEX.test(f.color)) entry.color = f.color
-        if (Object.keys(entry).length) clean[k] = entry
-      }
-      let scr = screens.find((s) => s && s.id === sid)
-      if (!scr) { scr = { id: sid, tiles: [] }; screens.push(scr) }
-      if (Object.keys(clean).length) {
-        scr.hud = Object.assign({}, scr.hud, { fields: clean })
-        if (typeof e.kind === 'string' && e.kind) scr.hud.kind = e.kind
-      } else if (scr.hud) {
-        // every field reverted to default -> drop the override block entirely.
-        delete scr.hud
-      }
-      return
-    }
-    const color = normalizeColor(e.color)
-    // (1) Authored tile carrying an existing widget key -> rebind in place.
-    // Round-trip path + kind (widget type) + color; clear color when the
-    // operator unset every element so the tile reverts to theme defaults.
-    if (typeof e.widgetId === 'string' && e.widgetId &&
-        Object.prototype.hasOwnProperty.call(items, e.widgetId)) {
-      const it = items[e.widgetId]
-      it.path = String(e.path || '')
-      if (typeof e.widget === 'string' && e.widget) it.type = e.widget
-      if (color) it.color = color; else delete it.color
-      return
-    }
-    // (2) Preset/managed tile with no own widget key (synthetic id from the
-    // preview): materialize a stable widget + author its screen so the rebind
-    // actually reaches the device on the next config reload.
-    const screenId = typeof e.screenId === 'string' ? e.screenId : null
-    const ti = Number.isInteger(e.tileIndex) ? e.tileIndex : null
-    if (!screenId || ti == null) return
-    const wid = 'w_' + screenId.replace(/[^a-z0-9]+/gi, '_') + '_' + ti
-    if (!SAFE_KEY(wid)) return
-    // Create/update the widget definition (preserve any prior fields).
-    const prev = Object.prototype.hasOwnProperty.call(items, wid) ? items[wid] : {}
-    const widget = Object.assign({}, prev, {
-      type: e.widget || prev.type || 'numeric',
-      title: e.title != null ? e.title : (prev.title || ''),
-      path: String(e.path || ''),
-      unit: e.unit != null ? e.unit : (prev.unit || ''),
-      precision: e.precision != null ? e.precision : (prev.precision != null ? prev.precision : null)
-    })
-    if (color) widget.color = color; else delete widget.color
-    items[wid] = widget
-    // Ensure the screen exists in the authored layout and references the widget
-    // at its tile slot.
-    let scr = screens.find((s) => s && s.id === screenId)
-    if (!scr) { scr = { id: screenId, tiles: [] }; screens.push(scr) }
-    scr.tiles = Array.isArray(scr.tiles) ? scr.tiles : []
-    while (scr.tiles.length <= ti) scr.tiles.push({})
-    // Bind the tile to the synthetic widget and drop any stale inline path
-    // (primary/path) so the device reads the rebind unambiguously.
-    const merged = Object.assign({}, scr.tiles[ti], { widget: wid })
-    delete merged.primary
-    delete merged.path
-    scr.tiles[ti] = merged
-  })
-  return cfg
-}
-
 function registerRoutes (baseRouter, getManager) {
   // #23: every state-changing route is an operator route unless it is one of
   // the few the displays themselves call (those authenticate the device).
@@ -529,76 +412,6 @@ function registerRoutes (baseRouter, getManager) {
   router.get('/devices/:id/views', wrap(getManager, (manager, req, res) => {
     res.json(manager.deviceViews(req.params.id))
   }))
-
-  // Device-reported capability manifest (ui.capabilities). { capabilities } is
-  // null until the device reports one. The layout editor gates its options to
-  // this so it only offers what the connected firmware can render.
-  router.get('/devices/:id/capabilities', wrap(getManager, (manager, req, res) => {
-    res.json({ capabilities: manager.deviceCapabilities(req.params.id) })
-  }))
-
-  // ---- Slice 5: manifest-gated layout editor CRUD (JSON) ----------------
-  // The field editor (public/field-editor.js) drives these. Each returns the
-  // fresh editorLayout { profileId, manifest, screens, items } so the UI can
-  // re-render without a second round-trip. Manifest gating + persistence +
-  // config.reload all happen in lib/manager.js.
-
-  // Effective manifest the editor gates to (device-reported, or the built-in
-  // default when offline / pre-manifest firmware) + the editable layout.
-  router.get('/devices/:id/editor/layout', wrap(getManager, (manager, req, res) => {
-    res.json(manager.editorLayout(req.params.id))
-  }))
-
-  router.post('/devices/:id/editor/screens', wrap(getManager, (manager, req, res) => {
-    res.json(manager.addScreen(req.params.id, req.body || {}))
-  }))
-
-  router.patch('/devices/:id/editor/screens/:screenId', wrap(getManager, (manager, req, res) => {
-    const b = req.body || {}
-    if (typeof b.title === 'string') {
-      res.json(manager.renameScreen(req.params.id, req.params.screenId, b.title))
-    } else {
-      res.json(manager.editorLayout(req.params.id))
-    }
-  }))
-
-  router.post('/devices/:id/editor/screens/reorder', wrap(getManager, (manager, req, res) => {
-    res.json(manager.reorderScreens(req.params.id, (req.body && req.body.order) || []))
-  }))
-
-  router.delete('/devices/:id/editor/screens/:screenId', wrap(getManager, (manager, req, res) => {
-    res.json(manager.deleteScreen(req.params.id, req.params.screenId))
-  }))
-
-  router.post('/devices/:id/editor/screens/:screenId/fields', wrap(getManager, (manager, req, res) => {
-    res.json(manager.addField(req.params.id, req.params.screenId, (req.body && req.body.field) || {}))
-  }))
-
-  router.patch('/devices/:id/editor/screens/:screenId/fields/:widgetId', wrap(getManager, (manager, req, res) => {
-    res.json(manager.updateField(req.params.id, req.params.screenId, req.params.widgetId, (req.body && req.body.field) || {}))
-  }))
-
-  router.delete('/devices/:id/editor/screens/:screenId/fields/:widgetId', wrap(getManager, (manager, req, res) => {
-    res.json(manager.removeField(req.params.id, req.params.screenId, req.params.widgetId))
-  }))
-
-  // "Save limits": persist configured range/zones onto the field, and OPTIONALLY
-  // write them back to the SignalK path meta (opt-in via writeBack:true). The
-  // SK meta write-back degrades gracefully — if SignalK rejects it (no perms),
-  // we still persist onto the field and report metaWriteBack:'failed'.
-  router.post('/devices/:id/editor/screens/:screenId/fields/:widgetId/limits',
-    wrap(getManager, async (manager, req, res) => {
-      const b = req.body || {}
-      const layout = manager.saveFieldLimits(req.params.id, req.params.screenId, req.params.widgetId, {
-        range: b.range, zones: b.zones
-      })
-      let metaWriteBack = 'skipped'
-      if (b.writeBack === true && typeof b.path === 'string' && b.path) {
-        metaWriteBack = await writeSignalKMeta(manager, b.path, { range: b.range, zones: b.zones })
-          .then(() => 'ok').catch(() => 'failed')
-      }
-      res.json({ ...layout, metaWriteBack })
-    }))
 
   // ---- MIDL editor JSON API ---------------------------------------------
   // The editor edits the MIDL records of the display's profile (no v2).
@@ -748,35 +561,6 @@ function registerRoutes (baseRouter, getManager) {
     res.json(manager.pluginCapabilities())
   }))
 
-  // ---- screen-preset catalogue (read-only) ------------------------------
-  // Powers the visual layout editor: GET /presets/screens?board=<id> (or
-  // ?displayClass=<id>) returns a curated list of starter screens that
-  // match the device's display geometry. The editor inserts the chosen
-  // screen verbatim into the active profile.
-  router.get('/presets/displays', (req, res) => {
-    res.json({ displayClasses: presets.listDisplayClasses() })
-  })
-  router.get('/presets/widgets', (req, res) => {
-    res.json({ widgetTypes: presets.listWidgetTypes(), paths: presets.ALL_PATHS })
-  })
-  router.get('/presets/screens', (req, res) => {
-    const displayClass = req.query.displayClass ||
-                        (req.query.board ? presets.classifyBoard(String(req.query.board)) : 'sunton-480')
-    res.json({
-      displayClass,
-      screens: presets.getPresetsForClass(String(displayClass))
-    })
-  })
-
-  // GET /devices/proxy/screenshot.png?url=http://<device-host>[:port]
-  //
-  // Pulls /api/screenshot.png from the device and streams the body back
-  // to the editor. Lets the layout-editor UI work even when the browser
-  // can't directly reach the device (e.g. browser on a different VLAN
-  // than the device, but the SignalK host can route to both).
-  //
-  // Allows only http/https URLs to private-network targets (RFC 1918 +
-  // link-local + loopback). No public-internet SSRF.
   function isPrivateHost (host) {
     if (!host) return false
     if (host === 'localhost' || host.endsWith('.local')) return true
@@ -991,26 +775,6 @@ function registerRoutes (baseRouter, getManager) {
     res.end(renderUi(manager, 'profiles', req, { cloud }))
   }))
 
-  // Layout editor lives in public/layout-editor.html. We serve it
-  // inside the standard renderUiShell so the nav stays consistent
-  // and operators see the same header/links as on every other page.
-  // The editor iframe stretches to fill the panel; the editor itself
-  // owns its own toolbar inside that.
-  router.get('/ui/layout', wrap(getManager, (manager, req, res) => {
-    res.setHeader('content-type', 'text/html; charset=utf-8')
-    const dashboard = manager.dashboard()
-    // MIDL-only screens: the v2 layout editor is retired; screens are MIDL
-    // records edited in the MIDL editor.
-    const body = `
-      <section class="panel">
-        <h2>Layout editor retired</h2>
-        <p>Screens are MIDL records now. Edit them in the
-        <a href="/yey-boats-display-manager/midl-editor.html">MIDL editor</a>,
-        or import a MIDL dashboard on the Presets page.</p>
-      </section>`
-    res.end(renderUiShell('Layout editor', body, dashboard, 'layout'))
-  }))
-
   // MIDL editor: canonical entry is the webapp static path so the page's
   // relative bundle/script URLs (./midl-editor.global.js, ./midl-editor.js)
   // resolve. Served under /ui/* the relative paths would 404, so redirect.
@@ -1063,83 +827,30 @@ function registerRoutes (baseRouter, getManager) {
     res.end()
   }))
 
-  // Save edited data-field bindings from the live preview. mode=switch queues a
-  // screen.set; mode=update rewrites the assigned profile's widget paths and
-  // reloads the device; mode=create saves the edited layout as a new profile.
+  // The live preview's "Show on device": mode=switch queues a screen.set
+  // with the bare MIDL screen id. Screens are edited in the MIDL editor.
   router.post('/ui/devices/:id/save-screen', wrap(getManager, (manager, req, res) => {
     const id = req.params.id
     const body = req.body || {}
-    const mode = body.mode || 'update'
-    let edits = []
-    try { edits = JSON.parse(body.edits || '[]') } catch (e) { edits = [] }
-    let status = 'noop'
-    let layoutValidation
-    // AJAX clients (the live preview's "Show on device") set ajax=1 / send an
-    // Accept: application/json header so we answer with JSON instead of a 303
-    // full-page reload — that keeps the operator's selected preview screen put.
-    const wantsJson = body.ajax === '1' || body.ajax === 1 ||
-      /application\/json/.test(String(req.headers && req.headers.accept))
-    if (mode === 'switch') {
-      const screenId = bareScreenId(body.screenId || '')
-      if (screenId) {
-        manager.createCommand(id, { type: 'screen.set', payload: { screen: screenId } })
-        status = 'switched'
-      }
-      if (wantsJson) {
-        res.json({ status, screenId: screenId || null })
-        return
-      }
-    } else if (mode === 'update' || mode === 'create') {
-      // MIDL-only screens: the preview's v2 field edits are retired.
-      const err = new Error('the v2 field editor is removed: screens are MIDL records now; edit them in the MIDL editor')
-      err.status = 410
-      err.payload = { error: { code: 'v2_editor_removed', message: err.message } }
-      throw err
-    } else {
-      const device = manager.getDevice(id)
-      const baseId = device.assignedProfile || 'default'
-      const base = manager.store.profiles.profiles[baseId]
-      if (base) {
-        const cfg = JSON.parse(JSON.stringify(base.config || {}))
-        applyScreenEdits(cfg, edits)
-        if (mode === 'create') {
-          const name = String(body.profileName || 'New View').trim()
-          const newId = (name.toLowerCase().replace(/[^a-z0-9]+/g, '-').replace(/(^-|-$)/g, '')) ||
-            ('view-' + Math.abs(sha256Json({ id, t: cfg }).length))
-          // Validator on store: a new view is checked for any display that
-          // already points at its id.
-          layoutValidation = manager.saveProfileChecked({ id: newId, name, config: cfg }).layoutValidation
-          status = 'created:' + newId
-        } else {
-          // Validator on store: this saves the display's profile, which every
-          // display assigned it picks up, so it is checked for all of them
-          // (only issues the edit introduces count).
-          layoutValidation = manager.saveProfileChecked({ id: baseId, name: base.name || baseId, config: cfg },
-            [{ deviceId: id, opts: { profileConfig: cfg }, compare: true }]).layoutValidation
-          // Best-effort reload nudge, but log failures instead of swallowing
-          // them (MGR-8): a broken trigger should not vanish without a trace.
-          try {
-            manager.queueConfigReload(id)
-          } catch (e) {
-            if (manager.app && manager.app.debug) {
-              manager.app.debug(`yey-display: queueConfigReload failed for ${id}: ${e && e.message}`)
-            }
-          }
-          status = 'updated'
-        }
-      }
+    if ((body.mode || 'switch') !== 'switch') {
+      throw statusError(400, 'unsupported mode: screens are MIDL records, edited in the MIDL editor')
     }
-    if (wantsJson) {
-      res.json(Object.assign({ status, screenId: body.screenId || null }, layoutValidation ? { layoutValidation } : {}))
+    const screenId = bareScreenId(body.screenId || '')
+    let status = 'noop'
+    if (screenId) {
+      manager.createCommand(id, { type: 'screen.set', payload: { screen: screenId } })
+      status = 'switched'
+    }
+    // AJAX clients (the preview's "Show on device") set ajax=1 / send an
+    // Accept: application/json header so the selected preview screen stays put.
+    if (body.ajax === '1' || body.ajax === 1 || /application\/json/.test(String(req.headers && req.headers.accept))) {
+      res.json({ status, screenId: screenId || null })
       return
     }
-    // Carry the operator's selected preview screen through the redirect so the
-    // dropdown pre-selects it after the full-page reload (no snapping back to
-    // the default screen).
-    const scr = body.screenId ? `&screen=${encodeURIComponent(body.screenId)}` : ''
+    const scr = screenId ? `&screen=${encodeURIComponent(screenId)}` : ''
     res.statusCode = 303
     res.setHeader('location',
-      `/plugins/yey-boats-display-manager/ui/devices/${encodeURIComponent(id)}?status=${encodeURIComponent(status)}${scr}${validationParam({ layoutValidation })}`)
+      `/plugins/yey-boats-display-manager/ui/devices/${encodeURIComponent(id)}?status=${encodeURIComponent(status)}${scr}`)
     res.end()
   }))
 
@@ -2019,14 +1730,8 @@ function importDashboardDocument (manager, doc, opts) {
     config = existing ? existing.config : clone((profiles.default && profiles.default.config) || {})
     midl = midlRecords.normalizeMidl(existing && existing.midl)
     const sourceId = opts.extra && opts.extra.sourceId
-    const prior = (sourceId && midl.records.find((r) => r.sourceId === String(sourceId))) ||
-      (midl.records.length === 1 ? midl.records[0] : null)
-    let recordId = prior ? prior.id : midlRecords.toRecordId(opts.presetId || title || id)
     const screens = midlRecords.screensOf(doc)
-    // A one-screen doc whose screen is a built-in's id replaces that
-    // built-in (same id = override), instead of colliding with it.
-    if (!prior && screens.length === 1 && midlRecords.isBuiltinId(screens[0].id)) recordId = screens[0].id
-    if (!midlRecords.isRecordId(recordId)) recordId = 'imported'
+    const recordId = importRecordId(midl, doc, screens, sourceId, opts.presetId || id)
     record = {
       id: recordId,
       title: title || name,
@@ -2072,6 +1777,32 @@ function importDashboardDocument (manager, doc, opts) {
   }, midl ? { midl } : {}))
   return Object.assign({}, profile, { layoutValidation }, midlValidation ? { midlValidation } : {},
     record ? { record: { id: record.id, hash: midlRecords.docHash(record.doc) } } : {})
+}
+
+// The record an imported MIDL doc is stored as: the record id follows the
+// document, never the profile's other contents.
+// - Re-import of the same yey.boats dashboard (same sourceId): that record.
+// - A record whose screens are exactly the doc's screens: that record
+//   (the doc replaces it).
+// - Otherwise an id from the doc: a one-screen doc's screen id (a built-in's
+//   id makes it an override of that built-in), else its meta title, else
+//   `fallback` (the preset id). An id already taken by a record with other
+//   screens gets a -2/-3 suffix, so it is never overwritten.
+function importRecordId (midl, doc, screens, sourceId, fallback) {
+  if (sourceId) {
+    const same = midl.records.find((r) => r.sourceId === String(sourceId))
+    if (same) return same.id
+  }
+  const key = (list) => list.map((sc) => sc.id).sort().join('\u0000')
+  if (screens.length) {
+    const want = key(screens)
+    const match = midl.records.find((r) => key(midlRecords.screensOf(r.doc)) === want)
+    if (match) return match.id
+  }
+  const title = doc.meta && typeof doc.meta.title === 'string' ? doc.meta.title.trim() : ''
+  const base = (screens.length === 1 ? midlRecords.toRecordId(screens[0].id) : '') ||
+    midlRecords.toRecordId(title) || midlRecords.toRecordId(fallback) || 'imported'
+  return midlRecords.uniqueRecordId(base, new Set(midl.records.map((r) => r.id)))
 }
 
 function parseDashboardImport (raw, contentType) {
@@ -2583,6 +2314,17 @@ function midlPreviewFor (manager, device) {
   }
 }
 
+// The display stored DM's last push as a local write: the device token DM
+// holds does not match the display's, so DM stopped pushing to it and the
+// display pulls its screens. Re-pairing gives both sides the same token.
+function renderMidlDeliveryBanner (device) {
+  const d = device && device.midlDelivery
+  if (!d || d.state !== 'token_mismatch') return ''
+  return `<p class="panel midl-token-mismatch" role="alert" style="border-left:4px solid #d97706;background:#fff7ed;color:#7c2d12;"><b>Screens are not pushed to this display.</b> ` +
+    `It stored the screens Display Manager pushed as local changes${d.since ? ` (since ${escapeHtml(d.since)})` : ''}, because the device token Display Manager holds does not match the display's. ` +
+    `Display Manager now stops pushing and the display pulls its screens instead. Re-pair the display: use Re-claim in the Manager token part of <a href="#config">Configuration</a> so both sides hold the same token.</p>`
+}
+
 function renderDevicePage (manager, id, live = {}, opts = {}) {
   const device = manager.getDevice(id)
   const config = manager.generateConfig(id)
@@ -2648,6 +2390,8 @@ function renderDevicePage (manager, id, live = {}, opts = {}) {
     return {
       current: currentScreen,
       profileId: assigned,
+      // The theme the display draws with now (reported > day/night > own).
+      theme: manager.deviceTheme(id).theme,
       telemetry,
       screens: dvViews.map((v) => {
         const r = ownerOf(v.id)
@@ -2669,7 +2413,7 @@ function renderDevicePage (manager, id, live = {}, opts = {}) {
   previewData.midl = midlPreviewFor(manager, device)
   const previewJson = JSON.stringify(previewData).replace(/</g, '\\u003c')
   const otaSection = renderDeviceFirmwareSection(manager, device)
-  return `${renderValidationBanner(opts && opts.validation)}
+  return `${renderValidationBanner(opts && opts.validation)}${renderMidlDeliveryBanner(device)}
     <section class="panel">
       <h2>${escapeHtml(device.name || device.id)}</h2>
       <p class="muted">${escapeHtml(device.id)} · ${escapeHtml(device.role)} · ${escapeHtml(device.location || 'unassigned')}</p>
@@ -2695,8 +2439,7 @@ function renderDevicePage (manager, id, live = {}, opts = {}) {
             <form id="lp-form" method="post"
                   action="/plugins/yey-boats-display-manager/ui/devices/${encodeURIComponent(id)}/save-screen">
               <input type="hidden" name="screenId" id="lp-f-screen">
-              <input type="hidden" name="edits" id="lp-f-edits">
-              <input type="hidden" name="mode" id="lp-f-mode" value="update">
+              <input type="hidden" name="mode" id="lp-f-mode" value="switch">
               <div class="lp-actions">
                 <button type="button" class="primary btn-sm" data-mode="switch" title="Show the selected screen on the device now">Show on device</button>
               </div>
@@ -2731,7 +2474,6 @@ function renderDevicePage (manager, id, live = {}, opts = {}) {
         .lp-now #lp-now-screen{color:#eaf2fb;font-weight:600}
         .lp-dot{width:8px;height:8px;border-radius:50%;background:#36d399;margin-right:7px;box-shadow:0 0 0 0 rgba(54,211,153,.6);animation:lp-pulse 2s infinite}
         @keyframes lp-pulse{0%{box-shadow:0 0 0 0 rgba(54,211,153,.55)}70%{box-shadow:0 0 0 6px rgba(54,211,153,0)}100%{box-shadow:0 0 0 0 rgba(54,211,153,0)}}
-        .lp-head-controls{display:flex;align-items:center;gap:14px;flex-wrap:wrap}
         .lp-ctl{font-size:12px;color:#8fb8da;display:inline-flex;align-items:center}
         .lp-ctl select{margin-left:4px;background:#0a1420;color:#eaf2fb;border:1px solid #2a4156;border-radius:6px;padding:4px 6px}
         /* Side-by-side: square stage on the left, all controls grouped on the
@@ -2745,61 +2487,14 @@ function renderDevicePage (manager, id, live = {}, opts = {}) {
            container (no vw — unreliable inside the SignalK admin iframe), and
            drop the min-width so a 390px phone can't be forced wider. */
         .lp-stage{box-sizing:border-box;background:radial-gradient(120% 120% at 50% 0%,#0c151f,#070b11);border:1px solid #16242f;border-radius:10px;aspect-ratio:1/1;width:min(360px,100%);max-width:100%;min-width:0;margin:0;padding:10px;display:flex;align-items:center;justify-content:center;flex:0 0 auto}
-        .lp-hud{width:100%;height:100%;display:flex;align-items:center;justify-content:center}
         .lp-midl{width:100%;display:flex;align-items:center;justify-content:center}
         .lp-midl svg{width:100%;height:auto;max-height:480px;display:block}
-        .lp-edit-list{display:grid;grid-template-columns:minmax(0,1fr);gap:8px;margin-top:10px}
-        .lp-edit-item{border:1px solid #1c2f42;border-radius:8px;padding:6px 8px;background:#0b1622}
-        .lp-hud .hud-svg{width:100%;height:100%;display:block}
-        /* HUD field editor: when editing a fullscreen HUD the stage drops its
-           square aspect, the dial caps to a square at the top, and the field
-           panel stacks below it — scrollable, fits a 390px phone column. */
-        .lp-stage.lp-editing .lp-hud{height:auto;aspect-ratio:1/1;max-height:340px;flex:0 0 auto}
-        .lp-stage.lp-editing .lp-hud .hud-svg{height:auto;aspect-ratio:1/1}
-        .lp-hud-edit{margin-top:10px}
-        .lp-hud-note{font-size:11px;line-height:1.4;color:#d4b483;background:#1c1606;border:1px solid #3a2f12;border-radius:6px;padding:6px 8px;text-transform:none;letter-spacing:0;margin-bottom:4px}
-        /* Edit mode: the stage drops its square aspect so the drawn screen and
-           the per-tile editors below it can grow + scroll. */
-        .lp-stage.lp-editing{aspect-ratio:auto;height:auto;max-width:100%;width:min(420px,100%);align-items:stretch;overflow:visible;flex-direction:column}
-        .lp-cap{font-size:11px;letter-spacing:.1em;color:#6f97ba;text-transform:uppercase}
         .lp-empty{color:#6f97ba;font-size:13px;text-align:center;line-height:1.5}
-        .lp-edit-path{width:100%;margin-top:0;font-size:11px;background:#0a1420;color:#cfe0f0;border:1px solid #2a4156;border-radius:5px;padding:4px 5px;box-sizing:border-box}
-        .lp-edit-path:focus{outline:none;border-color:#36d399}
-        /* Rich edit-fields panel: a stacked, scrollable control group per tile.
-           Stacks vertically so it fits a 390px phone column without overflow. */
-        .lp-edit{width:100%;margin-top:8px;display:flex;flex-direction:column;gap:7px;border-top:1px solid #1c2f42;padding-top:8px;box-sizing:border-box}
-        .lp-edit-row{display:flex;align-items:center;gap:6px;font-size:10px;letter-spacing:.05em;text-transform:uppercase;color:#7fa6c6}
-        .lp-edit-col{flex-direction:column;align-items:stretch;gap:4px}
-        .lp-edit-lab{font-size:10px;letter-spacing:.05em;text-transform:uppercase;color:#7fa6c6}
-        .lp-edit-sel{flex:1;min-width:0;background:#0a1420;color:#eaf2fb;border:1px solid #2a4156;border-radius:5px;padding:4px 5px;font-size:12px;text-transform:none}
-        .lp-edit-cur{font-size:11px;color:#9bb6d0;text-transform:none;letter-spacing:0;overflow-wrap:anywhere;word-break:break-word}
-        /* Scrollable candidate path list with live values. Capped height so the
-           tile stays compact; each row is a full-width clickable button. */
-        .lp-edit-paths{max-height:118px;overflow-y:auto;overflow-x:hidden;display:flex;flex-direction:column;gap:2px;border:1px solid #1c2f42;border-radius:6px;background:#091320;padding:3px}
-        .lp-edit-prow{display:flex;justify-content:space-between;gap:8px;align-items:center;width:100%;max-width:100%;text-align:left;background:transparent;border:0;border-radius:4px;padding:3px 6px;cursor:pointer;color:#cfe0f0;font-size:11px;text-transform:none;letter-spacing:0;box-sizing:border-box}
-        .lp-edit-prow:hover{background:#13283a}
-        .lp-edit-prow.active{background:#173a2c;color:#8ff0c0}
-        .lp-edit-pname{overflow:hidden;text-overflow:ellipsis;white-space:nowrap;flex:1 1 auto;min-width:0}
-        /* Live-value readout: cap its share + ellipsis so a long string value
-           (e.g. a /resources/routes/... id) can't blow the row width past the
-           tile on a phone. */
-        .lp-edit-plv{color:#9bb6d0;flex:0 1 auto;min-width:0;max-width:45%;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;font-variant-numeric:tabular-nums}
-        .lp-edit-color{flex-wrap:wrap}
-        .lp-edit-clab{flex:0 0 46px;font-size:10px;color:#7fa6c6}
-        .lp-edit-sw{display:flex;align-items:center;gap:4px;flex-wrap:wrap;flex:1;min-width:0}
-        .lp-sw{width:16px;height:16px;border-radius:4px;cursor:pointer;border:1px solid rgba(255,255,255,.18);box-sizing:border-box}
-        .lp-sw.active{outline:2px solid #eef4fa;outline-offset:1px}
-        .lp-sw-custom{width:22px;height:18px;padding:0;border:1px solid #2a4156;border-radius:4px;background:#0a1420;cursor:pointer}
-        .lp-sw-theme{font-size:10px;text-transform:none;letter-spacing:0;background:#13283a;color:#9bb6d0;border:1px solid #2a4156;border-radius:5px;padding:2px 7px;cursor:pointer}
-        .lp-sw-theme.active{border-color:#36d399;color:#8ff0c0}
-        /* Compact control group: tight, wrapping row of small buttons. */
         .lp-actions{display:flex;gap:6px;align-items:center;flex-wrap:wrap}
         .lp-actions button{border-radius:6px;padding:4px 9px;border:1px solid #2a4156;background:#13283a;color:#dbe9f6;cursor:pointer;font-size:12px;min-height:28px;line-height:1}
         .lp-actions button:hover{border-color:#3a607e;background:#173248}
         .lp-actions button.primary{background:#1f8f5f;border-color:#27a86e;color:#eafff5;font-weight:600}
         .lp-actions button.primary:hover{background:#27a86e}
-        .lp-create{display:inline-flex;gap:5px;align-items:center}
-        .lp-create input{flex:0 1 130px;background:#0a1420;color:#eaf2fb;border:1px solid #2a4156;border-radius:6px;padding:5px 7px;font-size:12px;min-width:0;min-height:28px}
         .lp-note{font-size:12px;line-height:1.5;margin:2px 0 0}
         .lp-assign{margin-bottom:18px}
         /* Compact one-line assign control. */
@@ -3341,12 +3036,6 @@ function renderLiveErrorPage (manager, id, title, err) {
     </section>`)
 }
 
-// Built-in screen ids the firmware renders as fullscreen HUDs (not tile grids).
-const FULLSCREEN_SCREEN_IDS = new Set(['autopilot', 'ap_hud', 'wind', 'wind_classic', 'wind_steer', 'knob_wind', 'knob_compass', 'knob_big', 'zoom'])
-function screenKindLabel (id) {
-  return FULLSCREEN_SCREEN_IDS.has(String(id)) ? 'fullscreen' : 'grid'
-}
-
 // Form routes answer with a redirect: a validation other than "ok" (an
 // already-invalid layout, or no validator in this install) rides along.
 function validationParam (result) {
@@ -3382,10 +3071,15 @@ function saveDeviceConfigForm (manager, id, body) {
   const asPreset = body.action === 'save-preset' || body.action === 'save-send-preset'
   const presetIdFor = asPreset ? sanitizePresetId(body.presetId || body.presetName) : null
   if (asPreset && !presetIdFor) throw statusError(400, 'preset id is required')
-  const targets = [{ deviceId: id, opts: asPreset ? { profileConfig: overrides, overrides } : { profileId, overrides }, compare: true }]
+  // The screens (MIDL records) the display would get: the preset's own when
+  // it exists, else the ones it has now (a new preset copies them).
+  const presetMidl = asPreset
+    ? ((manager.store.profiles.profiles[presetIdFor] || manager.store.profiles.profiles[profileId] || {}).midl || midlRecords.emptyMidl())
+    : null
+  const targets = [{ deviceId: id, opts: asPreset ? { profileMidl: presetMidl } : { profileId }, compare: true }]
   if (asPreset) {
     for (const other of manager.devicesUsingProfile(presetIdFor)) {
-      if (other !== id) targets.push({ deviceId: other, opts: { profileConfig: overrides }, compare: true })
+      if (other !== id) targets.push({ deviceId: other, opts: { profileMidl: presetMidl }, compare: true })
     }
   }
   const layoutValidation = manager.gateLayouts(targets)
@@ -3437,7 +3131,7 @@ function applyPresetForm (manager, profileId, body) {
     const d = manager.getDevice(deviceId)
     const overrides = checkboxValue(body.clearOverrides) ? {} : d.overrides
     const unchanged = (d.assignedProfile || 'default') === profileId && JSON.stringify(overrides || {}) === JSON.stringify(d.overrides || {})
-    return { deviceId, opts: { profileId, overrides }, compare: unchanged }
+    return { deviceId, opts: { profileId }, compare: unchanged }
   }))
 
   deviceIds.forEach((deviceId) => {
@@ -3567,7 +3261,7 @@ function renderDeviceConfigForm (device, config, profiles, views, dayNightActive
   const dvViews = (views && Array.isArray(views.views)) ? views.views : []
   const current = settings.defaultScreen || (views && views.current) || ''
   const defaultScreenField = dvViews.length
-    ? select('defaultScreen', current, dvViews.map((v) => [v.id, `${v.title || v.id} (${screenKindLabel(v.id)})`]))
+    ? select('defaultScreen', current, dvViews.map((v) => [v.id, v.title && v.title !== v.id ? `${v.title} (${v.id})` : v.id]))
     : input('defaultScreen', current || 'dashboard')
   return `
     <form class="config-form" method="post" action="/plugins/yey-boats-display-manager/ui/devices/${encodeURIComponent(device.id)}/config">
@@ -3646,163 +3340,6 @@ function renderFormatEditor (format) {
       </fieldset>`
 }
 
-function widgetsFromForm (body) {
-  const ids = arrayValue(body.widgetId)
-  const titles = arrayValue(body.widgetTitle)
-  const types = arrayValue(body.widgetType)
-  const paths = arrayValue(body.widgetPath)
-  const units = arrayValue(body.widgetUnit)
-  const precisions = arrayValue(body.widgetPrecision)
-  const valueFonts = arrayValue(body.widgetValueFontSize)
-  const remove = new Set(arrayValue(body.removeWidget).map(cleanString))
-  const items = {}
-  ids.forEach((rawId, index) => {
-    const id = sanitizeWidgetId(rawId)
-    if (!id || remove.has(id)) return
-    const type = cleanString(types[index]) || 'numeric'
-    const path = cleanString(paths[index])
-    if (!path) return
-    const widget = {
-      type,
-      title: cleanString(titles[index]) || id,
-      path
-    }
-    const unit = cleanString(units[index])
-    if (unit) widget.unit = unit
-    const precision = integerValue(precisions[index], null)
-    if (precision != null) widget.precision = precision
-    const valueFontSize = integerValue(valueFonts[index], null)
-    if (valueFontSize != null) widget.valueFontSize = valueFontSize
-    items[id] = widget
-  })
-  return items
-}
-
-function layoutFromForm (body) {
-  const screenIds = arrayValue(body.screenId)
-  const screenTypes = arrayValue(body.screenType)
-  const tileWidgets = arrayValue(body.tileWidget)
-  const tileScreens = arrayValue(body.tileScreen)
-  const tileCols = arrayValue(body.tileCol)
-  const tileRows = arrayValue(body.tileRow)
-  const removeTiles = new Set(arrayValue(body.removeTile).map(cleanString))
-  const screenById = {}
-  screenIds.forEach((rawId, index) => {
-    const id = sanitizeWidgetId(rawId)
-    if (!id) return
-    screenById[id] = {
-      id,
-      type: cleanString(screenTypes[index]) || 'grid',
-      tiles: []
-    }
-  })
-  tileWidgets.forEach((rawWidget, index) => {
-    const widget = sanitizeWidgetId(rawWidget)
-    const screenId = sanitizeWidgetId(tileScreens[index] || screenIds[0] || 'dashboard')
-    if (!widget || !screenId || removeTiles.has(`${screenId}:${widget}:${index}`)) return
-    if (!screenById[screenId]) {
-      screenById[screenId] = { id: screenId, type: 'grid', tiles: [] }
-    }
-    const tile = { widget }
-    const col = integerValue(tileCols[index], null)
-    const row = integerValue(tileRows[index], null)
-    if (col != null || row != null) {
-      tile.area = {}
-      if (col != null) tile.area.col = col
-      if (row != null) tile.area.row = row
-    }
-    screenById[screenId].tiles.push(tile)
-  })
-  return {
-    version: 1,
-    screens: Object.values(screenById)
-  }
-}
-
-function renderWidgetEditor (items) {
-  const rows = Object.entries(items || {}).map(([id, widget]) => renderWidgetEditorRow(id, widget))
-  rows.push(renderWidgetEditorRow('', {}))
-  return `
-      <fieldset>
-        <legend>Widgets</legend>
-        <table>
-          <thead><tr><th>ID</th><th>Title</th><th>Type</th><th>SignalK path</th><th>Unit</th><th>Precision</th><th>Value font</th><th>Remove</th></tr></thead>
-          <tbody>${rows.join('')}</tbody>
-        </table>
-      </fieldset>`
-}
-
-function renderWidgetEditorRow (id, widget) {
-  return `
-    <tr>
-      <td>${input('widgetId', id)}</td>
-      <td>${input('widgetTitle', widget.title || '')}</td>
-      <td>${select('widgetType', widget.type || 'numeric', widgetTypeOptions())}</td>
-      <td>${input('widgetPath', widget.path || '')}</td>
-      <td>${input('widgetUnit', widget.unit || '')}</td>
-      <td>${input('widgetPrecision', widget.precision == null ? '' : widget.precision, 'number', '0', '6', '1')}</td>
-      <td>${input('widgetValueFontSize', widget.valueFontSize == null ? '' : widget.valueFontSize, 'number', '8', '120', '1')}</td>
-      <td>${id ? `<input type="checkbox" name="removeWidget" value="${escapeHtml(id)}">` : ''}</td>
-    </tr>`
-}
-
-function renderLayoutEditor (layout) {
-  const screens = Array.isArray(layout.screens) && layout.screens.length
-    ? layout.screens
-    : [{ id: 'dashboard', type: 'grid', tiles: [] }]
-  const screenRows = screens.map((screen) => `
-    <tr>
-      <td>${input('screenId', screen.id || 'dashboard')}</td>
-      <td>${select('screenType', screen.type || 'grid', [['grid', 'Grid']])}</td>
-    </tr>`).join('')
-  const tileRows = []
-  screens.forEach((screen) => {
-    ;(screen.tiles || []).forEach((tile, index) => {
-      tileRows.push(renderTileEditorRow(screen.id || 'dashboard', tile, index))
-    })
-  })
-  tileRows.push(renderTileEditorRow(screens[0].id || 'dashboard', {}, tileRows.length))
-  return `
-      <fieldset>
-        <legend>Screens</legend>
-        <table>
-          <thead><tr><th>Screen ID</th><th>Type</th></tr></thead>
-          <tbody>${screenRows}</tbody>
-        </table>
-        <table>
-          <thead><tr><th>Screen</th><th>Widget</th><th>Column</th><th>Row</th><th>Remove</th></tr></thead>
-          <tbody>${tileRows.join('')}</tbody>
-        </table>
-      </fieldset>`
-}
-
-function renderTileEditorRow (screenId, tile, index) {
-  const area = tile.area || {}
-  const removeValue = `${screenId}:${tile.widget || ''}:${index}`
-  return `
-    <tr>
-      <td>${input('tileScreen', screenId || 'dashboard')}</td>
-      <td>${input('tileWidget', tile.widget || '')}</td>
-      <td>${input('tileCol', area.col == null ? '' : area.col, 'number', '0', '15', '1')}</td>
-      <td>${input('tileRow', area.row == null ? '' : area.row, 'number', '0', '15', '1')}</td>
-      <td>${tile.widget ? `<input type="checkbox" name="removeTile" value="${escapeHtml(removeValue)}">` : ''}</td>
-    </tr>`
-}
-
-function widgetTypeOptions () {
-  return [
-    ['numeric', 'Numeric'],
-    ['text', 'Text'],
-    ['bar', 'Bar'],
-    ['gauge', 'Gauge'],
-    ['compass', 'Compass'],
-    ['windRose', 'Wind rose'],
-    ['trend', 'Trend'],
-    ['button', 'Button'],
-    ['autopilot', 'Autopilot']
-  ]
-}
-
 function field (labelText, control) {
   return `<label>${escapeHtml(labelText)}${control}</label>`
 }
@@ -3874,13 +3411,6 @@ function sanitizePresetId (value) {
     .toLowerCase()
     .replace(/[^a-z0-9._-]+/g, '-')
     .replace(/^-+|-+$/g, '')
-}
-
-function sanitizeWidgetId (value) {
-  return cleanString(value)
-    .replace(/[^A-Za-z0-9._-]+/g, '-')
-    .replace(/^-+|-+$/g, '')
-    .slice(0, 31)
 }
 
 function clone (value) {
@@ -4023,7 +3553,7 @@ function renderDeviceConfigWidget (config, views) {
         ['Size', `${valueOr(config.display && config.display.width, '?')}x${valueOr(config.display && config.display.height, '?')}`],
         ['Shape', config.display && config.display.shape],
         ['Rotation', config.display && config.display.rotation],
-        ['Selected variant', config.display && config.display.selectedVariant]
+        ['MIDL class', config.display && config.display.midlClass]
       ]))}
       ${configSection('Settings', keyValueTable([
         ['Default screen', config.settings && config.settings.defaultScreen],
@@ -4069,7 +3599,7 @@ function renderDeviceConfigWidget (config, views) {
         ['Command poll', config.management && `${config.management.commandPollMs} ms`]
       ]))}
       ${configSection('MIDL records', renderMidlRecordsTable(config.midl), true)}
-      ${configSection('Screens', renderScreensTable(config.layout, views), true)}
+      ${configSection('Screens', renderScreensTable(views), true)}
     </div>`
 }
 
@@ -4111,60 +3641,22 @@ function renderMidlRecordsTable (midl) {
     </table>`
 }
 
-function renderWidgetsTable (widgets) {
-  const items = widgets && widgets.items ? Object.entries(widgets.items) : []
-  const rows = items.map(([id, widget]) => `
-    <tr>
-      <td><strong>${escapeHtml(widget.title || id)}</strong><br><span>${escapeHtml(id)}</span></td>
-      <td><span class="pill">${escapeHtml(widget.type || '')}</span></td>
-      <td>${escapeHtml(widget.path || '')}</td>
-      <td>${fontSummary(widget)}</td>
-    </tr>`).join('')
-  const defaults = widgets && widgets.defaults ? `Defaults: ${escapeHtml(fontSummary(widgets.defaults))}` : ''
-  return `
-    <p class="muted">Variant ${escapeHtml(widgets && widgets.variant ? widgets.variant : 'default')}. ${defaults}</p>
-    <table>
-      <thead><tr><th>Widget</th><th>Type</th><th>SignalK path</th><th>Fonts</th></tr></thead>
-      <tbody>${rows || '<tr><td colspan="4">No widgets selected for this device.</td></tr>'}</tbody>
-    </table>`
-}
-
-function renderScreensTable (layout, views) {
-  // Prefer the device's own reported screens (heartbeat ui.screens) so the list
-  // reflects what the firmware actually renders, not the manager's generated
-  // preset catalogue. Fall back to the generated layout when offline.
+function renderScreensTable (views) {
+  // The device's own reported screens (heartbeat ui.screens) when it has
+  // reported them, else the screens of the records DM delivers to it.
   const dvViews = (views && Array.isArray(views.views)) ? views.views : []
-  if (dvViews.length) {
-    const current = views.current
-    const rows = dvViews.map((v) => `
+  const current = views && views.current
+  const rows = dvViews.map((v) => `
       <tr>
         <td><strong>${escapeHtml(v.title || v.id)}</strong><br><span>${escapeHtml(v.id)}</span></td>
-        <td><span class="pill">${escapeHtml(screenKindLabel(v.id))}</span></td>
+        <td>${escapeHtml(v.record || '')}</td>
         <td>${v.id === current ? '<span class="status good">on device</span>' : ''}</td>
       </tr>`).join('')
-    return `
-      <p class="muted">Discovered from the device (${dvViews.length} switchable screen${dvViews.length === 1 ? '' : 's'}). Built-in screens are rendered by the firmware.</p>
-      <table>
-        <thead><tr><th>Screen</th><th>Type</th><th>Current</th></tr></thead>
-        <tbody>${rows}</tbody>
-      </table>`
-  }
-  const screens = layout && Array.isArray(layout.screens) ? layout.screens : []
-  const rows = screens.map((screen) => {
-    const tiles = Array.isArray(screen.tiles) ? screen.tiles : []
-    return `
-      <tr>
-        <td><strong>${escapeHtml(screen.id || '')}</strong><br><span>${escapeHtml(screen.type || '')}</span></td>
-        <td>${escapeHtml(tiles.length)}</td>
-        <td>${escapeHtml(tiles.map((tile) => tile.widget).filter(Boolean).join(', '))}</td>
-      </tr>`
-  }).join('')
   return `
-    <p class="muted">Device offline — showing the manager's generated layout (variant ${escapeHtml(layout && layout.variant ? layout.variant : 'default')}).</p>
-    <table>
-      <thead><tr><th>Screen</th><th>Tiles</th><th>Widgets</th></tr></thead>
-      <tbody>${rows || '<tr><td colspan="3">No screens selected for this device.</td></tr>'}</tbody>
-    </table>`
+      <table>
+        <thead><tr><th>Screen</th><th>Record</th><th>Current</th></tr></thead>
+        <tbody>${rows || '<tr><td colspan="3">No screens.</td></tr>'}</tbody>
+      </table>`
 }
 
 function formatConfigValue (value) {
@@ -4189,13 +3681,6 @@ function yesNo (value) {
 function nmeaLabel (nmea) {
   if (!nmea) return 'disabled'
   return `${nmea.enabled ? 'enabled' : 'disabled'} ${nmea.mode || ''} ${nmea.host || ''}:${nmea.port || ''}`.trim()
-}
-
-function fontSummary (settings) {
-  return ['fontSize', 'labelFontSize', 'valueFontSize', 'unitFontSize', 'titleFontSize', 'buttonFontSize']
-    .filter((key) => settings && settings[key] != null)
-    .map((key) => `${key.replace('FontSize', '')}: ${settings[key]}`)
-    .join(', ') || 'defaults'
 }
 
 function renderDiscoveryScanForm () {
@@ -4471,9 +3956,8 @@ function configSummary (config) {
   const parts = []
   if (config.settings && config.settings.theme) parts.push(`theme ${config.settings.theme}`)
   if (config.settings && config.settings.brightness != null) parts.push(`brightness ${config.settings.brightness}`)
-  if (config.widgets && config.widgets.defaults && config.widgets.defaults.valueFontSize) parts.push(`value font ${config.widgets.defaults.valueFontSize}`)
   if (config.nmea0183Wifi) parts.push(`NMEA ${config.nmea0183Wifi.enabled ? 'on' : 'off'}`)
-  return parts.join(', ') || 'base layout'
+  return parts.join(', ') || 'defaults'
 }
 
 function renderFirmwarePage (catalog, jobs, upgrades) {
@@ -4826,16 +4310,8 @@ function renderLoginPage (manager, req, error) {
 }
 
 function nav (active) {
-  // Reorganised 2026-06-04: discovery folded into devices, layout
-  // editor surfaced as a top-level nav item. Editor link uses the
-  // /plugins/.../ui/layout route which serves the editor INSIDE
-  // the same iframe shell as the rest of the UI - linking directly
-  // to /yey-boats-display-manager/layout-editor.html would break out
-  // of the iframe and confuse the SK admin sidebar's "back to
-  // plugin" affordance.
-  // Presets, Layout editor, and Overview dropped from the nav (2026-06).
-  // Overview merged into the Devices home page; the /ui/profiles and
-  // /ui/layout routes stay defined and reachable, just not surfaced here.
+  // Presets and Overview are not in the nav: Overview is the Devices home
+  // page; /ui/profiles stays reachable from it.
   const items = [
     ['devices', '/plugins/yey-boats-display-manager/ui', 'Devices'],
     ['firmware', '/plugins/yey-boats-display-manager/ui/firmware', 'Firmware'],
@@ -4889,36 +4365,6 @@ function escapeHtml (value) {
     .replace(/"/g, '&quot;')
 }
 
-// Opt-in SignalK meta write-back for "save limits". Emits a SignalK `meta`
-// delta (displayScale + zones) onto the bound path so the source and other
-// clients share the operator's configured limits. Best-effort: resolves on a
-// successful emit, rejects when the SignalK app can't accept it (caller maps
-// the rejection to metaWriteBack:'failed' and still persists onto the field).
-function writeSignalKMeta (manager, path, limits) {
-  return new Promise((resolve, reject) => {
-    const app = manager && manager.app
-    if (!app || typeof app.handleMessage !== 'function') {
-      return reject(new Error('signalk_app_unavailable'))
-    }
-    const value = {}
-    if (limits && limits.range && typeof limits.range.min === 'number' && typeof limits.range.max === 'number') {
-      value.displayScale = { lower: limits.range.min, upper: limits.range.max }
-    }
-    if (limits && Array.isArray(limits.zones) && limits.zones.length) {
-      value.zones = limits.zones
-    }
-    if (!Object.keys(value).length) return reject(new Error('no_limits_to_write'))
-    try {
-      app.handleMessage('yey-boats-display-manager', {
-        updates: [{ meta: [{ path: String(path), value }] }]
-      })
-      resolve()
-    } catch (e) {
-      reject(e)
-    }
-  })
-}
-
 module.exports._test = {
   toYaml,
   fromYaml,
@@ -4932,7 +4378,6 @@ module.exports._test = {
   formatFromForm,
   normalizeFormat,
   FORMAT_UNIT_CLASSES,
-  applyScreenEdits,
   registerRoutes
 }
 

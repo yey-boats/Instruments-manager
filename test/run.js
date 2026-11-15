@@ -29,7 +29,6 @@ const SYNC_TESTS = [
   './provision-number.test',
   './provision-config.test',
   './ui-restructure.test',
-  './marker-preview.test',
   './dashboard.test',
   './discovery.test',
   './discovery-claim-e2e.test',
@@ -40,8 +39,6 @@ const SYNC_TESTS = [
   './dashboard-import-export.test',
   './dashboard-editor-form.test',
   './number-format.test',
-  './widget-parity.test',
-  './preset-coverage.test',
   './device-projections.test'
 ]
 
@@ -58,11 +55,10 @@ for (const t of SYNC_TESTS) {
 // assert style above. They run via a spawned `node --test` so their failures
 // set a non-zero exit code. Add new node:test files here.
 const NODE_TEST_FILES = [
-  'field-schema.test.js',
-  'midl-adapter.test.js',
+  'midl.test.js',
+  'v2-migration.test.js',
   'midl-diff.test.js',
   'device-preview-midl.test.js',
-  'marker-validation.test.js',
   'cloud-dashboards.test.js',
   'midl-records.test.js',
   'themes.test.js',
@@ -74,7 +70,7 @@ function runNodeTestSuites () {
   const args = ['--test', ...NODE_TEST_FILES.map((f) => path.join(__dirname, f))]
   const res = spawnSync(process.execPath, args, { stdio: 'inherit' })
   if (res.status !== 0) {
-    record('node:test suites (field-schema and friends)',
+    record('node:test suites',
       new Error(`node --test exited ${res.status}`))
   }
 }
