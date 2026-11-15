@@ -24,6 +24,7 @@ const SYNC_TESTS = [
   './mock-firmware.test',
   './display-widgets.test',
   './ota-validate.test',
+  './ota-confirm.test',
   './manifest.test',
   './settings.test',
   './provision-number.test',
