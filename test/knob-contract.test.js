@@ -78,17 +78,17 @@ manager.registerDevice({
   }
 }, auth)
 
-// Seed the default profile's layout (presets) so the "with screens" device
-// resolves a real, non-fallback screen list via deviceViews(). listProfiles()
-// is the documented first-inspection seeding trigger.
+// The "with screens" device is on the default profile: its screens are the
+// embedded built-in records, a real, non-fallback screen list.
 manager.listProfiles()
 
-// Force the "no screens" device onto a profile with an explicitly empty layout
-// so deviceViews() takes the fallback (KNOWN_VIEW_IDS) branch.
+// Force the "no screens" device onto a profile that hides every built-in
+// record, so deviceViews() takes the fallback (KNOWN_VIEW_IDS) branch.
 manager.upsertProfile({
   id: 'empty-layout',
   name: 'Empty Layout',
-  config: { layout: { version: 1, screens: [] } }
+  config: {},
+  midl: { records: [], index: { order: [], defaultScreen: '', hidden: require('../lib/midl-records').ALL_BUILTINS } }
 })
 manager.assignProfile(noScreensId, { profileId: 'empty-layout' })
 
@@ -152,12 +152,12 @@ assert.ok(summary.devices.some((d) => d.id === ownId),
 
 // --- GET /devices/:id/views  (deviceViews) ---------------------------------
 
-// (a) device WITH a resolved layout -> real, non-fallback views.
+// (a) device WITH screens (built-in records) -> real, non-fallback views.
 const helmViews = manager.deviceViews(withScreensId)
 assert.ok(helmViews && typeof helmViews === 'object', 'views response is an object')
 assert.ok(Array.isArray(helmViews.views),
   'CONTRACT: top-level "views" is an array (firmware: r["views"].as<JsonArray>())')
-assert.ok(helmViews.views.length > 0, 'resolved layout yields at least one view')
+assert.ok(helmViews.views.length > 0, 'the records yield at least one view')
 for (const v of helmViews.views) {
   assert.strictEqual(typeof v.id, 'string',
     'CONTRACT: views[].id is a string (firmware: v["id"])')
@@ -165,13 +165,13 @@ for (const v of helmViews.views) {
     'CONTRACT: views[].title is a string (firmware: v["title"])')
 }
 const helmViewIds = helmViews.views.map((v) => v.id)
-// Resolved (non-fallback) views come from the seeded default preset layout.
-// 'dashboard' is in both the preset list AND the fallback list, so also assert
-// a preset-only id ('nav') is present to prove this is the resolved branch.
+// Non-fallback views come from the built-in records. 'dashboard' is in both
+// the records AND the fallback list, so also assert a record-only id ('route')
+// is present to prove this is the records branch.
 assert.ok(helmViewIds.includes('dashboard'),
   'resolved views include the preset screen "dashboard"')
-assert.ok(helmViewIds.includes('nav'),
-  'resolved views include a preset-only screen ("nav"), proving non-fallback branch')
+assert.ok(helmViewIds.includes('route'),
+  'views include a record-only screen ("route"), proving the records branch')
 
 // "current": the firmware reads `r["current"] | ""` (STRING). The plugin emits
 // the active screen id as a string, or null when none is known. Both satisfy
@@ -197,6 +197,7 @@ assert.ok(fallbackIds.includes('dashboard'),
   'CONTRACT: fallback views include the known id "dashboard"')
 assert.ok(fallbackIds.includes('autopilot'),
   'CONTRACT: fallback views include the known id "autopilot"')
+assert.ok(!fallbackIds.includes('route'), 'the fallback list, not the records')
 // "current" present even with no heartbeat-screen (null -> firmware "").
 assert.ok(Object.prototype.hasOwnProperty.call(fallbackViews, 'current'),
   'CONTRACT: "current" present on fallback response')

@@ -104,6 +104,8 @@
   // initialScreen (carried through a redirect) wins over the device's current
   // screen, so a reload keeps the operator's pick.
   let currentScreenId = cfg.initialScreen || cfg.current || (cfg.screens && cfg.screens[0] && cfg.screens[0].id)
+  // The theme the display draws with; the device-views poll keeps it current.
+  let themeName = typeof cfg.theme === 'string' ? cfg.theme : 'day'
 
   function screenById (id) {
     const scr = (cfg.screens || []).find((s) => s.id === id)
@@ -133,7 +135,7 @@
       let r
       try {
         r = W.renderDashboardSvg(JSON.stringify(scr.doc), midl.manifest, midl.className,
-          midl.viewport || { x: 0, y: 0, w: 480, h: 480 }, provider, { trends })
+          midl.viewport || { x: 0, y: 0, w: 480, h: 480 }, provider, { trends, theme: themeName })
       } catch (e) {
         r = { ok: false, issues: [{ message: String((e && e.message) || e) }] }
       }
@@ -218,7 +220,10 @@
         { credentials: 'include' })
         .then((r) => r.ok ? r.json() : null)
         .then((d) => {
-          if (!d || !d.current) return
+          if (!d) return
+          // A day/night switch (or a theme.set) shows without a reload.
+          if (typeof d.theme === 'string' && d.theme !== themeName) { themeName = d.theme; dirty = true }
+          if (!d.current) return
           if (nowEl) nowEl.textContent = titleOf(d.current)
           if (userPicked || d.current === currentScreenId) return
           currentScreenId = d.current

@@ -143,5 +143,5 @@ const autoReg = autoWide.register()
 assert.strictEqual(autoReg.assignedProfile, 'wide-auto')
 
 const capabilities = manager.pluginCapabilities()
-assert.ok(capabilities.widgets.types.includes('numeric'))
-assert.ok(capabilities.fonts.properties.includes('valueFontSize'))
+assert.ok(capabilities.midl.classes.includes('square-480'))
+assert.strictEqual(capabilities.widgets, undefined, 'no v2 widget catalogue is advertised')

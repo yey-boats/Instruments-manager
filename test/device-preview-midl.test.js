@@ -136,3 +136,42 @@ test('the live preview keeps only this boat\'s deltas', () => {
   const src = fs.readFileSync(path.join(PUBLIC, 'device-preview.js'), 'utf8')
   assert.ok(!src.includes('subscribe=all'), 'the stream is not subscribed to every vessel')
 })
+
+// Bench 2026-11-14 (display on red-night): the preview drew the default
+// theme. It now uses the theme the display is drawing (supersedes #76).
+test('the preview uses the theme the display reports, else day/night, else its own', () => {
+  const { manager, auth } = makeManager({ auth: { mode: 'dev-shared-token', devToken: 'test-token' } })
+  try {
+    const id = 'yey-d-prevtheme'
+    manager.registerDevice({ device: { id, board: 'esp32-4848s040', display: { width: 480, height: 480, shape: 'square' } } }, auth)
+    manager.assignProfile(id, { profileId: 'default', overrides: { settings: { theme: 'classic' } } })
+    assert.deepStrictEqual(manager.deviceTheme(id), { theme: 'classic', source: 'settings' })
+    manager.updateDayNight({ mode: 'schedule' })
+    manager.setDayNightOverride('night')
+    const dn = manager.deviceTheme(id)
+    assert.strictEqual(dn.source, 'day-night')
+    assert.strictEqual(dn.theme, manager.dayNightCurrent().theme)
+    manager.updateStatus(id, { time: new Date().toISOString(), ui: { screen: 'nav', theme: 'red-night' } }, auth)
+    assert.deepStrictEqual(manager.deviceTheme(id), { theme: 'red-night', source: 'device' })
+    assert.strictEqual(manager.deviceViews(id).theme, 'red-night', 'the views poll carries the theme')
+    assert.strictEqual(previewPayload(indexPlugin.__renderDevicePage(manager, id)).theme, 'red-night')
+    manager.updateStatus(id, { time: new Date().toISOString(), ui: { screen: 'nav', theme: 'bogus' } }, auth)
+    assert.notStrictEqual(manager.deviceTheme(id).source, 'device', 'an unknown reported theme is ignored')
+  } finally {
+    if (manager.close) manager.close()
+  }
+  const src = fs.readFileSync(path.join(PUBLIC, 'device-preview.js'), 'utf8')
+  assert.match(src, /\{ trends, theme: themeName \}/, 'the theme goes to renderDashboardSvg')
+  assert.match(src, /d\.theme !== themeName/, 'the views poll updates it without a reload')
+})
+
+test('the bundle draws the theme it is given, and prints positions in the firmware DDM format', () => {
+  const { DP, W } = loadGlue({})
+  const cfg = previewPayload(devicePage())
+  const nav = cfg.screens.find((s) => s.id === 'nav')
+  const draw = (theme) => W.renderDashboardSvg(JSON.stringify(nav.doc), cfg.midl.manifest, cfg.midl.className, cfg.midl.viewport,
+    DP.makeProvider({ 'navigation.position': { latitude: 43.354683, longitude: 15.792867 } }, {}), { theme }).svg
+  assert.notStrictEqual(draw('red-night'), draw('day'))
+  assert.ok(draw('day').includes('43°21.281&#39;N'), 'DDM latitude, 3-decimal minutes')
+  assert.ok(draw('day').includes('015°47.572&#39;E'), 'zero-padded longitude degrees')
+})

@@ -83,8 +83,8 @@ test('built-in records come from midl/library/builtin, one screen each, for both
 
 test('migration: stored v2 profiles become MIDL records at load, with a backup', () => {
   const dataDir = fs.mkdtempSync(path.join(os.tmpdir(), 'yey-midl-migrate-'))
-  const presets = require('../lib/screen-presets')
-  const seeded = presets.getPresetsForClass('sunton-480')
+  // The screens the removed v2 presets seeded for sunton-480.
+  const seeded = require('./fixtures/v2-preset-screens.json').slice(0, 11)
   const v2 = {
     profiles: {
       default: { id: 'default', name: 'Default', version: 3, config: { settings: { defaultScreen: 'dashboard' }, layout: { version: 1, screens: seeded } } },
@@ -213,6 +213,86 @@ test('an imported screen id that collides with a built-in is refused (409) unles
   }
 })
 
+// Bench bug: a profile holding exactly one record (windhist) took an import
+// of a different doc (screen windspan) INTO that record, keeping its id.
+// The record id follows the document.
+const oneScreenDoc = (screenId, title) => {
+  const d = JSON.parse(SPAN_DOC_TEXT)
+  delete d.meta
+  d.screens[0].id = screenId
+  d.screens[0].title = title || screenId
+  return d
+}
+
+test('import: the record id follows the doc, not the single record a profile holds', needsBuild, () => {
+  const { manager } = makeManager()
+  try {
+    const { importDashboardDocument } = plugin._test
+    importDashboardDocument(manager, oneScreenDoc('windhist', 'Wind history'), { presetId: 'helm' })
+    assert.deepStrictEqual(manager.store.profiles.profiles.helm.midl.records.map((r) => r.id), ['windhist'])
+    const out = importDashboardDocument(manager, oneScreenDoc('windspan', 'Wind span'), { presetId: 'helm' })
+    assert.strictEqual(out.record.id, 'windspan', 'a one-screen doc is stored under its screen id')
+    const recs = manager.store.profiles.profiles.helm.midl.records
+    assert.deepStrictEqual(recs.map((r) => r.id).sort(), ['windhist', 'windspan'], 'windhist is kept, not replaced')
+    assert.deepStrictEqual(recs.find((r) => r.id === 'windspan').doc.screens.map((sc) => sc.id), ['windspan'])
+    assert.deepStrictEqual(recs.find((r) => r.id === 'windhist').doc.screens.map((sc) => sc.id), ['windhist'])
+    // The same screens again replace that record (edited content, same id).
+    const again = importDashboardDocument(manager, oneScreenDoc('windspan', 'Wind span v2'), { presetId: 'helm' })
+    assert.strictEqual(again.record.id, 'windspan')
+    const after = manager.store.profiles.profiles.helm.midl.records
+    assert.strictEqual(after.length, 2)
+    assert.strictEqual(after.find((r) => r.id === 'windspan').doc.screens[0].title, 'Wind span v2')
+  } finally {
+    manager.close()
+  }
+})
+
+test('import: a multi-screen doc takes its meta title (else the preset id); matching screens replace the record', needsBuild, () => {
+  const { manager } = makeManager()
+  try {
+    const { importDashboardDocument } = plugin._test
+    const two = (title, a, b) => {
+      const d = JSON.parse(SPAN_DOC_TEXT)
+      if (title) d.meta.title = title
+      else delete d.meta
+      d.screens = [Object.assign({}, d.screens[0], { id: a }), Object.assign({}, d.screens[0], { id: b })]
+      return d
+    }
+    const first = importDashboardDocument(manager, two('Coastal set', 'coast1', 'coast2'), { presetId: 'trip' })
+    assert.strictEqual(first.record.id, 'coastal-set')
+    const untitled = importDashboardDocument(manager, two(null, 'off1', 'off2'), { presetId: 'trip' })
+    assert.strictEqual(untitled.record.id, 'trip', 'no meta title: the preset id')
+    // Same screens under a new title: replaces coastal-set, keeps its id.
+    const renamed = importDashboardDocument(manager, two('Coast renamed', 'coast2', 'coast1'), { presetId: 'trip' })
+    assert.strictEqual(renamed.record.id, 'coastal-set')
+    assert.deepStrictEqual(manager.store.profiles.profiles.trip.midl.records.map((r) => r.id).sort(), ['coastal-set', 'trip'])
+    // A derived id already used by a record with other screens is not overwritten.
+    const clash = importDashboardDocument(manager, two('Trip', 'x1', 'x2'), { presetId: 'trip' })
+    assert.strictEqual(clash.record.id, 'trip-2')
+    assert.strictEqual(manager.store.profiles.profiles.trip.midl.records.length, 3)
+  } finally {
+    manager.close()
+  }
+})
+
+test('import: the same yey.boats sourceId lands in the same record even when its screens change', needsBuild, () => {
+  const { manager } = makeManager()
+  try {
+    const { importDashboardDocument } = plugin._test
+    const extra = { source: 'yey.boats', sourceId: 'cloud-42' }
+    const a = importDashboardDocument(manager, oneScreenDoc('ocean'), { presetId: 'yey-ocean', extra })
+    importDashboardDocument(manager, oneScreenDoc('other'), { presetId: 'yey-ocean' })
+    const b = importDashboardDocument(manager, oneScreenDoc('ocean2'), { presetId: 'yey-ocean', extra })
+    assert.strictEqual(a.record.id, 'ocean')
+    assert.strictEqual(b.record.id, 'ocean', 'same source, same record')
+    const recs = manager.store.profiles.profiles['yey-ocean'].midl.records
+    assert.deepStrictEqual(recs.map((r) => r.id).sort(), ['ocean', 'other'])
+    assert.deepStrictEqual(recs.find((r) => r.id === 'ocean').doc.screens.map((sc) => sc.id), ['ocean2'])
+  } finally {
+    manager.close()
+  }
+})
+
 test('the record route needs the device token (secure mode); records hold no secrets', async () => {
   const { manager } = makeSecureManager()
   try {
@@ -276,6 +356,92 @@ test('push: an assigned profile\'s records + index go to the display with its de
     await manager._lastMidlDelivery
     assert.ok(fw.httpLog.some((l) => l.method === 'DELETE' && l.path === '/api/midl/records/passage'))
     assert.ok(!fw.records.has('passage'))
+  } finally {
+    manager.close()
+  }
+})
+
+// Bench: the display accepted the push but stored it as a local write (the
+// Bearer token DM holds is stale; its web Basic credentials were valid). DM
+// must stop pushing to it, pull instead, and say so on the device page.
+test('stale device token: a push stored as "local" stops the pushes, falls back to pull and shows on the device page', needsBuild, async () => {
+  const { manager, fw, auth } = pushRig()
+  try {
+    const web = manager.deviceWebAuth(manager.getDevice('yey-d-push'))
+    assert.ok(web && web.password, 'DM has the display web password')
+    fw.webPassword = web.password
+    fw.managerToken = 'a-token-the-display-holds-but-dm-does-not'
+    const doc = JSON.parse(SPAN_DOC_TEXT)
+    manager.upsertProfile({ id: 'p', name: 'P', config: {}, midl: { records: [{ id: 'passage', doc }], index: { order: ['passage'] } } })
+    manager.assignProfile('yey-d-push', { profileId: 'p' })
+    let [result] = await manager._lastMidlDelivery
+    assert.strictEqual(result.state, 'token_mismatch', JSON.stringify(result))
+    assert.strictEqual(result.via, 'pull')
+    assert.strictEqual(fw.records.get('passage').source, 'local', 'the display took it as a local write')
+    assert.deepStrictEqual(fw.httpLog.map((l) => `${l.method} ${l.path}`), ['PUT /api/midl/records/passage'], 'stopped after the first local write')
+    assert.strictEqual(manager.getDevice('yey-d-push').midlDelivery.state, 'token_mismatch')
+    assert.strictEqual(manager.pendingCommands('yey-d-push').filter((c) => c.type === 'config.reload').length, 1, 'config.reload queued (pull)')
+    // Heartbeats report the record as local: no push, no extra reloads.
+    for (let i = 0; i < 3; i++) fw.heartbeat()
+    fw.httpLog = []
+    doc.screens[0].title = 'Changed'
+    manager.saveProfileChecked({ id: 'p', name: 'P', config: {}, midl: { records: [{ id: 'passage', doc }], index: { order: ['passage'] } } })
+    ;[result] = await manager._lastMidlDelivery
+    assert.strictEqual(result.state, 'token_mismatch')
+    assert.deepStrictEqual(fw.httpLog, [], 'nothing is pushed to the display any more')
+    assert.strictEqual(manager.pendingCommands('yey-d-push').filter((c) => c.type === 'config.reload').length, 1, 'the pending reload is reused')
+    // The display pulls its screens with its own (valid) device token.
+    fw.pollAndExecute()
+    assert.strictEqual(fw.records.get('passage').doc.screens[0].title, 'Changed')
+    // The device page tells the owner to re-pair.
+    const html = plugin.__renderDevicePage(manager, 'yey-d-push')
+    assert.match(html, /midl-token-mismatch/)
+    assert.match(html, /Re-pair the display/)
+    const api = await call(routes(manager)('GET', '/devices/:id/midl'), { params: { id: 'yey-d-push' } })
+    assert.strictEqual(api.json.delivery.state, 'token_mismatch')
+    // Re-paired: DM holds the token the display accepts -> pushes resume.
+    const fresh = 'the-re-paired-token'
+    manager.secrets.noteDeviceToken('yey-d-push', fresh)
+    fw.managerToken = fresh
+    doc.screens[0].title = 'Changed again'
+    manager.saveProfileChecked({ id: 'p', name: 'P', config: {}, midl: { records: [{ id: 'passage', doc }], index: { order: ['passage'] } } })
+    ;[result] = await manager._lastMidlDelivery
+    assert.strictEqual(result.state, 'pushed', JSON.stringify(result))
+    assert.strictEqual(fw.records.get('passage').source, 'manager')
+    assert.doesNotMatch(plugin.__renderDevicePage(manager, 'yey-d-push'), /midl-token-mismatch/)
+    assert.ok(auth)
+  } finally {
+    manager.close()
+  }
+})
+
+test('stale device token seen in the heartbeat (a push answer without source) marks token_mismatch once', needsBuild, async () => {
+  const { manager, fw } = pushRig()
+  try {
+    fw.webPassword = manager.deviceWebAuth(manager.getDevice('yey-d-push')).password
+    fw.managerToken = 'stale'
+    const orig = fw.http.bind(fw)
+    fw.http = (url, method, text, a) => orig(url, method, text, a).then((r) => {
+      if (r && r.json) delete r.json.source
+      return r
+    })
+    const doc = JSON.parse(SPAN_DOC_TEXT)
+    manager.upsertProfile({ id: 'p', name: 'P', config: {}, midl: { records: [{ id: 'passage', doc }] } })
+    manager.assignProfile('yey-d-push', { profileId: 'p' })
+    const [result] = await manager._lastMidlDelivery
+    assert.strictEqual(result.state, 'pushed')
+    fw.heartbeat()
+    const d = manager.getDevice('yey-d-push').midlDelivery
+    assert.strictEqual(d.state, 'token_mismatch')
+    assert.deepStrictEqual(d.records, ['passage'])
+    const reloads = () => manager.pendingCommands('yey-d-push').filter((c) => c.type === 'config.reload').length
+    assert.strictEqual(reloads(), 1)
+    fw.heartbeat()
+    fw.heartbeat()
+    assert.strictEqual(reloads(), 1, 'flagged once, not on every heartbeat')
+    fw.httpLog = []
+    await manager.deliverMidl('yey-d-push')
+    assert.deepStrictEqual(fw.httpLog, [], 'no re-push')
   } finally {
     manager.close()
   }
@@ -393,14 +559,21 @@ test('store-time gate: a record the display class would refuse blocks the assign
   }
 })
 
-test('v2 editors are retired: their API answers 410', async () => {
+test('v2 editors are gone: no v2 editor route, save-screen only switches screens', async () => {
   const { manager, auth } = makeManager()
   try {
     manager.registerDevice({ device: { id: 'yey-d-r' } }, auth)
-    assert.throws(() => manager.editorLayout('yey-d-r'), (e) => e.status === 410)
-    assert.throws(() => manager.addScreen('yey-d-r', { title: 'x' }), (e) => e.status === 410)
-    const res = await call(routes(manager)('POST', '/ui/devices/:id/save-screen'), { method: 'POST', params: { id: 'yey-d-r' }, body: { mode: 'update', edits: '[]' } })
-    assert.strictEqual(res.status, 410)
+    assert.strictEqual(typeof manager.editorLayout, 'undefined')
+    assert.strictEqual(typeof manager.addScreen, 'undefined')
+    const list = []
+    const add = (method) => (p) => list.push(`${method} ${p}`)
+    plugin._test.registerRoutes({ use () {}, get: add('GET'), post: add('POST'), put: add('PUT'), patch: add('PATCH'), delete: add('DELETE') }, () => manager)
+    assert.deepStrictEqual(list.filter((r) => /editor\/(layout|screens)|presets\/|\/capabilities$/.test(r) && !/^GET \/capabilities$/.test(r)), [])
+    const save = routes(manager)('POST', '/ui/devices/:id/save-screen')
+    const refused = await call(save, { method: 'POST', params: { id: 'yey-d-r' }, body: { mode: 'update', edits: '[]' } })
+    assert.strictEqual(refused.status, 400)
+    const ok = await call(save, { method: 'POST', params: { id: 'yey-d-r' }, body: { mode: 'switch', screenId: 'wind', ajax: '1' } })
+    assert.deepStrictEqual(ok.json, { status: 'switched', screenId: 'wind' })
   } finally {
     manager.close()
   }

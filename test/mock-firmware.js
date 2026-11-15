@@ -60,23 +60,7 @@ class MockFirmware {
       pullOta: true,
       nmea0183Wifi: true,
       autopilotControls: true,
-      widgets: {
-        numeric: true,
-        text: true,
-        gauge: true,
-        compass: true,
-        windRose: true,
-        trend: true,
-        bar: true,
-        button: true,
-        autopilot: true,
-        map: false
-      },
-      fonts: {
-        scalable: false,
-        sizes: [10, 12, 14, 16, 18, 20, 24, 28, 32, 36, 42, 48, 56],
-        families: ['default']
-      }
+      midl: { version: '1.0.0', push: true, pull: true }
     }
   }
 
@@ -168,7 +152,7 @@ class MockFirmware {
         this.record = m[1]
         this.screen = u.searchParams.get('screen') || this.screen
       }
-      return Promise.resolve({ httpStatus: 200, json: { id: m[1], hash, screens: (body.doc.screens || []).map((sc) => sc.id) } })
+      return Promise.resolve({ httpStatus: 200, json: { ok: true, id: m[1], hash, source, screens: (body.doc.screens || []).map((sc) => sc.id) } })
     }
     if (m && method === 'DELETE') {
       if (!this.records.delete(m[1])) return fail(404)
@@ -285,7 +269,6 @@ class MockFirmware {
           this.brightness = command.payload.value
           return { ok: true, message: 'brightness changed' }
         case 'config.reload':
-        case 'layout.reload':
           this.fetchConfig()
           return { ok: true, message: 'config reloaded' }
         case 'firmware.update':

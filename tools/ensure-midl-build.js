@@ -1,8 +1,8 @@
 'use strict'
 // Ensure the MIDL submodule's CJS bundle is built before tests run.
 //
-// lib/midl.js requires midl/ts/dist/index.cjs; several suites (midl-adapter,
-// midl-slice2, ...) need it. Building is idempotent and cheap once done, so we
+// lib/midl.js requires midl/ts/dist/index.cjs; several suites (midl-records,
+// v2-migration, ...) need it. Building is idempotent and cheap once done, so we
 // build only when the bundle is missing. If the submodule isn't checked out at
 // all we warn and continue — suites that need it skip-with-reason (MGR-1).
 const fs = require('fs')
