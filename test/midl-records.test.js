@@ -255,7 +255,7 @@ test('push: an assigned profile\'s records + index go to the display with its de
     assert.strictEqual(result.state, 'pushed', JSON.stringify(result))
     assert.deepStrictEqual(fw.httpLog.map((l) => `${l.method} ${l.path}`), ['PUT /api/midl/records/passage', 'PUT /api/midl/index'])
     assert.strictEqual(fw.httpLog[0].auth.bearer, token, 'X-YeyBoats-Authorization: Bearer <device token>')
-    assert.deepStrictEqual(JSON.parse(fw.httpLog[0].body), { title: 'Passage', doc })
+    assert.deepStrictEqual(JSON.parse(fw.httpLog[0].body), { title: 'Passage', doc, hash: sha(SPAN_DOC_TEXT) })
     const stored = fw.records.get('passage')
     assert.strictEqual(stored.source, 'manager')
     assert.strictEqual(stored.docText, SPAN_DOC_TEXT)

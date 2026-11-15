@@ -160,7 +160,9 @@ class MockFirmware {
     if (m && method === 'PUT') {
       const body = JSON.parse(text)
       const docText = JSON.stringify(body.doc)
-      const hash = 'sha256:' + require('crypto').createHash('sha256').update(docText).digest('hex')
+      // The firmware stores the hash the manager supplies (no re-serializing).
+      if (typeof body.hash !== 'string' || !/^sha256:[0-9a-f]{64}$/.test(body.hash)) return fail(422, { error: 'invalid', message: 'hash required' })
+      const hash = body.hash
       this.records.set(m[1], { id: m[1], title: body.title, source, hash, doc: body.doc, docText })
       if (u.searchParams.get('activate') === '1') {
         this.record = m[1]
