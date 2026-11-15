@@ -31,18 +31,8 @@ const overrides = plugin._test.configOverridesFromForm({
 
 assert.strictEqual(overrides.settings.defaultScreen, 'dashboard')
 assert.strictEqual(overrides.settings.brightness, 0.75)
-assert.strictEqual(overrides.widgets.defaults.valueFontSize, 36)
-assert.strictEqual(overrides.widgets.items.sog.title, 'SOG')
-assert.strictEqual(overrides.widgets.items.sog.valueFontSize, 48)
-assert.strictEqual(overrides.widgets.items.sog.precision, 1)
-assert.strictEqual(overrides.widgets.items.awa, undefined)
-assert.strictEqual(overrides.widgets.items['draft-widget'].type, 'bar')
-assert.strictEqual(overrides.layout.screens[0].id, 'dashboard')
-assert.deepStrictEqual(overrides.layout.screens[0].tiles[0], {
-  widget: 'sog',
-  area: { col: 0, row: 0 }
-})
-assert.deepStrictEqual(overrides.layout.screens[0].tiles[2], {
-  widget: 'draft-widget',
-  area: { col: 0, row: 1 }
-})
+// MIDL-only screens: the form carries non-screen settings only; v2
+// widgets/layout fields are ignored.
+assert.strictEqual(overrides.widgets, undefined)
+assert.strictEqual(overrides.layout, undefined)
+assert.strictEqual(overrides.debug.logLevel, 'info')

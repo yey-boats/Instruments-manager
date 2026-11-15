@@ -19,7 +19,7 @@ assert.ok(source.includes('function parseUrlEncodedForm'), 'multi-select form pa
 assert.ok(source.includes('Apply to selected devices'), 'multi-device preset apply UI is missing')
 assert.ok(source.includes('Resolve ${escapeHtml(blocked.join'), 'unsafe discovered-device claim guard is missing')
 assert.ok(source.includes('button[disabled]'), 'disabled claim button styling is missing')
-assert.ok(source.includes('renderWidgetsTable(config.widgets)'), 'widget summary table is not rendered')
+assert.ok(source.includes('renderMidlRecordsTable(config.midl)'), 'MIDL records table is not rendered')
 assert.ok(source.includes('renderScreensTable(config.layout, views)'), 'screen layout table is not rendered')
 assert.ok(source.includes('SignalK and NMEA'), 'data source section is not rendered')
 assert.ok(source.includes('Live status</a>'), 'live status widget link is missing')

@@ -18,6 +18,18 @@ class MockFirmware {
     // The config last loaded, the one whose hash the display reports as
     // applied, and the copy persisted to flash (re-applied on every boot).
     this.config = null
+    // MIDL record store (MIDL-only firmware): manager / local records by id,
+    // the index, and what is shown. Embedded records are implied.
+    this.records = new Map()
+    this.index = null
+    this.record = 'dashboard'
+    // Push API state: the manager token this display holds (X-YeyBoats-
+    // Authorization) and its web password (Basic); `reachable` false makes
+    // every HTTP request fail like an unreachable device.
+    this.managerToken = options.managerToken || null
+    this.webPassword = options.webPassword || null
+    this.reachable = options.reachable !== false
+    this.httpLog = []
     this.applied = null
     this.persisted = null
     // Boot instant on Date.now()'s clock: the heartbeat reports the uptime
@@ -108,7 +120,67 @@ class MockFirmware {
   // overwrites the theme kept in NVS); an unknown one is rejected, and a
   // config with a rejected field is applied as a valid subset only: its hash
   // is not recorded as applied and it is not persisted.
+  midlClass () {
+    if (String(this.display.shape || '') === 'round') return 'round-360'
+    const w = Math.max(this.display.width, this.display.height)
+    return w >= 1024 ? 'landscape-1024x600' : (w >= 800 ? 'landscape-800x480' : 'square-480')
+  }
+
+  // Pull: compare each listed record's hash with the store, fetch only the
+  // changed ones, drop manager records that are no longer listed.
+  syncMidl (block) {
+    if (!block || !Array.isArray(block.records)) return
+    for (const r of block.records) {
+      const have = this.records.get(r.id)
+      if (have && have.hash === r.hash) continue
+      const rec = this.manager.deviceRecordFor(this.deviceId, r.id, this.auth)
+      this.records.set(r.id, { id: rec.id, title: rec.title, source: 'manager', hash: rec.hash, doc: rec.doc, docText: JSON.stringify(rec.doc) })
+      this.pulled = (this.pulled || []).concat(r.id)
+    }
+    for (const [id, r] of [...this.records]) {
+      if (r.source === 'manager' && !block.records.some((x) => x.id === id)) this.records.delete(id)
+    }
+    if (block.index) this.index = block.index
+  }
+
+  // The device's push API (/api/midl/...), for manager._deviceHttpRequest.
+  // Resolves { httpStatus, json } or rejects like the manager's transport.
+  http (url, method, text, auth) {
+    const u = new URL(url)
+    this.httpLog.push({ method, path: u.pathname + u.search, auth: auth ? { bearer: auth.bearer || null, basic: Boolean(auth.password) } : null, body: text })
+    const fail = (status, body) => Promise.reject(Object.assign(new Error(`device returned HTTP ${status}`), {
+      status, payload: { error: { code: status === 502 ? 'device_unreachable' : 'device_http_error', details: { body } } }
+    }))
+    if (!this.reachable) return fail(502)
+    const tokenOk = Boolean(this.managerToken && auth && auth.bearer === this.managerToken)
+    const basicOk = Boolean(this.webPassword && auth && auth.password === this.webPassword)
+    if (!tokenOk && !basicOk) return fail(401, { error: 'unauthorized' })
+    const source = tokenOk ? 'manager' : 'local'
+    const m = /^\/api\/midl\/records\/([a-z0-9_-]{1,32})$/.exec(u.pathname)
+    if (m && method === 'PUT') {
+      const body = JSON.parse(text)
+      const docText = JSON.stringify(body.doc)
+      const hash = 'sha256:' + require('crypto').createHash('sha256').update(docText).digest('hex')
+      this.records.set(m[1], { id: m[1], title: body.title, source, hash, doc: body.doc, docText })
+      if (u.searchParams.get('activate') === '1') {
+        this.record = m[1]
+        this.screen = u.searchParams.get('screen') || this.screen
+      }
+      return Promise.resolve({ httpStatus: 200, json: { id: m[1], hash, screens: (body.doc.screens || []).map((sc) => sc.id) } })
+    }
+    if (m && method === 'DELETE') {
+      if (!this.records.delete(m[1])) return fail(404)
+      return Promise.resolve({ httpStatus: 200, json: { ok: true } })
+    }
+    if (u.pathname === '/api/midl/index' && method === 'PUT') {
+      this.index = JSON.parse(text)
+      return Promise.resolve({ httpStatus: 200, json: { ok: true } })
+    }
+    return fail(404)
+  }
+
   applyConfig (cfg, booting) {
+    if (cfg.midl) this.syncMidl(cfg.midl)
     let ok = true
     if (cfg.ui && typeof cfg.ui.theme === 'string') {
       if (this.themes.includes(cfg.ui.theme)) this.theme = cfg.ui.theme
@@ -161,8 +233,12 @@ class MockFirmware {
         screen: this.screen,
         theme: this.theme,
         brightness: this.brightness,
-        layoutVariant: this.config ? this.config.layout.variant : null,
-        widgetConfigHash: this.config ? this.config.hash : null
+        record: this.record
+      },
+      midl: {
+        version: '1.0.0',
+        class: this.midlClass(),
+        records: [...this.records.values()].map((r) => ({ id: r.id, hash: r.hash, source: r.source }))
       },
       display: this.display,
       firmware: this.firmware,

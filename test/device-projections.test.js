@@ -72,7 +72,7 @@ const helmViews = manager.deviceViews(helmId)
 assert.ok(Array.isArray(helmViews.views), 'views is an array')
 assert.ok(helmViews.views.length > 0, 'helm has at least one view')
 helmViews.views.forEach((v) => {
-  assert.deepStrictEqual(Object.keys(v).sort(), ['id', 'title'])
+  assert.ok(['id,title', 'id,record,title'].includes(Object.keys(v).sort().join(',')))
   assert.strictEqual(typeof v.id, 'string')
   assert.strictEqual(typeof v.title, 'string')
 })

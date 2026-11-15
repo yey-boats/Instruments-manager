@@ -27,6 +27,9 @@ function buildManager (authBase, options) {
     discoveryUdp: { enabled: false },
     deviceDiscoveryUdp: { enabled: false },
     firmware: { github: { enabled: false } },
+    // No real device HTTP from unit tests; push suites turn it on with a
+    // stubbed transport (manager._deviceHttpRequest).
+    midl: { push: false, fetchManifest: false },
     network: { mdns: { browser: false, advertiseManager: false } }
   }, options || {})
   return {

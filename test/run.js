@@ -59,13 +59,12 @@ for (const t of SYNC_TESTS) {
 // set a non-zero exit code. Add new node:test files here.
 const NODE_TEST_FILES = [
   'field-schema.test.js',
-  'editor-crud.test.js',
   'midl-adapter.test.js',
   'midl-diff.test.js',
   'device-preview-midl.test.js',
   'marker-validation.test.js',
-  'layout-push-validation.test.js',
   'cloud-dashboards.test.js',
+  'midl-records.test.js',
   'themes.test.js',
   'day-night.test.js',
   'package-midl-runtime.test.js'

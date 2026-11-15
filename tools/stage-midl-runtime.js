@@ -33,4 +33,11 @@ fs.rmSync(out, { recursive: true, force: true })
 fs.mkdirSync(path.join(out, 'schemas'), { recursive: true })
 fs.copyFileSync(dist, path.join(out, 'index.cjs'))
 for (const f of manifests) fs.copyFileSync(path.join(gen, f), path.join(out, 'schemas', f))
-console.log(`[stage-midl-runtime] staged the validator and ${manifests.length} manifests in lib/midl-runtime`)
+// The built-in screen records (midl/library/builtin): DM's built-in presets
+// and preview (lib/midl-records.js).
+const builtinDir = path.join(root, 'midl', 'library', 'builtin')
+const builtins = fs.existsSync(builtinDir) ? fs.readdirSync(builtinDir).filter((f) => f.endsWith('.midl.json')) : []
+if (!builtins.length) fail('no built-in records in midl/library/builtin')
+fs.mkdirSync(path.join(out, 'builtin'), { recursive: true })
+for (const f of builtins) fs.copyFileSync(path.join(builtinDir, f), path.join(out, 'builtin', f))
+console.log(`[stage-midl-runtime] staged the validator, ${manifests.length} manifests and ${builtins.length} built-in records in lib/midl-runtime`)

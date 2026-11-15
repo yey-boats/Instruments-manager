@@ -1,14 +1,15 @@
 // SPDX-License-Identifier: PolyForm-Noncommercial-1.0.0
 // Copyright (c) 2026 Yey Boats Project. See LICENSE and COMMERCIAL.md.
 //
-/* Device-page live preview (#14, roadmap S7: one renderer). Tile screens are
- * drawn by the shared MIDL device bundle (public/midl-device.global.js, global
- * `MidlWeb`) — the renderer the firmware serves — bound to LIVE SignalK data.
- * This file only turns the server's flattened tiles into a MIDL document and
- * hosts the edit-fields UI; the built-in HUD / System / Trip screens are still
- * drawn by DeviceHud (public/device-hud.js).
- * Reads window.__yeyboatsPreview = { screens:[{id,title,tiles:[...]}], current,
- * midl:{className,viewport,manifest,types} }. */
+/* Device-page live preview (#14, roadmap S7: one renderer; MIDL-only
+ * screens). Every screen — the profile's records and the embedded built-ins
+ * alike — is drawn from its stored MIDL record doc (narrowed to that screen by
+ * the server, nothing flattened) by the shared MIDL device bundle
+ * (public/midl-device.global.js, global `MidlWeb`) — the renderer the
+ * firmware serves — bound to LIVE SignalK data and the display's telemetry
+ * for `local` bindings.
+ * Reads window.__yeyboatsPreview = { screens:[{id,title,record,doc}], current,
+ * telemetry, midl:{className,viewport,manifest} }. */
 (function () {
   'use strict'
 
@@ -48,7 +49,7 @@
     return SI_FOR[displayUnitFor({ path })]
   }
   // MIDL DataProvider over the live SignalK value map.
-  function makeProvider (values, stamps) {
+  function makeProvider (values, stamps, telemetry) {
     const none = { value: undefined, stale: false, present: false }
     return {
       now () { return Date.now() },
@@ -56,6 +57,11 @@
       getValue (b) {
         if (!b) return none
         if (b.kind === 'const') return { value: b.value, stale: false, present: true }
+        if (b.kind === 'local') {
+          const t = telemetry || {}
+          const v = typeof b.id === 'string' && Object.prototype.hasOwnProperty.call(t, b.id) ? t[b.id] : undefined
+          return v === undefined || v === null ? none : { value: v, stale: false, present: true }
+        }
         if (b.kind !== 'signalk' || !Object.prototype.hasOwnProperty.call(values, b.path)) return none
         const at = stamps && stamps[b.path]
         const r = { value: values[b.path], updatedAt: at, present: true, stale: !!at && Date.now() - at > STALE_MS }
@@ -64,60 +70,6 @@
         return r
       }
     }
-  }
-  // Firmware marker colour names -> MIDL theme tokens.
-  const MARKER_TOKENS = { accent: 'accent', good: 'good', warn: 'warn', alarm: 'danger' }
-  const own = (o, k) => typeof k === 'string' && Object.prototype.hasOwnProperty.call(o, k)
-  // Colours are document data the renderer writes into SVG attributes, and the
-  // page inserts that SVG with innerHTML: pass only a theme token or a plain
-  // #rgb / #rrggbb / #rrggbbaa literal, never anything else (PR #31 review).
-  const HEX_COLOR = /^#(?:[0-9a-fA-F]{3}|[0-9a-fA-F]{6}|[0-9a-fA-F]{8})$/
-  const THEME_TOKENS = new Set(['panel', 'panel2', 'edge', 'fg', 'dim', 'accent', 'accent2', 'good', 'warn', 'bad',
-    'danger', 'port', 'starboard', 'tide', 'stale', 'bg'])
-  function safeColor (c, fallback) {
-    if (own(MARKER_TOKENS, c)) return MARKER_TOKENS[c]
-    if (typeof c === 'string' && (HEX_COLOR.test(c) || THEME_TOKENS.has(c))) return c
-    return fallback
-  }
-  const GLYPHS = new Set(['triangle', 'diamond', 'circle', 'bar', 'cross', 'chevron_in', 'chevron_out',
-    'chevron_left', 'chevron_right', 'chevron_double'])
-  // One screen of flattened tiles -> a one-screen MIDL config document.
-  function midlDocFor (scr, midl) {
-    const types = (midl && midl.types) || {}
-    const cls = midl && midl.manifest && midl.manifest.classes && midl.manifest.classes[0]
-    const max = (cls && cls.maxTiles) || 9
-    const tiles = ((scr && scr.tiles) || []).slice(0, max)
-    const elements = {}
-    const cells = []
-    tiles.forEach((tile, i) => {
-      const id = 't' + i
-      const type = types[tile.kind] || types[tile.widget] || 'single-value'
-      const el = { type, name: String(tile.title || (tile.path || '').split('.').pop() || '').toUpperCase() }
-      if (tile.path) {
-        el.bindings = { value: { kind: 'signalk', path: tile.path } }
-        if (type === 'compass' || type === 'windrose') el.bindings.dir = { kind: 'signalk', path: tile.path }
-      }
-      if (type !== 'compass' && type !== 'button' && type !== 'autopilot') el.format = formatFor(tile)
-      const col = tile.color && typeof tile.color === 'object' ? tile.color : null
-      const accent = col && safeColor(col.value || col.fill || col.needle || col.arc || col.line, null)
-      // The renderer reads the override from `style.color` (MIDL element style).
-      if (accent) el.style = { color: accent }
-      if ((type === 'compass' || type === 'windrose') && Array.isArray(tile.markers) && tile.markers.length) {
-        el.markers = tile.markers.filter((m) => m && typeof m.path === 'string').map((m) => ({
-          glyph: GLYPHS.has(m.glyph) ? m.glyph : 'triangle',
-          color: safeColor(m.color, 'accent'),
-          dir: { kind: 'signalk', path: m.path }
-        }))
-      }
-      elements[id] = el
-      cells.push({ element: id })
-    })
-    const n = cells.length
-    const cols = n <= 1 ? 1 : (n <= 4 ? 2 : 3)
-    const rows = Math.max(1, Math.ceil(n / cols))
-    // Pad with spacer cells ({} in the MIDL schema), never { element: '' }.
-    while (cells.length < rows * cols) cells.push({})
-    return { midl: '1.0.0', screens: [{ id: String((scr && scr.id) || 'screen'), elements, layout: { rows, cols, cells } }] }
   }
   // A path's live value as the device would show it on a numeric tile.
   function liveValueFor (values, path, stamps) {
@@ -138,7 +90,7 @@
     const c = msg && msg.context
     return !c || c === 'vessels.self' || (!!selfContext && c === selfContext)
   }
-  window.YeyDevicePreview = { displayUnitFor, sourceUnitFor, formatFor, makeProvider, midlDocFor, liveValueFor, isSelfDelta }
+  window.YeyDevicePreview = { displayUnitFor, sourceUnitFor, formatFor, makeProvider, liveValueFor, isSelfDelta }
 
   const cfg = window.__yeyboatsPreview || {}
   const root = document.getElementById('lp-root')
@@ -147,436 +99,28 @@
 
   const values = Object.create(null) // signalk path -> latest value
   const stamps = Object.create(null) // signalk path -> ms of last update
-  const provider = makeProvider(values, stamps)
+  const provider = makeProvider(values, stamps, cfg.telemetry || {})
   const trendsByScreen = Object.create(null)
-  // initialScreen (carried through a save redirect) wins over the device's
-  // current screen, so a reload after Save-to-view/Save-as-new keeps the
-  // operator's pick instead of snapping back.
+  // initialScreen (carried through a redirect) wins over the device's current
+  // screen, so a reload keeps the operator's pick.
   let currentScreenId = cfg.initialScreen || cfg.current || (cfg.screens && cfg.screens[0] && cfg.screens[0].id)
-  const editChk = document.getElementById('lp-edit')
-  // stable tile-edit key -> { path, screenId, tileIndex, widgetId, widget, color, ... }
-  const editsMap = Object.create(null)
-  // HUD field overrides: screenId -> { kind, fields:{key:{path,color}} }.
-  // Seeded from the server projection (scr.hud) on first render so the editor
-  // shows stored overrides; mutated live as the operator rebinds/recolours.
-  const hudEditsMap = Object.create(null)
-  let editMode = false
 
-  // --- rich edit-mode manifest (Slice: rich edit fields) -------------------
-  // Injected by the server from lib/field-schema.js: the KINDs the device
-  // manifest supports, the unit families (for path-compatibility filtering),
-  // and the per-kind color elements. Falls back to a sane built-in set so the
-  // editor still works if the payload predates this slice.
-  const MANIFEST = cfg.manifest || {}
-  const MANIFEST_KINDS = Array.isArray(MANIFEST.viewTypes) && MANIFEST.viewTypes.length
-    ? MANIFEST.viewTypes
-    : ['numeric', 'compass', 'windCircle', 'gauge', 'bar', 'trend', 'text']
-  const COLOR_ELEMENTS = MANIFEST.colorElements || {
-    numeric: ['value', 'label'], text: ['value', 'label'], trend: ['value', 'label', 'line'],
-    gauge: ['value', 'label', 'needle', 'arc'], bar: ['value', 'label', 'fill'],
-    compass: ['value', 'label', 'needle'], windCircle: ['value', 'label', 'needle', 'dir'],
-    control: ['value', 'label']
-  }
-  // KIND -> renderable preview widget name. The manifest speaks field-schema's
-  // vocabulary (windCircle/gauge/control); the preview renderer speaks the
-  // firmware grid vocabulary (windRose/numeric). Map so a chosen KIND both
-  // round-trips its manifest name to the device AND renders live here.
-  const KIND_TO_WIDGET = { windCircle: 'windRose', gauge: 'numeric', control: 'text' }
-  function kindToWidget (kind) { return KIND_TO_WIDGET[kind] || kind || 'numeric' }
-  // KINDs we can actually render a live preview for (intersect with manifest).
-  const RENDERABLE = ['numeric', 'compass', 'windCircle', 'gauge', 'bar', 'trend', 'text']
-  function editableKinds () {
-    const ks = MANIFEST_KINDS.filter((k) => RENDERABLE.indexOf(k) >= 0)
-    return ks.length ? ks : RENDERABLE.slice()
-  }
-
-  // Physical-quantity inference (mirrors quantityForPath in lib/field-schema.js)
-  // so the path picker can filter candidates to those compatible with the KIND.
-  function quantityForPath (p) {
-    p = String(p || '')
-    if (!p) return null
-    const leaf = p.split('.').pop() || ''
-    if (/crossTrackError|distance/i.test(leaf)) return 'length'
-    if (/speed|drift|velocity|sog|stw|tws|aws/i.test(p)) return 'speed'
-    if (/angle|heading|course|bearing|direction|setTrue|cog|track/i.test(p)) return 'angle'
-    if (/depth/i.test(p)) return 'depth'
-    if (/temperature|temp/i.test(p)) return 'temp'
-    if (/stateOfCharge|currentLevel|relativeHumidity|ratio/i.test(p)) return 'ratio'
-    if (/voltage/i.test(p)) return 'voltage'
-    return null
-  }
-  // Is a path COMPATIBLE with a KIND? compass/windCircle want angle paths;
-  // gauge/bar/numeric/trend/text accept any scalar path.
-  function pathFitsKind (path, kind) {
-    if (kind === 'compass' || kind === 'windCircle') return quantityForPath(path) === 'angle'
-    return true
-  }
-  // Candidate path catalogue: the curated datalist (cfg.previewPaths) unioned
-  // with every path the live SignalK stream has actually delivered, so the
-  // operator can bind anything the boat is publishing right now.
-  function candidatePaths () {
-    const set = new Set()
-    ;(cfg.previewPaths || []).forEach((p) => { if (p) set.add(p) })
-    Object.keys(values).forEach((p) => set.add(p))
-    return Array.from(set).sort()
-  }
-  // Live value preview string for an arbitrary path (same formatter as a tile).
-  function liveValue (path) { return liveValueFor(values, path, stamps) }
-  const THEME_SWATCHES = ['#4fc3f7', '#36d399', '#ffb84d', '#ff5252', '#288cff', '#8fa7bd', '#eef4fa']
-
-  // --- rich per-tile editor (KIND + scrollable VALUE picker + COLORS) ------
-  // Stable edit key: authored tiles rebind their own widget in place; preset/
-  // managed tiles get a synthetic screenId+index key the server materializes.
-  function editKeyFor (scr, tile, tileIndex) {
-    return (tile.widgetId && tile.editable) ? ('w:' + tile.widgetId) : ('t:' + scr.id + ':' + tileIndex)
-  }
-  // Capture the tile's full current state into editsMap so KIND/path/color all
-  // round-trip together (a later edit of one attr must not drop the others).
-  function commitEdit (scr, tile, tileIndex) {
-    editsMap[editKeyFor(scr, tile, tileIndex)] = {
-      widgetId: (tile.widgetId && tile.editable) ? tile.widgetId : null,
-      screenId: scr.id,
-      tileIndex: tileIndex,
-      widget: tile.kind || tile.widget || 'numeric', // KIND (manifest vocabulary)
-      title: tile.title || '',
-      unit: tile.unit || '',
-      precision: tile.precision != null ? tile.precision : null,
-      path: tile.path || '',
-      color: (tile.color && Object.keys(tile.color).length) ? tile.color : null
-    }
-    dirty = true
-  }
-  function buildTileEditor (cell, scr, tile, tileIndex) {
-    // tile.kind is the manifest KIND (windCircle/gauge/...); tile.widget is the
-    // renderable preview widget. Initialise kind from the existing widget.
-    if (!tile.kind) {
-      const inv = { windRose: 'windCircle' }
-      tile.kind = inv[tile.widget] || tile.widget || 'numeric'
-    }
-    const panel = document.createElement('div')
-    panel.className = 'lp-edit'
-
-    // KIND selector ---------------------------------------------------------
-    const kindRow = document.createElement('label'); kindRow.className = 'lp-edit-row'
-    kindRow.appendChild(document.createTextNode('kind'))
-    const kindSel = document.createElement('select'); kindSel.className = 'lp-edit-sel'
-    editableKinds().forEach((k) => {
-      const o = document.createElement('option'); o.value = k; o.textContent = k
-      if (k === tile.kind) o.selected = true
-      kindSel.appendChild(o)
-    })
-    kindSel.addEventListener('change', () => {
-      tile.kind = kindSel.value
-      tile.widget = kindToWidget(tile.kind)
-      // Re-render the tile in the new kind; prune color elements not in the new
-      // kind so we don't persist stale swatches.
-      if (tile.color) {
-        const allow = new Set(COLOR_ELEMENTS[tile.kind] || ['value', 'label'])
-        Object.keys(tile.color).forEach((e) => { if (!allow.has(e)) delete tile.color[e] })
-      }
-      commitEdit(scr, tile, tileIndex)
-      renderScreen()
-    })
-    kindRow.appendChild(kindSel)
-    panel.appendChild(kindRow)
-
-    // VALUE (path) picker: scrollable, filtered to kind-compatible paths, each
-    // option shows the live current value. A free-text box (datalist) lets the
-    // operator type any path; the list below previews + binds on click. -------
-    const pathRow = document.createElement('div'); pathRow.className = 'lp-edit-row lp-edit-col'
-    const pathLab = document.createElement('div'); pathLab.className = 'lp-edit-lab'
-    pathLab.textContent = 'value (path)'
-    pathRow.appendChild(pathLab)
-    const pathInp = document.createElement('input')
-    pathInp.className = 'lp-edit-path'
-    pathInp.value = tile.path || ''
-    pathInp.setAttribute('list', 'lp-paths')
-    pathInp.placeholder = 'signalk path'
-    pathInp.addEventListener('change', () => {
-      tile.path = pathInp.value.trim()
-      commitEdit(scr, tile, tileIndex)
-      dirty = true
-    })
-    pathRow.appendChild(pathInp)
-    // current bound value readout
-    const cur = document.createElement('div'); cur.className = 'lp-edit-cur'
-    cur.textContent = tile.path ? (tile.path + ' = ' + liveValue(tile.path)) : 'no path bound'
-    pathRow.appendChild(cur)
-    // scrollable candidate list, filtered by kind compatibility
-    const list = document.createElement('div'); list.className = 'lp-edit-paths'
-    candidatePaths().filter((p) => pathFitsKind(p, tile.kind)).forEach((p) => {
-      const row = document.createElement('button')
-      row.type = 'button'
-      row.className = 'lp-edit-prow' + (p === tile.path ? ' active' : '')
-      const name = document.createElement('span'); name.className = 'lp-edit-pname'; name.textContent = p
-      const lv = document.createElement('span'); lv.className = 'lp-edit-plv'; lv.textContent = liveValue(p)
-      row.appendChild(name); row.appendChild(lv)
-      row.addEventListener('click', () => {
-        tile.path = p
-        pathInp.value = p
-        commitEdit(scr, tile, tileIndex)
-        renderScreen()
-      })
-      list.appendChild(row)
-    })
-    pathRow.appendChild(list)
-    panel.appendChild(pathRow)
-
-    // COLORS: one swatch row per color element of the KIND. Default = theme
-    // (unset). Only persists the elements the operator actually changes. ------
-    const elems = COLOR_ELEMENTS[tile.kind] || ['value', 'label']
-    elems.forEach((elm) => {
-      const row = document.createElement('div'); row.className = 'lp-edit-row lp-edit-color'
-      const lab = document.createElement('span'); lab.className = 'lp-edit-clab'; lab.textContent = elm
-      row.appendChild(lab)
-      const sw = document.createElement('div'); sw.className = 'lp-edit-sw'
-      const cur = (tile.color && tile.color[elm]) || null
-      function pick (hex) {
-        tile.color = tile.color || {}
-        if (hex == null) delete tile.color[elm]
-        else tile.color[elm] = hex
-        if (!Object.keys(tile.color).length) tile.color = null
-        commitEdit(scr, tile, tileIndex)
-        renderScreen()
-      }
-      THEME_SWATCHES.forEach((hex) => {
-        const s = document.createElement('span')
-        s.className = 'lp-sw' + (cur === hex ? ' active' : '')
-        s.style.background = hex
-        s.title = hex
-        s.addEventListener('click', () => pick(hex))
-        sw.appendChild(s)
-      })
-      const custom = document.createElement('input')
-      custom.type = 'color'; custom.className = 'lp-sw-custom'; custom.value = cur || '#4fc3f7'; custom.title = 'custom'
-      custom.addEventListener('change', () => pick(custom.value))
-      sw.appendChild(custom)
-      const clr = document.createElement('button')
-      clr.type = 'button'; clr.className = 'lp-sw-theme' + (cur ? '' : ' active'); clr.textContent = 'theme'
-      clr.title = 'use theme default (unset)'
-      clr.addEventListener('click', () => pick(null))
-      sw.appendChild(clr)
-      row.appendChild(sw)
-      panel.appendChild(row)
-    })
-
-    cell.appendChild(panel)
-  }
-
-  // --- HUD field overrides (fullscreen radial/compass screens) -------------
-  // A fullscreen HUD has no per-tile slots: it reads a fixed set of LOGICAL
-  // fields (heading/awa/aws/...) each bound to a SignalK path. The editor lets
-  // the operator rebind those paths + recolour the meaningful elements. We hold
-  // the working overrides per screen in hudEditsMap and feed them to the HUD
-  // accessor as { fields:{key:{path}}, colors:{element:hex} }.
-  function hudStateFor (scr, kind) {
-    let st = hudEditsMap[scr.id]
-    if (!st) {
-      // seed from the server projection (scr.hud.fields) so stored overrides
-      // round-trip into the editor on load.
-      const seed = (scr.hud && scr.hud.fields && typeof scr.hud.fields === 'object') ? scr.hud.fields : {}
-      st = { kind: kind, fields: {} }
-      Object.keys(seed).forEach((k) => {
-        const f = seed[k] || {}
-        st.fields[k] = { path: typeof f.path === 'string' ? f.path : '', color: (typeof f.color === 'string') ? f.color : null }
-      })
-      hudEditsMap[scr.id] = st
-    }
-    st.kind = kind
-    return st
-  }
-  // Build the { fields, colors } override object the DeviceHud accessor reads.
-  function hudOverrides (st) {
-    const Hud = window.DeviceHud
-    const out = { fields: {}, colors: {} }
-    Object.keys(st.fields || {}).forEach((k) => {
-      const f = st.fields[k]
-      if (f && f.path) out.fields[k] = { path: f.path }
-      if (f && f.color) {
-        const elm = Hud && Hud.fieldColorElement(st.kind, k)
-        if (elm) out.colors[elm] = f.color
-      }
-    })
-    return out
-  }
-  // Serializable HUD edit for the save handler: { hud:true, screenId, kind,
-  // fields:{key:{path,color}} } — only fields the operator actually set.
-  function hudEditFor (st, scrId) {
-    const fields = {}
-    Object.keys(st.fields || {}).forEach((k) => {
-      const f = st.fields[k]
-      const o = {}
-      if (f && f.path) o.path = f.path
-      if (f && f.color) o.color = f.color
-      if (Object.keys(o).length) fields[k] = o
-    })
-    return { hud: true, screenId: scrId, kind: st.kind, fields: fields }
-  }
-  function buildHudEditor (container, scr, kind) {
-    const Hud = window.DeviceHud
-    const defs = (Hud && Hud.hudFields(kind)) || []
-    const st = hudStateFor(scr, kind)
-    const panel = document.createElement('div')
-    panel.className = 'lp-edit lp-hud-edit'
-
-    // Inline caveat: HUD bindings preview + persist in the manager but the
-    // built-in firmware HUD screens read fixed sources on the current firmware.
-    const note = document.createElement('div')
-    note.className = 'lp-hud-note'
-    note.textContent = 'Preview/stored binding — device applies these on grid screens; built-in HUD screens use fixed sources on the current firmware.'
-    panel.appendChild(note)
-
-    defs.forEach((def) => {
-      const fst = st.fields[def.key] || (st.fields[def.key] = { path: '', color: null })
-      const curPath = fst.path || def.defaultPath || ''
-
-      const row = document.createElement('div'); row.className = 'lp-edit-row lp-edit-col'
-      const lab = document.createElement('div'); lab.className = 'lp-edit-lab'
-      lab.textContent = def.label + (def.quantity ? ' · ' + def.quantity : '')
-      row.appendChild(lab)
-
-      const pathInp = document.createElement('input')
-      pathInp.className = 'lp-edit-path'
-      pathInp.value = fst.path || ''
-      pathInp.setAttribute('list', 'lp-paths')
-      pathInp.placeholder = def.defaultPath || 'signalk path'
-      pathInp.addEventListener('change', () => {
-        fst.path = pathInp.value.trim()
-        commitHud(scr.id)
-        dirty = true
-      })
-      row.appendChild(pathInp)
-
-      const cur = document.createElement('div'); cur.className = 'lp-edit-cur'
-      cur.textContent = curPath ? (curPath + ' = ' + liveValue(curPath)) : 'default source'
-      row.appendChild(cur)
-
-      // scrollable candidate list, filtered to the field's quantity
-      const list = document.createElement('div'); list.className = 'lp-edit-paths'
-      candidatePaths().filter((p) => !def.quantity || quantityForPath(p) === def.quantity).forEach((p) => {
-        const prow = document.createElement('button')
-        prow.type = 'button'
-        prow.className = 'lp-edit-prow' + (p === fst.path ? ' active' : '')
-        const name = document.createElement('span'); name.className = 'lp-edit-pname'; name.textContent = p
-        const lv = document.createElement('span'); lv.className = 'lp-edit-plv'; lv.textContent = liveValue(p)
-        prow.appendChild(name); prow.appendChild(lv)
-        prow.addEventListener('click', () => {
-          fst.path = p
-          pathInp.value = p
-          commitHud(scr.id)
-          renderScreen()
-        })
-        list.appendChild(prow)
-      })
-      row.appendChild(list)
-
-      // COLOR control for fields that own a HUD colour element.
-      if (def.color) {
-        const crow = document.createElement('div'); crow.className = 'lp-edit-row lp-edit-color'
-        const clab = document.createElement('span'); clab.className = 'lp-edit-clab'; clab.textContent = def.color
-        crow.appendChild(clab)
-        const sw = document.createElement('div'); sw.className = 'lp-edit-sw'
-        function pick (hex) {
-          fst.color = hex
-          commitHud(scr.id)
-          renderScreen()
-        }
-        THEME_SWATCHES.forEach((hex) => {
-          const s = document.createElement('span')
-          s.className = 'lp-sw' + (fst.color === hex ? ' active' : '')
-          s.style.background = hex; s.title = hex
-          s.addEventListener('click', () => pick(hex))
-          sw.appendChild(s)
-        })
-        const custom = document.createElement('input')
-        custom.type = 'color'; custom.className = 'lp-sw-custom'; custom.value = fst.color || '#4fc3f7'; custom.title = 'custom'
-        custom.addEventListener('change', () => pick(custom.value))
-        sw.appendChild(custom)
-        const clr = document.createElement('button')
-        clr.type = 'button'; clr.className = 'lp-sw-theme' + (fst.color ? '' : ' active'); clr.textContent = 'theme'
-        clr.title = 'use built-in default'
-        clr.addEventListener('click', () => pick(null))
-        sw.appendChild(clr)
-        crow.appendChild(sw)
-        row.appendChild(crow)
-      }
-
-      panel.appendChild(row)
-    })
-    container.appendChild(panel)
-  }
-  // Record the HUD screen's overrides into the save payload map.
-  function commitHud (scrId) {
-    const st = hudEditsMap[scrId]
-    if (st) { editsMap['hud:' + scrId] = hudEditFor(st, scrId) }
-    dirty = true
-  }
-
-  // --- render one screen's tiles into the grid -----------------------------
   function screenById (id) {
     const scr = (cfg.screens || []).find((s) => s.id === id)
     return scr || (cfg.screens || [])[0] || null
   }
-  // A fullscreen HUD screen is one whose device id maps to a built-in HUD
-  // (autopilot / wind / wind_steer / wind_classic), or whose single tile is a
-  // fullscreen widget. Rendered faithfully (compass band, no-go sectors, etc.)
-  // by DeviceHud, bound to live SignalK values.
-  function fullscreenKind (scr) {
-    const Hud = window.DeviceHud
-    if (!Hud || !scr) return null
-    const byId = Hud.fullscreenForScreen(scr.id)
-    if (byId) return byId
-    const t = scr.tiles && scr.tiles[0]
-    if (scr.tiles && scr.tiles.length === 1 && t && Hud.isFullscreenWidget(t.widget)) return t.widget
-    return null
-  }
   function renderScreen () {
     root.replaceChildren()
-    root.classList.toggle('lp-editing', editMode)
     const scr = screenById(currentScreenId)
-    const Hud = window.DeviceHud
-    // The built-in System/status panel: the device renders a diagnostics list,
-    // not a tile grid. Render it faithfully from live SignalK + the device's
-    // reported telemetry (cfg.telemetry), not the generic preset grid.
-    if (scr && Hud && Hud.isSystemScreen(scr.id)) {
-      const stage = document.createElement('div')
-      stage.className = 'lp-hud'
-      stage.innerHTML = Hud.systemPanel(Hud.accessor(values), cfg.telemetry || {})
-      root.appendChild(stage)
-      return
-    }
-    // The built-in Trip screen: the device renders a bespoke odometer (distance
-    // hero + time/avg/max stat cards + live SOG), not a metric grid. Render it
-    // faithfully from live SignalK + device telemetry (the odometer
-    // accumulators are device-side state; absent ones show "--").
-    if (scr && Hud && Hud.isTripScreen(scr.id) && Hud.tripHud) {
-      const stage = document.createElement('div')
-      stage.className = 'lp-hud'
-      stage.innerHTML = Hud.tripHud(Hud.accessor(values), cfg.telemetry || {})
-      root.appendChild(stage)
-      return
-    }
-    const kind = fullscreenKind(scr)
-    if (kind && Hud) {
-      // Apply the operator's HUD field overrides (rebound paths + colours) so
-      // the live preview reflects the edit; seed from the server projection.
-      const st = editMode ? hudStateFor(scr, kind) : (hudEditsMap[scr.id] || (scr.hud ? hudStateFor(scr, kind) : null))
-      const ov = st ? hudOverrides(st) : null
-      const stage = document.createElement('div')
-      stage.className = 'lp-hud'
-      stage.innerHTML = Hud.fullscreen(kind, Hud.accessor(values, ov))
-      root.appendChild(stage)
-      if (editMode) buildHudEditor(root, scr, kind)
-      return
-    }
-    if (!scr || !Array.isArray(scr.tiles) || !scr.tiles.length) {
+    if (!scr || !scr.doc) {
       const m = document.createElement('div')
       m.className = 'lp-empty'
-      m.textContent = 'No managed layout for this view (firmware built-in screen).'
+      m.textContent = scr
+        ? 'No preview for this screen: the manager has no copy of its MIDL record (it is built into the firmware).'
+        : 'No screens.'
       root.appendChild(m)
       return
     }
-    // Draw the screen with the shared MIDL renderer.
     const W = window.MidlWeb
     const midl = cfg.midl || {}
     const stage = document.createElement('div')
@@ -588,43 +132,22 @@
       const trends = trendsByScreen[scr.id] || (trendsByScreen[scr.id] = new W.TrendBuffers())
       let r
       try {
-        r = W.renderDashboardSvg(JSON.stringify(midlDocFor(scr, midl)), midl.manifest, midl.className,
+        r = W.renderDashboardSvg(JSON.stringify(scr.doc), midl.manifest, midl.className,
           midl.viewport || { x: 0, y: 0, w: 480, h: 480 }, provider, { trends })
       } catch (e) {
         r = { ok: false, issues: [{ message: String((e && e.message) || e) }] }
       }
       // The bundle escapes every string it puts into the SVG.
-      if (r && r.ok && r.svg) stage.innerHTML = r.svg
+      if (r && r.svg) stage.innerHTML = r.svg
       else stage.textContent = 'Preview error: ' + ((r && r.issues && r.issues[0] && r.issues[0].message) || 'unknown')
     }
     root.appendChild(stage)
-    if (editMode) {
-      const list = document.createElement('div')
-      list.className = 'lp-edit-list'
-      scr.tiles.forEach((tile, tileIndex) => {
-        const item = document.createElement('div')
-        item.className = 'lp-edit-item'
-        const cap = document.createElement('div')
-        cap.className = 'lp-cap'
-        cap.textContent = (tileIndex + 1) + '. ' + (tile.title || (tile.path || '').split('.').pop() || '').toUpperCase()
-        item.appendChild(cap)
-        buildTileEditor(item, scr, tile, tileIndex)
-        list.appendChild(item)
-      })
-      root.appendChild(list)
-    }
   }
 
   // throttle re-render to ~5 Hz (matches the device refresh cadence)
   let dirty = false
   setInterval(() => {
-    // Don't rebuild the DOM while the operator is interacting with the rich
-    // editor (path box, kind select, color picker) — a re-render would steal
-    // focus / collapse an open dropdown mid-edit.
-    const ae = document.activeElement
-    const editing = ae && ((ae.classList && ae.classList.contains('lp-edit-path')) ||
-      (ae.closest && ae.closest('.lp-edit')))
-    if (dirty && !editing) {
+    if (dirty) {
       dirty = false
       renderScreen()
     }
@@ -654,65 +177,39 @@
     ws.onerror = () => { try { ws.close() } catch (_) {} }
   }
 
-  // Treat a redirect-carried initialScreen as a user pick so the device-views
-  // poll won't override it back to the device's current screen.
   let userPicked = !!cfg.initialScreen
   if (sel) {
     sel.addEventListener('change', () => { userPicked = true; currentScreenId = sel.value; renderScreen() })
   }
-  if (editChk) {
-    editChk.addEventListener('change', () => { editMode = editChk.checked; renderScreen() })
-  }
-  // Serialize the pending edits as the server's rich edit objects (carries the
-  // synthetic screenId+tileIndex for preset tiles so a rebind round-trips).
-  function editsPayload () {
-    return JSON.stringify(Object.keys(editsMap).map((k) => editsMap[k]))
-  }
-  // Submit buttons: switch (screen.set) / update (save+reload) / create (new view).
-  const form = document.getElementById('lp-form')
-  if (form) {
-    document.querySelectorAll('#lp-form button[data-mode]').forEach((btn) => {
-      btn.addEventListener('click', () => {
-        const mode = btn.dataset.mode
-        if (mode === 'switch') {
-          // AJAX so the page does NOT reload and the selected preview screen
-          // stays put; just tell the device to switch + update the indicator.
-          userPicked = true
-          const fd = new URLSearchParams()
-          fd.set('mode', 'switch')
-          fd.set('screenId', currentScreenId || '')
-          fd.set('edits', '[]')
-          fd.set('ajax', '1')
-          fetch(form.getAttribute('action'), {
-            method: 'POST', credentials: 'include',
-            headers: { 'content-type': 'application/x-www-form-urlencoded', accept: 'application/json' },
-            body: fd.toString()
-          })
-            .then((r) => r.ok ? r.json() : null)
-            .then((d) => { if (d && d.screenId && nowEl) nowEl.textContent = titleOf(d.screenId) })
-            .catch(() => {})
-          return
-        }
-        // update / create still persist server-side via the form post; the
-        // selected screen is carried back through the redirect (?screen=).
-        const mEl = document.getElementById('lp-f-mode')
-        const sEl = document.getElementById('lp-f-screen')
-        const eEl = document.getElementById('lp-f-edits')
-        if (mEl) mEl.value = mode
-        if (sEl) sEl.value = currentScreenId || ''
-        if (eEl) eEl.value = editsPayload()
-        form.requestSubmit()
-      })
-    })
-  }
-  // Keep the preview's current screen synced with what the device is actually
-  // showing: poll the device-views projection; when the device's reported
-  // current screen changes (and the user isn't mid-edit), follow it.
   const nowEl = document.getElementById('lp-now-screen')
   function titleOf (idv) {
     const s = (cfg.screens || []).find((x) => x.id === idv)
     return (s && s.title) || idv || '—'
   }
+  // "Show on device": screen.set with the bare MIDL screen id (AJAX, so the
+  // selected preview screen stays put).
+  const form = document.getElementById('lp-form')
+  if (form) {
+    document.querySelectorAll('#lp-form button[data-mode="switch"]').forEach((btn) => {
+      btn.addEventListener('click', () => {
+        userPicked = true
+        const fd = new URLSearchParams()
+        fd.set('mode', 'switch')
+        fd.set('screenId', currentScreenId || '')
+        fd.set('ajax', '1')
+        fetch(form.getAttribute('action'), {
+          method: 'POST', credentials: 'include',
+          headers: { 'content-type': 'application/x-www-form-urlencoded', accept: 'application/json' },
+          body: fd.toString()
+        })
+          .then((r) => r.ok ? r.json() : null)
+          .then((d) => { if (d && d.screenId && nowEl) nowEl.textContent = titleOf(d.screenId) })
+          .catch(() => {})
+      })
+    })
+  }
+  // Keep the preview's current screen synced with what the device is actually
+  // showing: poll the device-views projection.
   if (nowEl) nowEl.textContent = titleOf(cfg.current)
   const deviceId = window.__yeyboatsDeviceId
   if (deviceId) {
@@ -722,8 +219,8 @@
         .then((r) => r.ok ? r.json() : null)
         .then((d) => {
           if (!d || !d.current) return
-          if (nowEl) nowEl.textContent = titleOf(d.current) // indicator always tracks the device
-          if (editMode || userPicked || d.current === currentScreenId) return
+          if (nowEl) nowEl.textContent = titleOf(d.current)
+          if (userPicked || d.current === currentScreenId) return
           currentScreenId = d.current
           if (sel) {
             if (![...sel.options].some((o) => o.value === currentScreenId)) {

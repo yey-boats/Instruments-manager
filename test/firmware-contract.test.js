@@ -85,9 +85,13 @@ assert.strictEqual(firstConfig.network.hostname, deviceId)
 assert.strictEqual(firstConfig.ota.address, `${deviceId}.local`)
 assert.strictEqual(firstConfig.autopilot.allowEngage, false)
 assert.strictEqual(firstConfig.display.width, 480)
-assert.strictEqual(firstConfig.layout.variant, 'square-480')
-assert.strictEqual(firstConfig.widgets.variant, 'square-480')
-assert.strictEqual(firstConfig.widgets.items.mapPreview, undefined)
+// MIDL-only: no v2 layout/widgets; the screens are the `midl` block.
+assert.strictEqual(firstConfig.layout, undefined)
+assert.strictEqual(firstConfig.widgets, undefined)
+assert.strictEqual(firstConfig.display.midlClass, 'square-480')
+assert.deepStrictEqual(firstConfig.midl.records, [])
+assert.strictEqual(firstConfig.midl.index.defaultScreen, 'dashboard')
+assert.ok(firstConfig.midl.index.order.includes('status'))
 // #19: the password is random per device (see device-web-password.test.js).
 assert.strictEqual(firstConfig.webAuth.enabled, true)
 assert.strictEqual(firstConfig.webAuth.username, 'yeyboats')
@@ -125,8 +129,7 @@ const heartbeat = manager.updateStatus(deviceId, {
     screen: 'dashboard',
     theme: 'day',
     brightness: 0.8,
-    layoutVariant: firstConfig.layout.variant,
-    widgetConfigHash: firstConfig.hash
+    record: 'dashboard'
   },
   display: {
     width: 480,

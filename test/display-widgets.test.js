@@ -78,6 +78,14 @@ manager.upsertProfile({
   }
 })
 
+// MIDL-only screens: the v2 variants are migrated once (the first variant
+// with screens) into MIDL records; every display gets the same records,
+// validated for its own class, and its config carries the `midl` block.
+const responsive = manager.store.profiles.profiles.responsive
+assert.strictEqual(responsive.config.layout, undefined)
+assert.strictEqual(responsive.config.widgets, undefined)
+assert.deepStrictEqual(responsive.midl.records.map((r) => r.id), ['dashboard'])
+
 const square = new MockFirmware(manager, {
   deviceId: 'yey-d-square',
   auth,
@@ -86,13 +94,11 @@ const square = new MockFirmware(manager, {
 square.register()
 manager.assignProfile(square.deviceId, { profileId: 'responsive' })
 const squareConfig = square.fetchConfig()
-assert.strictEqual(squareConfig.display.selectedVariant, 'square-480')
-assert.strictEqual(squareConfig.layout.variant, 'square-480')
-assert.strictEqual(squareConfig.layout.screens[0].tiles.length, 1)
-assert.strictEqual(squareConfig.widgets.variant, 'square-480')
-assert.strictEqual(squareConfig.widgets.defaults.valueFontSize, 42)
-assert.strictEqual(squareConfig.widgets.items.sog.valueFontSize, 48)
-assert.strictEqual(squareConfig.widgets.items.mapPreview, undefined)
+assert.strictEqual(squareConfig.display.midlClass, 'square-480')
+assert.strictEqual(squareConfig.layout, undefined)
+assert.strictEqual(squareConfig.widgets, undefined)
+assert.deepStrictEqual(squareConfig.midl.records.map((r) => r.id), ['dashboard'])
+assert.strictEqual(squareConfig.midl.records[0].url, '/devices/yey-d-square/midl/records/dashboard')
 
 const wide = new MockFirmware(manager, {
   deviceId: 'yey-d-wide',
@@ -102,20 +108,8 @@ const wide = new MockFirmware(manager, {
 wide.register()
 manager.assignProfile(wide.deviceId, { profileId: 'responsive' })
 const wideConfig = wide.fetchConfig()
-assert.strictEqual(wideConfig.display.selectedVariant, 'wide-800x480')
-assert.strictEqual(wideConfig.layout.screens[0].tiles.length, 2)
-assert.strictEqual(wideConfig.widgets.defaults.valueFontSize, 48)
-
-const small = new MockFirmware(manager, {
-  deviceId: 'yey-d-small',
-  auth,
-  display: { width: 320, height: 240, shape: 'wide', rotation: 0, colorDepth: 16 }
-})
-small.register()
-manager.assignProfile(small.deviceId, { profileId: 'responsive' })
-const smallConfig = small.fetchConfig()
-assert.strictEqual(smallConfig.display.selectedVariant, 'small-320x240')
-assert.strictEqual(smallConfig.widgets.defaults.valueFontSize, 24)
+assert.strictEqual(wideConfig.display.midlClass, 'landscape-800x480')
+assert.ok(wideConfig.midl.index.order.includes('wind_steer'))
 
 manager.upsertProfile({
   id: 'wide-auto',

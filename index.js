@@ -6,6 +6,7 @@ const fieldSchema = require('./lib/field-schema')
 const { THEMES, isTheme, themeLabel } = require('./lib/themes')
 const midlAdapter = require('./lib/midl-adapter')
 const midlLib = require('./lib/midl')
+const midlRecords = require('./lib/midl-records')
 const cloudDashboards = require('./lib/cloud-dashboards')
 const pluginPackage = require('./package.json')
 
@@ -599,39 +600,48 @@ function registerRoutes (baseRouter, getManager) {
       res.json({ ...layout, metaWriteBack })
     }))
 
-  // ---- MIDL editor JSON API (Slice 6: MidlEditor React component) ----------
-  // GET  /devices/:id/editor/midl  → v2 → MIDL doc for the MidlEditor store
-  // POST /devices/:id/editor/midl  → MIDL doc → v2 → mutateEditorLayout + reload
-
+  // ---- MIDL editor JSON API ---------------------------------------------
+  // The editor edits the MIDL records of the display's profile (no v2).
+  // GET  /devices/:id/editor/midl[?record=<rid>] -> { doc (text), record,
+  //      records, revision, validation }. Without `record`: the profile's
+  //      first own record, else its first record (a built-in's doc).
+  // POST /devices/:id/editor/midl { doc, record?, expectedRevision?, show? }
+  //      stores the doc unchanged as record `record` (default: the GET
+  //      default, else an id from the doc's title) and pushes it.
+  const editorDefaultRecord = (manager, id) => {
+    const profile = manager.deviceProfile(id)
+    const own = midlRecords.normalizeMidl(profile && profile.midl).records
+    if (own.length) return own[0].id
+    const first = manager.deviceRecords(id).find((r) => r.doc)
+    return first ? first.id : null
+  }
   router.get('/devices/:id/editor/midl', wrap(getManager, (manager, req, res) => {
-    const layout = manager.editorLayout(req.params.id)
-    const v2 = {
-      widgets: { items: layout.items },
-      layout: { screens: layout.screens }
-    }
-    // #33: the doc goes out validated against the device's class, with the
-    // result alongside (a draft that does not validate yet still loads, so
-    // the operator can fix it in the editor).
     const device = manager.getDevice(req.params.id)
-    const className = midlLib.classForDisplay(manager.resolveDisplay(device)).id
-    const { doc: midlDoc, ...validation } = midlLib.midlDocumentFor(v2, className)
+    const records = manager.deviceRecords(device.id)
+    const wanted = (req.query && req.query.record) || editorDefaultRecord(manager, device.id)
+    const rec = records.find((r) => r.id === wanted && r.doc)
     const revision = String(manager.configVersion(device))
-    res.json({ doc: JSON.stringify(midlDoc), revision, validation })
+    const list = records.map((r) => ({ id: r.id, title: r.title, source: r.source, screens: r.screens }))
+    if (!rec) {
+      res.json({ doc: null, record: null, records: list, revision, validation: null })
+      return
+    }
+    const validation = manager.checkMidlDocForDevice(device.id, rec.doc)
+    res.json({ doc: JSON.stringify(rec.doc), record: rec.id, records: list, revision, validation })
   }))
 
-  router.post('/devices/:id/editor/midl', wrap(getManager, (manager, req, res) => {
+  router.post('/devices/:id/editor/midl', wrap(getManager, async (manager, req, res) => {
     const body = req.body || {}
     const doc = body.doc
-    if (!doc || typeof doc !== 'object') {
+    if (!doc || typeof doc !== 'object' || Array.isArray(doc) || !Array.isArray(doc.screens)) {
       res.status(400).json({ error: { code: 'invalid_request', message: 'body.doc must be a MIDL document object' } })
       return
     }
+    const device = manager.getDevice(req.params.id)
     // Optimistic concurrency: when the client sends expectedRevision (the
     // revision it loaded via GET), reject if the device config has changed
-    // since — otherwise two concurrent editors silently clobber each other
-    // (last-write-wins). An absent expectedRevision is an explicit overwrite.
+    // since. An absent expectedRevision is an explicit overwrite.
     if (body.expectedRevision != null && body.expectedRevision !== '') {
-      const device = manager.getDevice(req.params.id)
       const currentRevision = String(manager.configVersion(device))
       if (String(body.expectedRevision) !== currentRevision) {
         res.status(409).json({
@@ -644,28 +654,38 @@ function registerRoutes (baseRouter, getManager) {
         return
       }
     }
-    // #33: refuse (422) a document the device's validator would reject, or
-    // one the v2 dashboard model cannot hold (it would be silently changed on
-    // save). Range, size, a #rrggbb colour, signalk dial markers and the
-    // screen title are carried (#38); other element styling (colorRole, zones
-    // in MIDL form, sectors, ...), actions and marker extras are refused by
-    // name (#53), never dropped. format.decimals and style.span are tolerated
-    // (the editor always writes them; see lib/midl.js). Without the validator
-    // in this install the save proceeds, flagged `unavailable`.
-    const device = manager.getDevice(req.params.id)
-    const className = midlLib.classForDisplay(manager.resolveDisplay(device)).id
-    const validation = midlLib.requireStorableMidlDoc(doc, className)
-    // mutateEditorLayout persists and calls queueConfigReload internally.
-    const saved = manager.mutateEditorLayout(req.params.id, (cfg) => {
-      // #38: merge into the stored dashboard so what MIDL cannot express
-      // (zones, marker details, other colour elements, screen extras, widget
-      // defaults) survives the save.
-      const v2 = midlAdapter.midlToV2(doc, cfg)
-      cfg.widgets = Object.assign({}, cfg.widgets, { items: v2.widgets.items })
-      cfg.layout = cfg.layout || {}
-      cfg.layout.screens = v2.layout.screens
+    // Refuse (422) a document the display's validator would reject. Without
+    // the validator in this install the save proceeds, flagged `unavailable`.
+    const validation = manager.checkMidlDocForDevice(device.id, doc)
+    if (!validation.unavailable && !validation.ok) {
+      res.status(422).json({ error: { code: 'midl_invalid', message: `MIDL document fails validation for ${validation.className}`, details: { className: validation.className, issues: validation.issues } } })
+      return
+    }
+    let recordId = typeof body.record === 'string' && body.record ? body.record : null
+    if (!recordId) {
+      const profile = manager.deviceProfile(device.id)
+      const own = midlRecords.normalizeMidl(profile && profile.midl).records
+      const screens = midlRecords.screensOf(doc)
+      const owner = own.find((r) => midlRecords.screensOf(r.doc).some((sc) => screens.some((x) => x.id === sc.id)))
+      recordId = owner ? owner.id
+        : (screens.length === 1 && midlRecords.isBuiltinId(screens[0].id) ? screens[0].id
+          : midlRecords.toRecordId(midlRecords.recordTitle(doc, '') || (screens[0] && screens[0].id)) || 'edited')
+    }
+    if (!midlRecords.isRecordId(recordId)) {
+      res.status(400).json({ error: { code: 'invalid_request', message: 'record must match [a-z0-9_-]{1,32}' } })
+      return
+    }
+    const profile = manager.deviceProfile(device.id)
+    let midl = midlRecords.upsertRecord(profile.midl, {
+      id: recordId, title: midlRecords.recordTitle(doc, recordId), doc, source: 'editor', updatedAt: new Date().toISOString()
     })
-    res.json({ ok: true, revision: String(manager.configVersion(manager.getDevice(req.params.id))), validation, layoutValidation: saved.layoutValidation })
+    if (!midl.index.order.includes(recordId) && !midlRecords.isBuiltinId(recordId)) midl.index.order.push(recordId)
+    // Validator on store: checked for every display on this profile.
+    const show = body.show ? (midlRecords.screensOf(doc)[0] || {}).id : null
+    const saved = manager.saveProfileChecked({ id: profile.id, name: profile.name || profile.id, version: Number(profile.version || 1) + 1, config: profile.config, midl },
+      null, show ? { show: { deviceId: device.id, screen: show } } : null)
+    const delivery = ((await saved.delivery) || []).find((d) => d && d.deviceId === device.id) || null
+    res.json({ ok: true, record: recordId, revision: String(manager.configVersion(manager.getDevice(req.params.id))), validation, layoutValidation: saved.layoutValidation, delivery })
   }))
 
   router.get('/discovery/devices', wrap(getManager, (manager, req, res) => {
@@ -979,11 +999,14 @@ function registerRoutes (baseRouter, getManager) {
   router.get('/ui/layout', wrap(getManager, (manager, req, res) => {
     res.setHeader('content-type', 'text/html; charset=utf-8')
     const dashboard = manager.dashboard()
+    // MIDL-only screens: the v2 layout editor is retired; screens are MIDL
+    // records edited in the MIDL editor.
     const body = `
-      <section class="panel" style="padding: 0; overflow: hidden;">
-        <iframe src="/yey-boats-display-manager/layout-editor.html"
-                style="width: 100%; height: calc(100vh - 220px); border: 0; display: block;"
-                title="Layout editor"></iframe>
+      <section class="panel">
+        <h2>Layout editor retired</h2>
+        <p>Screens are MIDL records now. Edit them in the
+        <a href="/yey-boats-display-manager/midl-editor.html">MIDL editor</a>,
+        or import a MIDL dashboard on the Presets page.</p>
       </section>`
     res.end(renderUiShell('Layout editor', body, dashboard, 'layout'))
   }))
@@ -1027,7 +1050,7 @@ function registerRoutes (baseRouter, getManager) {
   // the control-protocol path directly when the device speaks it); the firmware
   // maps screen.set -> show_by_id on its next command poll.
   router.post('/ui/devices/:id/switch-screen', wrap(getManager, (manager, req, res) => {
-    const screenId = (req.body && req.body.screenId) || ''
+    const screenId = bareScreenId((req.body && req.body.screenId) || '')
     let status = 'no-screen'
     if (screenId) {
       manager.createCommand(req.params.id, { type: 'screen.set', payload: { screen: screenId } })
@@ -1057,14 +1080,21 @@ function registerRoutes (baseRouter, getManager) {
     const wantsJson = body.ajax === '1' || body.ajax === 1 ||
       /application\/json/.test(String(req.headers && req.headers.accept))
     if (mode === 'switch') {
-      if (body.screenId) {
-        manager.createCommand(id, { type: 'screen.set', payload: { screen: body.screenId } })
+      const screenId = bareScreenId(body.screenId || '')
+      if (screenId) {
+        manager.createCommand(id, { type: 'screen.set', payload: { screen: screenId } })
         status = 'switched'
       }
       if (wantsJson) {
-        res.json({ status, screenId: body.screenId || null })
+        res.json({ status, screenId: screenId || null })
         return
       }
+    } else if (mode === 'update' || mode === 'create') {
+      // MIDL-only screens: the preview's v2 field edits are retired.
+      const err = new Error('the v2 field editor is removed: screens are MIDL records now; edit them in the MIDL editor')
+      err.status = 410
+      err.payload = { error: { code: 'v2_editor_removed', message: err.message } }
+      throw err
     } else {
       const device = manager.getDevice(id)
       const baseId = device.assignedProfile || 'default'
@@ -1260,6 +1290,29 @@ function registerRoutes (baseRouter, getManager) {
     res.json(manager.deviceConfigFor(req.params.id, authFrom(req)))
   }))
 
+  // Pull (MIDL-only screens contract): one record of the display's profile,
+  // as listed in its config's `midl.records[].url`. Device-token auth like
+  // /devices/:id/config. The doc is served exactly as stored.
+  router.get('/devices/:id/midl/records/:rid', wrap(getManager, (manager, req, res) => {
+    res.json(manager.deviceRecordFor(req.params.id, req.params.rid, authFrom(req)))
+  }))
+
+  // The display's records and screens as DM delivers them (UI / tools).
+  router.get('/devices/:id/midl', wrap(getManager, (manager, req, res) => {
+    const device = manager.getDevice(req.params.id)
+    res.json({
+      deviceId: device.id,
+      profile: device.assignedProfile || 'default',
+      className: manager.deviceMidlClass(device),
+      records: manager.deviceRecords(device.id).map((r) => ({
+        id: r.id, title: r.title, source: r.source, hash: r.hash, hidden: r.hidden,
+        overridesEmbedded: r.overridesEmbedded, screens: r.screens
+      })),
+      screens: manager.deviceScreens(device.id),
+      delivery: device.midlDelivery || null
+    })
+  }))
+
   router.get('/profiles', wrap(getManager, (manager, req, res) => {
     res.json(manager.listProfiles())
   }))
@@ -1281,8 +1334,7 @@ function registerRoutes (baseRouter, getManager) {
       res.end()
       return
     }
-    const midlValidation = imported.midlValidation || require('./lib/midl').validateV2AsMidl(imported.config)
-    res.json(Object.assign({}, imported, { midlValidation }))
+    res.json(imported)
   }))
 
   // Dashboards saved on yey.boats, through the yey connector's in-process
@@ -1900,7 +1952,9 @@ function dashboardPresetDocument (manager, profileId) {
       version: Number(profile.version || 1),
       updatedAt: profile.updatedAt || null
     },
-    dashboard: profile.config || {}
+    dashboard: profile.config || {},
+    // The screens: the profile's MIDL records and index.
+    midl: profile.midl || midlRecords.emptyMidl()
   }
 }
 
@@ -1909,7 +1963,11 @@ function importDashboardPreset (manager, body, headers) {
   const doc = body.raw
     ? parseDashboardImport(body.raw, body.format === 'json' ? 'application/json' : contentType)
     : (isMidlDocument(body) || body.dashboard || body.preset ? body : { dashboard: body })
-  return importDashboardDocument(manager, doc, { presetId: body.presetId })
+  return importDashboardDocument(manager, doc, {
+    presetId: body.presetId,
+    targetClass: body.targetClass,
+    deviceId: body.deviceId && manager.store.registry.devices[body.deviceId] ? body.deviceId : undefined
+  })
 }
 
 // A MIDL document (what the MIDL editor and yey.boats save) rather than a
@@ -1921,27 +1979,74 @@ function isMidlDocument (doc) {
 
 // The one way a dashboard document becomes a profile (preset): the file
 // import (/profiles/import-dashboard) and the yey.boats import both land
-// here. A yeyboats.dashboard.v2 document is stored as is; a MIDL document is
-// first checked like a MIDL editor save (midl's validator for the class,
-// then what the v2 model cannot hold) and translated to v2. Either way the
-// store-time validator checks the displays that use the profile.
-// opts: presetId, name, version, targetClass (MIDL class to validate
-// against), extra (fields stored on the profile, e.g. its origin).
+// here. A MIDL document is stored UNCHANGED as a record of the profile
+// (MIDL-only screens contract): it is validated against the target class
+// (the display's own manifest when `deviceId` names a display DM has it
+// for, else the bundled manifest of `targetClass`, the doc's `targetClass`,
+// that display's class, or square-480) and nothing is translated, so spans,
+// windrose and every other valid MIDL feature are kept. A
+// yeyboats.dashboard.v2 export is stored through upsertProfile (its v2
+// screens become records once). Either way the store-time validator checks
+// the displays that use the profile, and they get the records pushed.
+// opts: presetId, name, version, targetClass, deviceId, recordSource,
+// extra (fields stored on the profile, e.g. its origin).
 function importDashboardDocument (manager, doc, opts) {
   opts = opts || {}
   if (!doc || typeof doc !== 'object' || Array.isArray(doc)) {
     throw statusError(400, 'dashboard object is required')
   }
-  let id, name, version, config, midlValidation
+  let id, name, version, config, midl, midlValidation, record
+  const profiles = manager.store.profiles.profiles
   if (isMidlDocument(doc)) {
-    const known = midlLib.MIDL_CLASSES.find((c) => c.id === opts.targetClass)
-    const className = known ? known.id : 'square-480'
-    midlValidation = midlLib.requireStorableMidlDoc(doc, className)
-    config = midlAdapter.midlToV2(doc, null)
-    const title = doc.meta && typeof doc.meta.title === 'string' ? doc.meta.title : ''
-    id = sanitizePresetId(opts.presetId || title)
+    const known = (c) => midlLib.MIDL_CLASSES.some((k) => k.id === c) ? c : null
+    const device = opts.deviceId ? manager.getDevice(opts.deviceId) : null
+    const className = known(opts.targetClass) || known(doc.targetClass) ||
+      (device ? manager.deviceMidlClass(device) : null) || 'square-480'
+    midlValidation = device && className === manager.deviceMidlClass(device)
+      ? manager.checkMidlDocForDevice(device.id, doc)
+      : midlLib.checkMidlDoc(doc, className)
+    if (!midlValidation.unavailable && !midlValidation.ok) {
+      throw Object.assign(statusError(422, `MIDL document fails validation for ${className}`), {
+        payload: { error: { code: 'midl_invalid', message: `MIDL document fails validation for ${className}`, details: { className, issues: midlValidation.issues } } }
+      })
+    }
+    const title = midlRecords.recordTitle(doc, '')
+    id = sanitizePresetId(opts.presetId || title || (doc.screens[0] && doc.screens[0].id))
+    if (!id) throw statusError(400, 'preset id is required')
+    const existing = profiles[id]
     name = opts.name || title || id
     version = Number(opts.version || 1)
+    config = existing ? existing.config : clone((profiles.default && profiles.default.config) || {})
+    midl = midlRecords.normalizeMidl(existing && existing.midl)
+    const sourceId = opts.extra && opts.extra.sourceId
+    const prior = (sourceId && midl.records.find((r) => r.sourceId === String(sourceId))) ||
+      (midl.records.length === 1 ? midl.records[0] : null)
+    let recordId = prior ? prior.id : midlRecords.toRecordId(opts.presetId || title || id)
+    const screens = midlRecords.screensOf(doc)
+    // A one-screen doc whose screen is a built-in's id replaces that
+    // built-in (same id = override), instead of colliding with it.
+    if (!prior && screens.length === 1 && midlRecords.isBuiltinId(screens[0].id)) recordId = screens[0].id
+    if (!midlRecords.isRecordId(recordId)) recordId = 'imported'
+    record = {
+      id: recordId,
+      title: title || name,
+      doc,
+      source: opts.recordSource || 'file',
+      updatedAt: new Date().toISOString()
+    }
+    if (sourceId) record.sourceId = String(sourceId)
+    if (opts.extra && opts.extra.sourceUpdatedAt) record.sourceUpdatedAt = opts.extra.sourceUpdatedAt
+    midl = midlRecords.upsertRecord(midl, record)
+    if (!midl.index.order.includes(recordId)) midl.index.order.unshift(recordId)
+    if (!existing || !midl.index.defaultScreen) midl.index.defaultScreen = (screens[0] && screens[0].id) || ''
+    midl.index.hidden = midl.index.hidden.filter((h) => h !== recordId)
+    const conflicts = midlRecords.screenConflicts(midl, className)
+    if (conflicts.length) {
+      const c = conflicts[0]
+      throw Object.assign(statusError(409, `screen id "${c.screen}" is used by records "${c.records[0]}" and "${c.records[1]}"`), {
+        payload: { error: { code: 'screen_id_conflict', message: `screen id "${c.screen}" is used by records "${c.records[0]}" and "${c.records[1]}"; rename the screen`, details: { className, conflicts } } }
+      })
+    }
   } else {
     if (doc.kind && doc.kind !== 'yeyboats.dashboard.v2') {
       throw statusError(400, 'unsupported dashboard config kind')
@@ -1952,19 +2057,21 @@ function importDashboardDocument (manager, doc, opts) {
     if (!config || typeof config !== 'object' || Array.isArray(config)) {
       throw statusError(400, 'dashboard object is required')
     }
+    if (doc.midl && typeof doc.midl === 'object') midl = midlRecords.normalizeMidl(doc.midl)
     name = opts.name || preset.name || doc.name || id
     version = Number(opts.version || preset.version || doc.version || 1)
   }
   if (!id) throw statusError(400, 'preset id is required')
   // Validator on store: an import that replaces a preset displays use is
-  // checked for them.
+  // checked for them (and pushed to them).
   const { profile, layoutValidation } = manager.saveProfileChecked(Object.assign({}, opts.extra || {}, {
     id,
     name,
     version,
     config
-  }))
-  return Object.assign({}, profile, { layoutValidation }, midlValidation ? { midlValidation } : {})
+  }, midl ? { midl } : {}))
+  return Object.assign({}, profile, { layoutValidation }, midlValidation ? { midlValidation } : {},
+    record ? { record: { id: record.id, hash: midlRecords.docHash(record.doc) } } : {})
 }
 
 function parseDashboardImport (raw, contentType) {
@@ -2012,6 +2119,7 @@ async function importCloudDashboard (manager, cloudId) {
     name: cloud.title,
     version: existing ? Number(existing.version || 1) + 1 : 1,
     targetClass: cloud.targetClass,
+    recordSource: cloudDashboards.SOURCE,
     extra: {
       source: cloudDashboards.SOURCE,
       sourceId: cloud.id,
@@ -2458,17 +2566,20 @@ function renderSignalKRegisterForm (managerUrl) {
 }
 
 // #14 (roadmap S7): the device-page preview is drawn by the shared MIDL device
-// bundle. It needs the capability manifest of the display's resolution class
-// and the v2 -> MIDL element-type map (lib/midl-adapter).
-function midlPreviewFor (display) {
-  const cls = midlLib.classForDisplay(display)
-  let manifest = null
-  try { manifest = require('./lib/midl').manifestForClass(cls.id) } catch (e) { manifest = null }
+// bundle. It needs the display's class and its capability manifest (the
+// display's own when DM has fetched it, else the bundled one of the class).
+function midlPreviewFor (manager, device) {
+  const className = manager.deviceMidlClass(device)
+  const cls = midlLib.MIDL_CLASSES.find((c) => c.id === className) || midlLib.classForDisplay(manager.resolveDisplay(device))
+  const cached = manager._deviceManifests && manager._deviceManifests.get(device.id)
+  let manifest = cached && cached.manifest ? cached.manifest : null
+  if (!manifest) {
+    try { manifest = midlLib.manifestForClass(cls.id) } catch (e) { manifest = null }
+  }
   return {
     className: cls.id,
     viewport: { x: 0, y: 0, w: cls.w, h: cls.h },
-    manifest,
-    types: midlAdapter.V2_TO_MIDL
+    manifest
   }
 }
 
@@ -2502,149 +2613,48 @@ function renderDevicePage (manager, id, live = {}, opts = {}) {
     .join('')
   // Live-preview data, driven by the device's REAL screen list (deviceViews)
   // so the preview tracks what the device actually has + which screen is
-  // current. Each screen's tiles come from the assigned profile's authored
-  // layout when managed, else the screen-presets catalogue that mirrors the
-  // firmware's built-in screens — so built-in screens still render live
-  // objects. Tiles are flattened to {widgetId,widget,title,path,unit,precision}
-  // and drawn with live SignalK data by the shared MIDL device bundle
+  // current. Each screen is drawn from the MIDL record that holds it (the
+  // profile's record, or the embedded built-in DM ships a copy of), exactly
+  // as stored: the record doc narrowed to that one screen, rendered with
+  // live SignalK data by the shared MIDL device bundle
   // (public/midl-device.global.js) through public/device-preview.js.
   const previewData = (() => {
-    const prof = manager.store.profiles.profiles[assigned] || {}
-    const pcfg = prof.config || {}
-    const items = (pcfg.widgets && pcfg.widgets.items) || {}
-    const authored = {}
-    ;((pcfg.layout && pcfg.layout.screens) || []).forEach((s) => { authored[s.id] = s })
-    let presetById = {}
-    try {
-      const sp = require('./lib/screen-presets')
-      const dc = (typeof sp.classifyBoard === 'function')
-        ? sp.classifyBoard(String((device.board || (device.display && device.display.class) || '')))
-        : 'sunton-480'
-      ;(sp.getPresetsForClass(dc) || []).forEach((s) => { presetById[s.id] = s })
-    } catch (e) { presetById = {} }
-    const PRESET_ALIAS = { status: 'system' } // built-in id -> nearest preset id
-    // #32: the preview gets the same checked markers the device config does.
-    const markerManifest = manager.effectiveManifest(id)
-    const previewMarkers = (arr) => (Array.isArray(arr) ? fieldSchema.sanitizeMarkers(arr, markerManifest) : null)
-    const presetTiles = (screenId) => {
-      // exact id, alias, else a prefix match so built-in variants map to their
-      // base (wind_classic / wind_steer -> "wind"); gives real SignalK bindings.
-      let p = presetById[screenId] || presetById[PRESET_ALIAS[screenId]]
-      if (!p) {
-        const base = Object.keys(presetById).find((k) => screenId === k || screenId.indexOf(k + '_') === 0)
-        if (base) p = presetById[base]
-      }
-      if (!p || !Array.isArray(p.tiles)) return null
-      return p.tiles.map((t) => ({
-        widgetId: null, editable: false,
-        widget: t.widget || 'numeric', title: t.title || (t.primary ? String(t.primary).split('.').pop() : ''),
-        path: t.primary || t.path || '', unit: t.unit || '', precision: t.precision != null ? t.precision : null,
-        color: null,
-        markers: previewMarkers(t.markers)
-      }))
-    }
-    const tilesFor = (screenId) => {
-      // A genuinely managed/edited screen (authored tiles WITH real bindings)
-      // wins so edits show; an empty-path stub authored layout falls through to
-      // the preset catalogue so the preview still shows live objects.
-      const a = authored[screenId]
-      if (a && Array.isArray(a.tiles) && a.tiles.length) {
-        // Authored tiles come in two flavours: a `widget` reference into
-        // widgets.items (managed/edited), and inline `primary`/`title` tiles
-        // (the seeded layouts). Read both so a mixed screen — e.g. an edited
-        // tile next to seeded ones — projects every tile's real binding (and
-        // a single rebind doesn't blank the rest of the screen).
-        const preset = presetTiles(screenId) || []
-        const mapped = a.tiles.map((t, i) => {
-          // Managed tile: `t.widget` is a KEY into widgets.items. Seeded tile:
-          // `t.widget` is the widget TYPE (compass/numeric/text) and the path
-          // lives inline on `t.primary`/`t.path`. Distinguish by whether the
-          // key resolves to a widget item.
-          const refKey = (t && t.widget && Object.prototype.hasOwnProperty.call(items, t.widget)) ? t.widget : null
-          const w = refKey ? items[refKey] : {}
-          const p = preset[i] || {}
-          const inlineType = (t && t.widget && !refKey) ? t.widget : null
-          const inlinePath = (t && (t.primary || t.path)) || ''
-          // #39: the preset at the same index only fills in for preset/inline
-          // tiles. A managed tile (editor-authored widget item) describes
-          // itself; borrowing the preset's title/unit/precision mislabels it.
-          const fb = refKey ? {} : p
-          return {
-            widgetId: refKey,
-            editable: !!refKey,
-            widget: w.type || inlineType || fb.widget || 'numeric',
-            // An untitled managed tile shows its widget id, as the firmware does.
-            title: w.title || (t && t.title) || fb.title || inlineType || refKey || '',
-            path: w.path || inlinePath || fb.path || '',
-            unit: w.unit || (t && t.unit) || fb.unit || '',
-            precision: w.precision != null ? w.precision : (t && t.precision != null ? t.precision : (fb.precision != null ? fb.precision : null)),
-            // Per-element color overrides (element -> #rrggbb). Only the managed
-            // widget item carries them; preset/inline tiles default to theme.
-            color: (w.color && typeof w.color === 'object') ? w.color : null,
-            markers: previewMarkers(Array.isArray(w.markers) ? w.markers
-              : (Array.isArray(t && t.markers) ? t.markers : fb.markers))
-          }
-        })
-        if (mapped.some((m) => m.path)) return mapped
-      }
-      return presetTiles(screenId) || []
+    let records = []
+    try { records = manager.deviceRecords(id) } catch (e) { records = [] }
+    const ownerOf = (screenId) => records.find((r) => r.doc && r.screens.some((sc) => sc.id === screenId))
+    const docFor = (screenId) => {
+      const r = ownerOf(screenId)
+      if (!r) return null
+      const screen = r.doc.screens.find((sc) => sc && sc.id === screenId)
+      return Object.assign({}, r.doc, { screens: [screen] })
     }
     const dvViews = (views && Array.isArray(views.views) ? views.views : [])
-    // Device telemetry from the heartbeat status, for the System/status panel
-    // (the parts that aren't SignalK: wifi/ip/rssi/ble/sk/heap/psram/uptime/build).
+    // Device telemetry from the heartbeat status, for the `local` bindings of
+    // the status record (wifi/ip/rssi/sk/heap/psram/uptime/build).
     const st = (device && device.status) || {}
     const telemetry = {
-      wifiState: (st.network && st.network.state) || (st.network && st.network.wifi_up ? 'STA' : null),
-      ip: st.network && st.network.ip,
-      rssi: st.network && st.network.rssi,
-      ssid: st.network && st.network.ssid,
-      ble: (st.network && st.network.hostname) || device.id,
-      signalk: (st.signalk && st.signalk.state) || (st.sk && st.sk.state),
-      heapKb: st.memory && st.memory.heap_free_kb,
-      psramKb: st.memory && st.memory.psram_free_kb,
-      uptimeMs: st.ui && st.ui.uptime_ms,
-      build: (st.firmware && (st.firmware.build_time || st.firmware.version)) || null
-    }
-    // Manifest gating for the rich edit-fields editor (Slice: rich edit mode).
-    // The device's reported ui.capabilities (or the built-in default) drives
-    // which KINDs the kind-picker offers; COLOR_ELEMENTS tells the editor which
-    // color swatches each kind exposes; quantityForPath lets the client filter
-    // the path picker to paths COMPATIBLE with the chosen kind. We ship the
-    // pure manifest data + the element map so device-preview.js (standalone, no
-    // bundler) can gate the UI exactly like lib/field-schema.js does server-side.
-    let manifest = fieldSchema.DEFAULT_MANIFEST
-    try { manifest = manager.effectiveManifest(id) || fieldSchema.DEFAULT_MANIFEST } catch (e) { manifest = fieldSchema.DEFAULT_MANIFEST }
-    const editorManifest = {
-      viewTypes: Object.keys((manifest && manifest.viewTypes) || {}),
-      units: (manifest && manifest.units) || fieldSchema.DEFAULT_MANIFEST.units,
-      colorElements: fieldSchema.COLOR_ELEMENTS
-    }
-    // Stored HUD field overrides for a fullscreen screen, surfaced back to the
-    // preview so the field editor shows current bindings/colours and the live
-    // HUD honours them. Read from the authored layout screen's `hud` block.
-    const hudFor = (screenId) => {
-      const a = authored[screenId]
-      if (a && a.hud && a.hud.fields && typeof a.hud.fields === 'object') {
-        return { kind: a.hud.kind || null, fields: a.hud.fields }
-      }
-      return null
+      'net.ip': st.network && st.network.ip,
+      'net.ssid': st.network && st.network.ssid,
+      'net.rssi': st.network && st.network.rssi,
+      'sk.state': (st.signalk && st.signalk.state) || (st.sk && st.sk.state),
+      'sk.host': st.signalk && st.signalk.host,
+      'sys.heap': st.memory && st.memory.heap_free_kb,
+      'sys.psram': st.memory && st.memory.psram_free_kb,
+      'sys.uptime': st.ui && st.ui.uptime_ms,
+      'sys.build': (st.firmware && (st.firmware.build_time || st.firmware.version)) || null,
+      'sys.version': st.firmware && st.firmware.version,
+      'device.id': device.id
     }
     return {
       current: currentScreen,
       profileId: assigned,
       telemetry,
-      manifest: editorManifest,
       screens: dvViews.map((v) => {
-        const out = { id: v.id, title: v.title || v.id, tiles: tilesFor(v.id) }
-        const hud = hudFor(v.id)
-        if (hud) out.hud = hud
-        return out
+        const r = ownerOf(v.id)
+        return { id: v.id, title: v.title || v.id, record: r ? r.id : (v.record || null), doc: docFor(v.id) }
       })
     }
   })()
-  // SK path catalogue for the edit datalist (the layout-editor's curated list).
-  let previewPaths = []
-  try { previewPaths = require('./lib/screen-presets').ALL_PATHS || [] } catch (e) { previewPaths = [] }
   // A ?screen= carried through a save redirect pre-selects that screen (and
   // becomes the preview's initial screen) so a full-page reload doesn't snap
   // back to the device's current screen.
@@ -2656,11 +2666,7 @@ function renderDevicePage (manager, id, live = {}, opts = {}) {
       `${escapeHtml(s.title)}</option>`)
     .join('')
   if (selectScreen) previewData.initialScreen = selectScreen
-  // Curated SK path catalogue for the rich edit-fields path picker (same list
-  // that backs the <datalist>), so the picker can offer candidates even before
-  // the live stream has delivered a value for every path.
-  previewData.previewPaths = previewPaths
-  previewData.midl = midlPreviewFor(manager.resolveDisplay(device))
+  previewData.midl = midlPreviewFor(manager, device)
   const previewJson = JSON.stringify(previewData).replace(/</g, '\\u003c')
   const otaSection = renderDeviceFirmwareSection(manager, device)
   return `${renderValidationBanner(opts && opts.validation)}
@@ -2685,7 +2691,6 @@ function renderDevicePage (manager, id, live = {}, opts = {}) {
             <div class="lp-controls">
               <label class="lp-ctl lp-ctl-block">Preview screen
                 <select id="lp-screen">${previewScreenOptions || '<option value="">(none)</option>'}</select></label>
-              <label class="lp-ctl lp-edit-toggle"><input type="checkbox" id="lp-edit">&nbsp;Edit fields</label>
             </div>
             <form id="lp-form" method="post"
                   action="/plugins/yey-boats-display-manager/ui/devices/${encodeURIComponent(id)}/save-screen">
@@ -2694,19 +2699,13 @@ function renderDevicePage (manager, id, live = {}, opts = {}) {
               <input type="hidden" name="mode" id="lp-f-mode" value="update">
               <div class="lp-actions">
                 <button type="button" class="primary btn-sm" data-mode="switch" title="Show the selected screen on the device now">Show on device</button>
-                <button type="button" class="btn-sm" data-mode="update" title="Save edits to the assigned view + reload the device">Save to view</button>
-                <span class="lp-create">
-                  <input type="text" name="profileName" id="lp-f-name" placeholder="new view name">
-                  <button type="button" class="btn-sm" data-mode="create" title="Save the edited layout as a new view">Save as new</button>
-                </span>
               </div>
             </form>
             <p class="muted lp-note" id="lp-note"><strong>Show on device</strong> switches the
-              device to the selected screen now; tick <strong>Edit fields</strong> to rebind a
-              tile's SignalK path, then <strong>Save to view</strong> or <strong>Save as new</strong>.</p>
+              device to the selected screen now. Screens are MIDL records: edit them in the
+              <a href="/yey-boats-display-manager/midl-editor.html">MIDL editor</a>.</p>
           </div>
         </div>
-        <datalist id="lp-paths">${previewPaths.map((p) => `<option value="${escapeHtml(p)}"></option>`).join('')}</datalist>
       </div>
       <form class="config-form lp-assign" method="post"
             action="/plugins/yey-boats-display-manager/ui/devices/${encodeURIComponent(id)}/switch-view">
@@ -2810,7 +2809,6 @@ function renderDevicePage (manager, id, live = {}, opts = {}) {
         .lp-assign button{margin:0}
       </style>
       <script>window.__yeyboatsPreview=${previewJson};window.__yeyboatsDeviceId=${JSON.stringify(id)};</script>
-      <script src="/yey-boats-display-manager/device-hud.js"></script>
       <script src="/yey-boats-display-manager/midl-device.global.js"></script>
       <script src="/yey-boats-display-manager/device-preview.js"></script>
       <div class="config-grid">
@@ -3396,11 +3394,14 @@ function saveDeviceConfigForm (manager, id, body) {
     const presetId = sanitizePresetId(body.presetId || body.presetName)
     if (!presetId) throw statusError(400, 'preset id is required')
     const existing = manager.store.profiles.profiles[presetId]
+    const from = manager.store.profiles.profiles[profileId]
     manager.upsertProfile({
       id: presetId,
       name: body.presetName || presetId,
       version: existing ? Number(existing.version || 1) + 1 : 1,
-      config: overrides
+      config: overrides,
+      // The new preset keeps the screens (MIDL records) the display has.
+      midl: existing ? existing.midl : clone((from && from.midl) || midlRecords.emptyMidl())
     })
     assignedProfile = presetId
   }
@@ -3523,9 +3524,10 @@ function hasOwn (obj, key) {
   return obj != null && Object.prototype.hasOwnProperty.call(obj, key)
 }
 
+// The device form's non-screen settings. Screens are MIDL records of the
+// profile (MIDL editor / import), so the form no longer carries v2
+// widgets or layout.
 function configOverridesFromForm (body) {
-  const widgets = widgetsFromForm(body)
-  const layout = layoutFromForm(body)
   return {
     settings: {
       defaultScreen: cleanString(body.defaultScreen) || 'dashboard',
@@ -3547,16 +3549,6 @@ function configOverridesFromForm (body) {
       allowHeadingAdjust: checkboxValue(body.allowHeadingAdjust),
       backend: cleanString(body.autopilotBackend) || 'signalk'
     },
-    widgets: {
-      defaults: {
-        fontSize: integerValue(body.fontSize, 18),
-        labelFontSize: integerValue(body.labelFontSize, 12),
-        valueFontSize: integerValue(body.valueFontSize, 32),
-        unitFontSize: integerValue(body.unitFontSize, 14)
-      },
-      items: widgets
-    },
-    layout,
     debug: {
       logLevel: cleanString(body.logLevel) || 'info',
       touchMode: cleanString(body.touchMode) || 'irq'
@@ -3568,9 +3560,6 @@ function renderDeviceConfigForm (device, config, profiles, views, dayNightActive
   const settings = config.settings || {}
   const nmea = config.nmea0183Wifi || {}
   const autopilot = config.autopilot || {}
-  const widgets = (config.widgets && config.widgets.defaults) || {}
-  const widgetItems = (config.widgets && config.widgets.items) || {}
-  const layout = config.layout || {}
   const debug = config.debug || {}
   // Default-screen picker: a dropdown of the device's own reported screens when
   // we have them, so the operator can only pick a screen that actually exists.
@@ -3598,25 +3587,17 @@ function renderDeviceConfigForm (device, config, profiles, views, dayNightActive
         ${field('Allow standby', checkbox('allowStandby', autopilot.allowStandby))}
         ${field('Heading adjust', checkbox('allowHeadingAdjust', autopilot.allowHeadingAdjust))}
         ${field('AP backend', input('autopilotBackend', autopilot.backend || 'signalk'))}
-        ${field('Base font', input('fontSize', widgets.fontSize || 18, 'number', '8', '80', '1'))}
-        ${field('Label font', input('labelFontSize', widgets.labelFontSize || 12, 'number', '8', '80', '1'))}
-        ${field('Value font', input('valueFontSize', widgets.valueFontSize || 32, 'number', '8', '120', '1'))}
-        ${field('Unit font', input('unitFontSize', widgets.unitFontSize || 14, 'number', '8', '80', '1'))}
         ${field('Log level', select('logLevel', debug.logLevel || 'info', [['debug', 'Debug'], ['info', 'Info'], ['warn', 'Warn'], ['error', 'Error']]))}
         ${field('Touch mode', select('touchMode', debug.touchMode || 'irq', [['irq', 'IRQ'], ['poll', 'Poll'], ['disabled', 'Disabled']]))}
       </div>
       ${renderFormatEditor(settings.format)}
       <fieldset class="paths-fields">
-        <legend>Paths &amp; fields</legend>
+        <legend>Screens</legend>
         <p class="muted" style="margin:0 0 10px;">
-          Define each tile's widget type and <strong>SignalK path</strong> in
-          <em>Widgets</em>, then place those widgets into <strong>screens</strong>
-          and tiles below. Both are saved together when you save this form. For
-          the manifest-gated drag/drop editor, use the
-          <a href="/plugins/yey-boats-display-manager/ui/layout" target="_blank" rel="noopener">layout editor</a>.
+          Screens are MIDL records of the preset. Edit them in the
+          <a href="/yey-boats-display-manager/midl-editor.html" target="_blank" rel="noopener">MIDL editor</a>
+          or import a MIDL dashboard on the Presets page.
         </p>
-        ${renderWidgetEditor(widgetItems)}
-        ${renderLayoutEditor(layout)}
       </fieldset>
       <fieldset>
         <legend>Save as preset</legend>
@@ -3902,6 +3883,17 @@ function sanitizeWidgetId (value) {
     .slice(0, 31)
 }
 
+function clone (value) {
+  return JSON.parse(JSON.stringify(value))
+}
+
+// Screen ids are bare MIDL screen ids. A legacy managed-screen id from old
+// firmware ("mgr_<id>") maps to the bare id.
+function bareScreenId (value) {
+  const id = String(value || '').trim()
+  return id.startsWith('mgr_') ? id.slice(4) : id
+}
+
 function statusError (status, message) {
   const err = new Error(message)
   err.status = status
@@ -4076,7 +4068,7 @@ function renderDeviceConfigWidget (config, views) {
         ['Heartbeat', config.management && `${config.management.heartbeatMs} ms`],
         ['Command poll', config.management && `${config.management.commandPollMs} ms`]
       ]))}
-      ${configSection('Widgets', renderWidgetsTable(config.widgets), true)}
+      ${configSection('MIDL records', renderMidlRecordsTable(config.midl), true)}
       ${configSection('Screens', renderScreensTable(config.layout, views), true)}
     </div>`
 }
@@ -4098,6 +4090,24 @@ function simpleTable (headers, rows, emptyMessage) {
     <table>
       <thead><tr>${headers.map((header) => `<th>${escapeHtml(header)}</th>`).join('')}</tr></thead>
       <tbody>${body}</tbody>
+    </table>`
+}
+
+// The config's `midl` block: the profile's own records (pushed / pulled)
+// and the index. Embedded records are on the display already.
+function renderMidlRecordsTable (midl) {
+  const records = (midl && Array.isArray(midl.records)) ? midl.records : []
+  const index = (midl && midl.index) || {}
+  const rows = records.map((r) => `
+    <tr>
+      <td><strong>${escapeHtml(r.title || r.id)}</strong><br><span>${escapeHtml(r.id)}</span></td>
+      <td><code>${escapeHtml(String(r.hash || '').slice(0, 19))}</code></td>
+    </tr>`).join('')
+  return `
+    <p class="muted">Order: ${escapeHtml((index.order || []).join(', ') || 'built-in')} · default screen: ${escapeHtml(index.defaultScreen || '-')}${(index.hidden || []).length ? ` · hidden: ${escapeHtml(index.hidden.join(', '))}` : ''}</p>
+    <table>
+      <thead><tr><th>Record</th><th>Hash</th></tr></thead>
+      <tbody>${rows || '<tr><td colspan="2">Built-in records only (nothing to deliver).</td></tr>'}</tbody>
     </table>`
 }
 

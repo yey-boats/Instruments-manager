@@ -107,33 +107,6 @@ function freshManager () {
   return { manager, auth, id }
 }
 
-test('addField refuses a hostile marker with 422 and stores nothing', () => {
-  const { manager, id } = freshManager()
-  manager.upsertProfile({ id: 'bench', name: 'Bench', config: { layout: { version: 1, screens: [] }, widgets: { version: 1, items: {} } } })
-  manager.assignProfile(id, { profileId: 'bench' })
-  const sid = manager.addScreen(id, { title: 'Dash' }).screens[0].id
-  assert.throws(() => manager.addField(id, sid, compass([marker({ color: XSS })])),
-    (err) => err.status === 422 || err.statusCode === 422 || /field_invalid/.test(String(err.code || err.message)))
-  assert.deepStrictEqual(manager.editorLayout(id).items, {}, 'nothing stored')
-  assert.ok(!JSON.stringify(manager.store.profiles.profiles.bench).includes('onerror'), 'hostile colour must not be stored')
-})
-
-test('updateField refuses a new hostile marker, but cleans an unchanged stored one', () => {
-  const { manager, id } = freshManager()
-  manager.upsertProfile({ id: 'bench', name: 'Bench', config: { layout: { version: 1, screens: [] }, widgets: { version: 1, items: {} } } })
-  manager.assignProfile(id, { profileId: 'bench' })
-  const sid = manager.addScreen(id, { title: 'Dash' }).screens[0].id
-  const wid = manager.addField(id, sid, compass([marker()])).screens[0].tiles[0].widget
-  assert.throws(() => manager.updateField(id, sid, wid, compass([marker({ color: XSS })])), (err) => err.status === 422)
-  // A ring stored before #32 (bypassing validation) and echoed back unchanged
-  // by the field editor is cleaned, not refused.
-  const legacy = [marker(), marker({ color: XSS })]
-  manager.store.profiles.profiles.bench.config.widgets.items[wid].markers = legacy
-  const layout = manager.updateField(id, sid, wid, Object.assign(compass(legacy), { title: 'HDG' }))
-  assert.deepStrictEqual(layout.items[wid].markers, [marker()])
-  assert.strictEqual(layout.items[wid].title, 'HDG')
-})
-
 test('device-reported glyph lists can narrow the known glyphs, never widen them', () => {
   const hostile = Object.assign({}, DEFAULT_MANIFEST, { glyphs: ['<svg onload=x>'] })
   assert.strictEqual(validateField(compass([marker({ glyph: '<svg onload=x>' })]), hostile).ok, false)
@@ -150,29 +123,6 @@ test('device-reported glyph lists can narrow the known glyphs, never widen them'
   assert.ok(!JSON.stringify(schema.sanitizeMarkersDeep(deep, DEFAULT_MANIFEST) || {}).includes('onerror'), 'depth guard fails closed')
   assert.strictEqual(isMarkerColor('accent'), true)
   assert.ok(validateField(compass([marker({ path: 'a..b' })]), DEFAULT_MANIFEST).errors.some((e) => e.code === 'marker_path_invalid'))
-})
-
-test('generateConfig never serves an unchecked marker, whatever route stored it', () => {
-  const { manager, id } = freshManager()
-  // A profile import / raw profile upsert bypasses the field editor entirely.
-  manager.upsertProfile({
-    id: 'imported',
-    name: 'Imported',
-    config: {
-      layout: { version: 1, screens: [{ id: 'nav', type: 'grid', tiles: [
-        { widget: 'hdg', area: { col: 0, row: 0 }, markers: [marker({ color: XSS })] }
-      ] }] },
-      widgets: { version: 1, items: {
-        hdg: { type: 'compass', path: 'navigation.headingTrue', markers: [marker(), marker({ color: XSS }), marker({ glyph: '<svg onload=x>' })] }
-      } }
-    }
-  })
-  manager.assignProfile(id, { profileId: 'imported' })
-  const cfg = manager.generateConfig(id)
-  const text = JSON.stringify(cfg)
-  assert.ok(!text.includes('onerror') && !text.includes('onload'), text)
-  assert.deepStrictEqual(cfg.widgets.items.hdg.markers, [marker()])
-  assert.deepStrictEqual(cfg.layout.screens[0].tiles[0].markers, [])
 })
 
 test('generateConfig checks markers at any depth: variants, defaults, nested keys', () => {

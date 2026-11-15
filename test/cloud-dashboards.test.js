@@ -472,7 +472,12 @@ test('import via get() creates a profile through the shared validator, with its 
   assert.strictEqual(p.sourceUpdatedAt, '2026-11-01T10:00:00Z')
   assert.strictEqual(p.sourceTargetClass, 'square-480')
   assert.ok(p.importedAt)
-  assert.strictEqual(p.config.widgets.items.sog.path, 'navigation.speedOverGround')
+  // MIDL-only: the doc is stored unchanged as the profile's record.
+  assert.strictEqual(p.config.widgets, undefined)
+  assert.strictEqual(p.midl.records.length, 1)
+  assert.strictEqual(p.midl.records[0].source, 'yey.boats')
+  assert.strictEqual(p.midl.records[0].sourceId, 'dash-1')
+  assert.ok(JSON.stringify(p.midl.records[0].doc).includes('navigation.speedOverGround'))
 
   let list = await call(routes(manager)('GET', '/cloud-dashboards'))
   assert.strictEqual(list.json.dashboards[0].state, 'current')
@@ -495,7 +500,8 @@ test('import via get() creates a profile through the shared validator, with its 
   p = manager.store.profiles.profiles[id]
   assert.strictEqual(p.version, 2)
   assert.strictEqual(p.sourceUpdatedAt, '2026-11-05T10:00:00Z')
-  assert.strictEqual(Object.keys(p.config.widgets.items).length, 2)
+  assert.strictEqual(p.midl.records.length, 1, 're-import replaces the same record')
+  assert.strictEqual(JSON.stringify(p.midl.records[0].doc), JSON.stringify(midlDoc('Passage', ['navigation.speedOverGround', 'environment.depth.belowTransducer'])))
 
   // From the UI form: to the preset page.
   const form = await call(imp, { method: 'POST', params: { id: 'dash-1' }, headers: FORM })
