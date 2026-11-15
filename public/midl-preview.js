@@ -26,12 +26,13 @@
       { type: "bar", bindings: ["value"], attrs: ["title", "size", "unit", "color", "range", "zones"] },
       { type: "compass", bindings: ["value", "dir"], attrs: ["title", "size", "color"] },
       { type: "windrose", bindings: ["value", "dir"], attrs: ["title", "format", "size", "unit", "color"] },
-      { type: "trend", bindings: ["value"], attrs: ["title", "size", "unit", "color"] },
+      { type: "trend", bindings: ["value"], attrs: ["title", "format", "size", "unit", "color", "range", "history"] },
       { type: "autopilot", bindings: ["value"], attrs: ["title", "size", "color"] },
       { type: "button", bindings: [], attrs: ["title", "size", "color"] },
     ],
     sources: ["signalk"], actionKinds: ["nav", "command"],
     presets: ["full", "hero-split"], themes: ["sun", "day", "night", "red-night", "high-contrast", "classic"], fonts: [14, 20, 28, 48],
+    history: { points: 120, maxSeries: 6, maxWindowS: 86400, windows: ["10m", "30m", "1h", "6h", "24h"], backfill: true },
   };
 
   // Sample fallback values (SI source units, as SignalK delivers) for every path
@@ -73,6 +74,8 @@
       if (!v) return { value: undefined, stale: false, present: false };
       return { value: v.value, sourceUnit: v.sourceUnit, updatedAt: v.updatedAt, present: true, stale: Date.now() - v.updatedAt > STALE_MS };
     };
+    // Trend backfill from the SignalK History API (public/signalk-history.js).
+    if (window.YeySignalkHistory) this.history = window.YeySignalkHistory.history;
     this.subscribe = function (paths, cb) { const e = { paths: new Set(paths), cb: cb }; subs.add(e); return function () { subs.delete(e); }; };
     this.ingest = function (path, value, unit, ts) {
       values[path] = { value: value, sourceUnit: unit, updatedAt: ts || Date.now() };
@@ -84,7 +87,10 @@
   const canvas = document.getElementById("cv"), ctx = canvas.getContext("2d");
   const dashSel = document.getElementById("dash");
   const statusEl = document.getElementById("status"), statusText = document.getElementById("statusText");
-  const live = new SignalkDataProvider(), trends = new MidlWeb.TrendBuffers();
+  // ONE trend history store, kept across repaints (charts grow and scroll);
+  // cleared when the dashboard changes or the source switches sample -> live.
+  const live = new SignalkDataProvider(), trends = new (MidlWeb.HistoryStore || MidlWeb.TrendBuffers)();
+  trends.onUpdate = function () { scheduleRender(); }; // a backfill landed
   let DASHBOARDS = [], current = null, ws = null, rafQueued = false, usingLive = false, fallbackTimer = null;
 
   function setStatus(k, t) { statusEl.className = "pill" + (k ? " " + k : ""); statusText.textContent = t; }
@@ -110,10 +116,20 @@
     if (rafQueued) return; rafQueued = true;
     requestAnimationFrame(function () {
       rafQueued = false;
-      if (live.hasData) { if (!usingLive) { usingLive = true; setStatus("live", "live · SignalK"); } paint(live); }
+      if (live.hasData) { if (!usingLive) { usingLive = true; trends.clear(); setStatus("live", "live · SignalK"); } paint(live); }
       else paint(current.mock);
     });
   }
+  // Trend tiles scroll one bucket per step even when no value changes, so a
+  // dashboard with a trend repaints at least once a second.
+  function hasTrend(prep) {
+    const all = (prep && prep.elements) || {};
+    return Object.keys(all).some(function (sid) {
+      const els = all[sid] || {};
+      return Object.keys(els).some(function (id) { return els[id] && els[id].type === "trend"; });
+    });
+  }
+  setInterval(function () { if (current && current.trend) scheduleRender(); }, 1000);
   function closeWs() { if (ws) { try { ws.onclose = null; ws.close(); } catch (e) {} ws = null; } }
   function connect() {
     closeWs();
@@ -132,8 +148,10 @@
   }
   function load(idx) {
     const d = DASHBOARDS[idx]; if (!d) return;
-    let paths = []; try { paths = MidlWeb.prepareDashboard(d.doc, MANIFEST, "square-480", VIEWPORT).paths || []; } catch (e) {}
-    current = { doc: d.doc, paths: paths, mock: new MidlWeb.MockDataProvider(sampleFor(paths)) };
+    let paths = [], trend = false;
+    try { const prep = MidlWeb.prepareDashboard(d.doc, MANIFEST, "square-480", VIEWPORT); paths = prep.paths || []; trend = hasTrend(prep); } catch (e) {}
+    current = { doc: d.doc, paths: paths, mock: new MidlWeb.MockDataProvider(sampleFor(paths)), trend: trend };
+    trends.clear();
     usingLive = false; live.hasData = false; setStatus("", "connecting…"); paint(current.mock);
     if (fallbackTimer) clearTimeout(fallbackTimer);
     fallbackTimer = setTimeout(function () { if (!live.hasData) setStatus("sample", "sample data"); }, FALLBACK_MS);

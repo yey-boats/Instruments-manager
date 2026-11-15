@@ -48,10 +48,12 @@
   function sourceUnitFor (path) {
     return SI_FOR[displayUnitFor({ path })]
   }
-  // MIDL DataProvider over the live SignalK value map.
-  function makeProvider (values, stamps, telemetry) {
+  // MIDL DataProvider over the live SignalK value map. `history` (optional)
+  // is the trend backfill, DataProvider.history(path, {window_s, step_s, agg})
+  // (public/signalk-history.js: the SignalK History API, same origin).
+  function makeProvider (values, stamps, telemetry, history) {
     const none = { value: undefined, stale: false, present: false }
-    return {
+    const p = {
       now () { return Date.now() },
       subscribe () { return function () {} },
       getValue (b) {
@@ -70,6 +72,14 @@
         return r
       }
     }
+    if (typeof history === 'function') p.history = history
+    return p
+  }
+  // Whether a stored screen doc has a trend tile (the preview then repaints
+  // every second so the chart scrolls even when no value changes).
+  function hasTrend (doc) {
+    return !!(doc && Array.isArray(doc.screens) && doc.screens.some((s) =>
+      s && s.elements && Object.keys(s.elements).some((k) => s.elements[k] && s.elements[k].type === 'trend')))
   }
   // A path's live value as the device would show it on a numeric tile.
   function liveValueFor (values, path, stamps) {
@@ -90,7 +100,7 @@
     const c = msg && msg.context
     return !c || c === 'vessels.self' || (!!selfContext && c === selfContext)
   }
-  window.YeyDevicePreview = { displayUnitFor, sourceUnitFor, formatFor, makeProvider, liveValueFor, isSelfDelta }
+  window.YeyDevicePreview = { displayUnitFor, sourceUnitFor, formatFor, makeProvider, liveValueFor, isSelfDelta, hasTrend }
 
   const cfg = window.__yeyboatsPreview || {}
   const root = document.getElementById('lp-root')
@@ -99,8 +109,13 @@
 
   const values = Object.create(null) // signalk path -> latest value
   const stamps = Object.create(null) // signalk path -> ms of last update
-  const provider = makeProvider(values, stamps, cfg.telemetry || {})
-  const trendsByScreen = Object.create(null)
+  const backfill = window.YeySignalkHistory && window.YeySignalkHistory.history
+  const provider = makeProvider(values, stamps, cfg.telemetry || {}, backfill)
+  // Trend history for the screen on display only (spec §4: switching screens
+  // drops the old series and starts, and backfills, the new ones). One store
+  // for the current screen, kept across repaints.
+  let trendStore = null
+  let trendScreenId = null
   // initialScreen (carried through a redirect) wins over the device's current
   // screen, so a reload keeps the operator's pick.
   let currentScreenId = cfg.initialScreen || cfg.current || (cfg.screens && cfg.screens[0] && cfg.screens[0].id)
@@ -115,6 +130,8 @@
     root.replaceChildren()
     const scr = screenById(currentScreenId)
     if (!scr || !scr.doc) {
+      trendStore = null
+      trendScreenId = null
       const m = document.createElement('div')
       m.className = 'lp-empty'
       m.textContent = scr
@@ -131,7 +148,12 @@
       stage.className = 'lp-empty'
       stage.textContent = 'Preview unavailable: the MIDL renderer (midl-device.global.js) did not load.'
     } else {
-      const trends = trendsByScreen[scr.id] || (trendsByScreen[scr.id] = new W.TrendBuffers())
+      if (!trendStore || trendScreenId !== scr.id) {
+        trendStore = new (W.HistoryStore || W.TrendBuffers)()
+        trendStore.onUpdate = () => { dirty = true } // a backfill landed
+        trendScreenId = scr.id
+      }
+      const trends = trendStore
       let r
       try {
         r = W.renderDashboardSvg(JSON.stringify(scr.doc), midl.manifest, midl.className,
@@ -146,11 +168,20 @@
     root.appendChild(stage)
   }
 
-  // throttle re-render to ~5 Hz (matches the device refresh cadence)
+  // throttle re-render to ~5 Hz (matches the device refresh cadence); a
+  // screen with a trend also repaints once a second so its chart scrolls one
+  // bucket per step even when the value is steady.
   let dirty = false
+  let lastPaint = 0
   setInterval(() => {
+    const now = Date.now()
+    if (!dirty && now - lastPaint >= 1000) {
+      const scr = screenById(currentScreenId)
+      if (scr && hasTrend(scr.doc)) dirty = true
+    }
     if (dirty) {
       dirty = false
+      lastPaint = now
       renderScreen()
     }
   }, 200)
