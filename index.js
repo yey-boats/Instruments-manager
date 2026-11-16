@@ -5,10 +5,12 @@ const { THEMES, isTheme, themeLabel } = require('./lib/themes')
 const midlLib = require('./lib/midl')
 const midlRecords = require('./lib/midl-records')
 const cloudDashboards = require('./lib/cloud-dashboards')
+const cloudShow = require('./lib/cloud-show')
 const pluginPackage = require('./package.json')
 
 module.exports = function yeyBoatsDisplayManagerPlugin (app) {
   let manager
+  let displayApi
 
   const plugin = {
     id: 'yey-boats-display-manager',
@@ -239,10 +241,16 @@ module.exports = function yeyBoatsDisplayManagerPlugin (app) {
       // boat they are translated for the simulator by the simulator repo's
       // `signalk-yey-sim-autopilot` plugin; real boats use their own autopilot
       // plugin (e.g. signalk-autopilot).
+      // In-process API for the yey connector's displays / show_dashboard
+      // ops (provisioning contract v1 section 2; lib/cloud-show.js).
+      if (displayApi) cloudShow.unregister(displayApi)
+      displayApi = cloudShow.register(cloudShow.createApi(() => manager, displayApiDeps()))
       app.debug('yey-boats-display-manager started')
     },
     _manager: () => manager,
     stop: () => {
+      if (displayApi) cloudShow.unregister(displayApi)
+      displayApi = undefined
       if (manager && manager.close) manager.close()
       manager = undefined
     },
@@ -1846,6 +1854,17 @@ function parseDashboardImport (raw, contentType) {
 // again updates that profile instead of adding another one.
 async function importCloudDashboard (manager, cloudId) {
   const cloud = await cloudDashboards.fetchCloudDashboard(manager.app, cloudId)
+  return importCloudDoc(manager, cloud)
+}
+
+// A yey.boats dashboard already in hand ({id, title, targetClass, updatedAt,
+// doc: MIDL object or text}) -> its profile, created or updated: the one
+// path "From yey.boats -> Import" and showDashboard (lib/cloud-show.js)
+// share. Synchronous, so two imports of one dashboard never race into two
+// profiles. more: deviceId (validate for that display), extra (more origin
+// fields, e.g. shownBy/shownAt).
+function importCloudDoc (manager, cloud, more) {
+  more = more || {}
   const doc = typeof cloud.doc === 'string' ? parseDashboardImport(cloud.doc, '') : cloud.doc
   const profiles = manager.listProfiles().profiles
   const existing = cloudDashboards.profileForSource(profiles, cloud.id)
@@ -1861,16 +1880,27 @@ async function importCloudDashboard (manager, cloudId) {
     name: cloud.title,
     version: existing ? Number(existing.version || 1) + 1 : 1,
     targetClass: cloud.targetClass,
+    deviceId: more.deviceId,
     recordSource: cloudDashboards.SOURCE,
-    extra: {
+    extra: Object.assign({
       source: cloudDashboards.SOURCE,
       sourceId: cloud.id,
       sourceUpdatedAt: cloud.updatedAt || null,
       sourceTargetClass: cloud.targetClass || null,
       importedAt: new Date().toISOString()
-    }
+    }, more.extra || {})
   })
   return Object.assign(imported, { updated: !!existing })
+}
+
+// What lib/cloud-show.js needs from the import path here.
+function displayApiDeps () {
+  return {
+    importCloudDoc,
+    parseDoc: (raw) => parseDashboardImport(raw, ''),
+    isMidlDocument,
+    errorText: importErrorText
+  }
 }
 
 // An import refusal as one line for the UI: the message plus the first
@@ -2525,7 +2555,11 @@ function renderDevicePage (manager, id, live = {}, opts = {}) {
       ${renderLiveLazyLoadScript(id)}
       <table>
         <tbody>
-          <tr><th>Profile</th><td>${escapeHtml(device.assignedProfile || 'default')}</td></tr>
+          <tr><th>Profile</th><td>${escapeHtml(device.assignedProfile || 'default')}${(() => {
+            const p = manager.store.profiles.profiles[device.assignedProfile || 'default']
+            const t = p && p.source === cloudDashboards.SOURCE ? (cloudShownText(p) || 'from yey.boats') : ''
+            return t ? `<br><span class="muted" data-cloud-shown>${escapeHtml(t)}</span>` : ''
+          })()}</td></tr>
           <tr><th>Last seen</th><td>${escapeHtml(device.lastSeen || 'never')}</td></tr>
           <tr><th>Display</th><td>${escapeHtml(displayLabel(manager.resolveDisplay(device)))}</td></tr>
           <tr><th>Firmware</th><td>${escapeHtml(firmwareLabel(device.firmware))}</td></tr>
@@ -3832,7 +3866,7 @@ function refusedNote (device) {
 function renderProfilesPage (profiles, devices, cloud, req) {
   const rows = profiles.map((profile) => `
         <tr>
-          <td><strong><a href="/plugins/yey-boats-display-manager/ui/profiles/${encodeURIComponent(profile.id)}">${escapeHtml(profile.name || profile.id)}</a></strong><br><span>${escapeHtml(profile.id)}</span>${profile.source === cloudDashboards.SOURCE ? '<br><span class="muted">from yey.boats</span>' : ''}</td>
+          <td><strong><a href="/plugins/yey-boats-display-manager/ui/profiles/${encodeURIComponent(profile.id)}">${escapeHtml(profile.name || profile.id)}</a></strong><br><span>${escapeHtml(profile.id)}</span>${profile.source === cloudDashboards.SOURCE ? `<br><span class="muted">${escapeHtml(cloudShownText(profile) || 'from yey.boats')}</span>` : ''}</td>
           <td>${escapeHtml(profile.version)}</td>
           <td>${escapeHtml(profile.updatedAt || '')}</td>
           <td>${escapeHtml(devices.filter((device) => device.profile === profile.id).length)}</td>
@@ -3962,6 +3996,13 @@ function renderCloudDashboardsPanel (cloud, req) {
     </section>`
 }
 
+// "from yey.boats, shown by <who> at <time>" for a preset yey.boats put on a
+// display (lib/cloud-show.js), "" otherwise.
+function cloudShownText (profile) {
+  if (!profile || profile.source !== cloudDashboards.SOURCE || !profile.shownBy) return ''
+  return `from yey.boats, shown by ${String(profile.shownBy).slice(0, 200)}${profile.shownAt ? ` at ${profile.shownAt}` : ''}`
+}
+
 function renderPresetPage (manager, profileId, devices, req) {
   const profile = manager.store.profiles.profiles[profileId]
   if (!profile) throw statusError(404, 'preset not found')
@@ -3970,7 +4011,7 @@ function renderPresetPage (manager, profileId, devices, req) {
     ? `<p class="status ok">${status === 'cloud-updated' ? 'Updated from yey.boats.' : 'Imported from yey.boats.'} Pick the displays below and apply it.</p>`
     : ''
   const origin = profile.source === cloudDashboards.SOURCE
-    ? `<tr><th>Source</th><td>yey.boats dashboard <code>${escapeHtml(profile.sourceId || '')}</code>${profile.sourceUpdatedAt ? `, saved there ${escapeHtml(profile.sourceUpdatedAt)}` : ''}</td></tr>`
+    ? `<tr><th>Source</th><td>yey.boats dashboard <code>${escapeHtml(profile.sourceId || '')}</code>${profile.sourceUpdatedAt ? `, saved there ${escapeHtml(profile.sourceUpdatedAt)}` : ''}${cloudShownText(profile) ? `<br><span class="muted" data-cloud-shown>${escapeHtml(cloudShownText(profile))}</span>` : ''}</td></tr>`
     : ''
   const assigned = devices.filter((device) => device.profile === profile.id)
   const rows = devices.map((device) => {
@@ -4438,6 +4479,8 @@ module.exports._test = {
   importDashboardPreset,
   importDashboardDocument,
   importCloudDashboard,
+  importCloudDoc,
+  displayApiDeps,
   renderCloudDashboardsPanel,
   applyPresetForm,
   configOverridesFromForm,

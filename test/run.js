@@ -62,6 +62,7 @@ const NODE_TEST_FILES = [
   'device-preview-midl.test.js',
   'signalk-history.test.js',
   'cloud-dashboards.test.js',
+  'cloud-show.test.js',
   'midl-records.test.js',
   'themes.test.js',
   'day-night.test.js',
