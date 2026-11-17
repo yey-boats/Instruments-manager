@@ -351,8 +351,9 @@ test('push: an assigned profile\'s records + index go to the display with its de
     fw.httpLog = []
     await manager.deliverMidl('yey-d-push')
     assert.deepStrictEqual(fw.httpLog.map((l) => `${l.method} ${l.path}`), ['PUT /api/midl/index'])
-    // A record the profile drops is deleted from the display.
-    manager.saveProfileChecked({ id: 'p', name: 'P', config: {}, midl: { records: [], index: {} } })
+    // Replacing then deleting a preset also drops only its delivered records (#85).
+    manager.assignProfile('yey-d-push', { profileId: 'default' })
+    manager.deleteProfile('p')
     await manager._lastMidlDelivery
     assert.ok(fw.httpLog.some((l) => l.method === 'DELETE' && l.path === '/api/midl/records/passage'))
     assert.ok(!fw.records.has('passage'))
