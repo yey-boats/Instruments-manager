@@ -795,6 +795,13 @@ function registerRoutes (baseRouter, getManager) {
     res.end(renderUi(manager, 'preset', req))
   }))
 
+  router.post('/ui/profiles/:id/delete', wrap(getManager, (manager, req, res) => {
+    manager.deleteProfile(req.params.id)
+    res.statusCode = 303
+    res.setHeader('location', `${PLUGIN_BASE}/ui/profiles?status=deleted`)
+    res.end()
+  }))
+
   router.post('/ui/profiles/:id/apply', wrap(getManager, (manager, req, res) => {
     const result = applyPresetForm(manager, req.params.id, req.body || {})
     res.statusCode = 303
@@ -1034,6 +1041,10 @@ function registerRoutes (baseRouter, getManager) {
 
   router.get('/profiles', wrap(getManager, (manager, req, res) => {
     res.json(manager.listProfiles())
+  }))
+
+  router.delete('/profiles/:id', wrap(getManager, (manager, req, res) => {
+    res.json(manager.deleteProfile(req.params.id))
   }))
 
   router.get('/profiles/:id/dashboard.json', wrap(getManager, (manager, req, res) => {
@@ -2158,7 +2169,7 @@ function renderPage (manager, dashboard, page, req, extra) {
   // Legacy /ui/discovery URL stays valid; it just renders the same
   // page as /ui/devices now. Old bookmarks keep working.
   if (page === 'discovery') return renderHomePage(dashboard, dashboard.devices, req, manager)
-  if (page === 'profiles') return renderProfilesPage(manager.listProfiles().profiles, dashboard.devices, extra && extra.cloud, req)
+  if (page === 'profiles') return renderProfilesPage(manager, manager.listProfiles().profiles, dashboard.devices, extra && extra.cloud, req)
   if (page === 'preset') return renderPresetPage(manager, req.params.id, dashboard.devices, req)
   if (page === 'firmware') return renderFirmwarePage(manager.listFirmware(), dashboard.recentFirmwareJobs, manager.firmwareUpgradeMatrix())
   return renderHomePage(dashboard, dashboard.devices, req, manager)
@@ -3863,7 +3874,18 @@ function refusedNote (device) {
   return `<p class="status bad">Too many addresses seen for this id \u2014 possible spoofing. ${escapeHtml(n)} more address${n === 1 ? ' was' : 'es were'} refused (last ${escapeHtml(device.lastRefusedAt || '?')}). If your display's address is not listed below, do not claim this id.</p>`
 }
 
-function renderProfilesPage (profiles, devices, cloud, req) {
+function renderProfileDelete (manager, profile, devices, req) {
+  if (!operatorAllowed(manager, Object.assign({ headers: {} }, req)) || manager.profileProtected(profile)) return ''
+  const assigned = devices.filter((device) => device.profile === profile.id)
+  const uses = assigned.length ? assigned.map((d) => d.name || d.id).join(', ') : 'none'
+  const message = `Delete preset ${profile.name || profile.id}? Displays using it: ${uses}. ${assigned.length ? 'Assign a replacement to these displays first.' : 'The dashboard saved on yey.boats will remain available.'}`
+  return `<form method="post" action="${PLUGIN_BASE}/ui/profiles/${encodeURIComponent(profile.id)}/delete"
+    onsubmit="return confirm(this.dataset.confirm)" data-confirm="${escapeHtml(message)}">
+    <button type="submit" class="btn-sm btn-danger">Delete preset</button>
+  </form>`
+}
+
+function renderProfilesPage (manager, profiles, devices, cloud, req) {
   const rows = profiles.map((profile) => `
         <tr>
           <td><strong><a href="/plugins/yey-boats-display-manager/ui/profiles/${encodeURIComponent(profile.id)}">${escapeHtml(profile.name || profile.id)}</a></strong><br><span>${escapeHtml(profile.id)}</span>${profile.source === cloudDashboards.SOURCE ? `<br><span class="muted">${escapeHtml(cloudShownText(profile) || 'from yey.boats')}</span>` : ''}</td>
@@ -3871,11 +3893,12 @@ function renderProfilesPage (profiles, devices, cloud, req) {
           <td>${escapeHtml(profile.updatedAt || '')}</td>
           <td>${escapeHtml(devices.filter((device) => device.profile === profile.id).length)}</td>
           <td>${escapeHtml(configSummary(profile.config || {}))}</td>
-          <td><code>${escapeHtml(profile.hash || '')}</code><br><span><a href="/plugins/yey-boats-display-manager/profiles/${encodeURIComponent(profile.id)}/dashboard.json">json</a> · <a href="/plugins/yey-boats-display-manager/profiles/${encodeURIComponent(profile.id)}/dashboard.yaml">yaml</a></span></td>
+          <td><code>${escapeHtml(profile.hash || '')}</code><br><span><a href="/plugins/yey-boats-display-manager/profiles/${encodeURIComponent(profile.id)}/dashboard.json">json</a> · <a href="/plugins/yey-boats-display-manager/profiles/${encodeURIComponent(profile.id)}/dashboard.yaml">yaml</a></span>${renderProfileDelete(manager, profile, devices, req)}</td>
         </tr>`).join('')
   return `
     <section class="panel">
       <h2>Device presets</h2>
+      ${req && req.query && req.query.status === 'deleted' ? '<p class="status ok" role="status">Preset deleted.</p>' : ''}
       <p class="muted">Presets are shared profiles. Assign them from a device config page, then save per-device overrides or save changes back as a new preset.</p>
       <form class="config-form" method="post" action="/plugins/yey-boats-display-manager/profiles/import-dashboard">
         <h2>Import dashboard preset</h2>
@@ -4032,6 +4055,7 @@ function renderPresetPage (manager, profileId, devices, req) {
       <p class="muted">${escapeHtml(profile.id)} · version ${escapeHtml(profile.version)} · ${escapeHtml(assigned.length)} device(s)</p>
       <p><a href="/plugins/yey-boats-display-manager/ui/profiles">Back to presets</a></p>
       ${notice}
+      ${renderProfileDelete(manager, profile, devices, req)}
       <table>
         <tbody>
           <tr><th>Updated</th><td>${escapeHtml(profile.updatedAt || '')}</td></tr>${origin}
