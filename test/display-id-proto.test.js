@@ -71,7 +71,11 @@ test('manager device lookups: a reserved id is not a device, and writes stay off
       assert.throws(() => manager.getDevice(id), (e) => e.status === 404, `getDevice(${id})`)
       manager.noteMidlDelivery(id, { state: 'shown' })
       assert.throws(() => manager.assignProfile(id, { profileId: 'default' }), (e) => e.status === 404, `assignProfile(${id})`)
-      assert.throws(() => manager.registerDevice({ device: { id } }, { bearer: token }), (e) => e.status === 400, `registerDevice(${id})`)
+      // registerDevice lowercases ids first: 'toString' becomes the ordinary id
+      // 'tostring'. Only an id still reserved after that must be refused.
+      if (id === id.toLowerCase()) {
+        assert.throws(() => manager.registerDevice({ device: { id } }, { bearer: token }), (e) => e.status === 400, `registerDevice(${id})`)
+      }
       assert.deepStrictEqual(pollution(), [], `Object.prototype polluted after ${id}`)
     }
     // The registered display is unaffected.
