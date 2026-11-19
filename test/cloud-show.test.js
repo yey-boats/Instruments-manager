@@ -306,6 +306,29 @@ test('an offline display is queued (pull fallback), an unknown id is unknown_dis
   }
 })
 
+test('#89: no accepted display, no preset: nothing is created or changed', needsBuild, async () => {
+  const { manager, fw } = rig()
+  try {
+    const before = Object.keys(manager.store.profiles.profiles).sort()
+    const r = await api(manager).showDashboard({ sourceId: 'ghost', title: 'Ghost', doc: midlDoc('Ghost', 1), displayIds: ['nope'] })
+    assert.deepStrictEqual(r, { preset: null, results: [{ display_id: 'nope', state: 'unknown_display' }] })
+    assert.deepStrictEqual(Object.keys(manager.store.profiles.profiles).sort(), before, 'no yey-ghost preset')
+
+    // An existing preset is neither rewritten nor re-pushed to the displays using it.
+    const shown = await api(manager).showDashboard({ sourceId: 'cloud-x', title: 'X', doc: midlDoc('X', 1), displayIds: ['yey-d-helm'] })
+    assert.strictEqual(shown.results[0].state, 'shown')
+    const hash = manager.store.profiles.profiles[shown.preset.id].hash
+    fw.httpLog = []
+    const again = await api(manager).showDashboard({ sourceId: 'cloud-x', title: 'X', doc: midlDoc('X', 3), displayIds: ['nope'] })
+    assert.strictEqual(again.preset, null)
+    assert.strictEqual(manager.store.profiles.profiles[shown.preset.id].hash, hash, 'preset content unchanged')
+    await manager._lastMidlDelivery
+    assert.deepStrictEqual(fw.httpLog.filter((l) => l.method === 'PUT'), [], 'nothing re-pushed to yey-d-helm')
+  } finally {
+    manager.close()
+  }
+})
+
 test('a display that refuses the pushed record (422) is refused with its message', needsBuild, async () => {
   const { manager, fw } = rig()
   try {

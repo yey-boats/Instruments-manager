@@ -1904,10 +1904,26 @@ function importCloudDoc (manager, cloud, more) {
   return Object.assign(imported, { updated: !!existing })
 }
 
+// The import's validation (importDashboardDocument, no display: the doc's own
+// class or square-480) without storing anything. cloud-show runs it when no
+// display takes the dashboard (#89), so an invalid doc is still refused as
+// invalid_dashboard instead of being silently dropped.
+function validateCloudDoc (doc) {
+  const known = (c) => midlLib.MIDL_CLASSES.some((k) => k.id === c) ? c : null
+  const className = known(doc && doc.targetClass) || 'square-480'
+  const v = midlLib.checkMidlDoc(doc, className)
+  if (!v.unavailable && !v.ok) {
+    throw Object.assign(statusError(422, `MIDL document fails validation for ${className}`), {
+      payload: { error: { code: 'midl_invalid', message: `MIDL document fails validation for ${className}`, details: { className, issues: v.issues } } }
+    })
+  }
+}
+
 // What lib/cloud-show.js needs from the import path here.
 function displayApiDeps () {
   return {
     importCloudDoc,
+    validateDoc: validateCloudDoc,
     parseDoc: (raw) => parseDashboardImport(raw, ''),
     isMidlDocument,
     errorText: importErrorText
