@@ -351,12 +351,20 @@ test('push: an assigned profile\'s records + index go to the display with its de
     fw.httpLog = []
     await manager.deliverMidl('yey-d-push')
     assert.deepStrictEqual(fw.httpLog.map((l) => `${l.method} ${l.path}`), ['PUT /api/midl/index'])
-    // Replacing then deleting a preset also drops only its delivered records (#85).
-    manager.assignProfile('yey-d-push', { profileId: 'default' })
-    manager.deleteProfile('p')
+    // A record the profile drops is deleted from the display (#89: restored).
+    manager.saveProfileChecked({ id: 'p', name: 'P', config: {}, midl: { records: [], index: {} } })
     await manager._lastMidlDelivery
     assert.ok(fw.httpLog.some((l) => l.method === 'DELETE' && l.path === '/api/midl/records/passage'))
     assert.ok(!fw.records.has('passage'))
+    // Deleting a preset (#85): refused while a display uses it, removed once
+    // none does. This asserts deleteProfile itself (#89).
+    assert.throws(() => manager.deleteProfile('p'), (e) => e.status === 409 && e.payload.error.code === 'profile_in_use')
+    assert.ok(manager.store.profiles.profiles.p, 'still there after the refusal')
+    manager.assignProfile('yey-d-push', { profileId: 'default' })
+    await manager._lastMidlDelivery
+    assert.deepStrictEqual(manager.deleteProfile('p'), { id: 'p', removed: true })
+    assert.ok(!manager.listProfiles().profiles.some((x) => x.id === 'p'), 'gone from the list')
+    assert.throws(() => manager.deleteProfile('p'), (e) => e.status === 404)
   } finally {
     manager.close()
   }
