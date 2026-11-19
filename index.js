@@ -1707,7 +1707,7 @@ function importDashboardPreset (manager, body, headers) {
   return importDashboardDocument(manager, doc, {
     presetId: body.presetId,
     targetClass: body.targetClass,
-    deviceId: body.deviceId && manager.store.registry.devices[body.deviceId] ? body.deviceId : undefined
+    deviceId: body.deviceId && Object.hasOwn(manager.store.registry.devices, body.deviceId) ? body.deviceId : undefined
   })
 }
 
