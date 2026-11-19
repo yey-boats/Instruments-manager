@@ -64,6 +64,7 @@ const NODE_TEST_FILES = [
   'cloud-dashboards.test.js',
   'profile-delete.test.js',
   'cloud-show.test.js',
+  'display-id-proto.test.js',
   'midl-records.test.js',
   'themes.test.js',
   'day-night.test.js',
