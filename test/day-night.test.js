@@ -183,7 +183,9 @@ test('defaults: mode off, Sun / Red night, 07:00 / 19:30; ticking does nothing',
   assert.strictEqual(themeCmds(manager, fws[0].deviceId).length, 0)
   assert.strictEqual(dayNightDeltas(deltas).length, 0)
   assert.strictEqual(manager.generateConfig(fws[0].deviceId).settings.theme, 'day', 'per-device theme as today')
-  assert.ok(!('ui' in manager.generateConfig(fws[0].deviceId)), 'no ui.theme while off')
+  // #71: while switching is off, the config carries the per-device theme as
+  // ui.theme too -- the only field the firmware actually applies.
+  assert.strictEqual(manager.generateConfig(fws[0].deviceId).ui.theme, 'day', 'ui.theme mirrors settings.theme while off')
 })
 
 test('a transition queues theme.set for every display, publishes a delta and audits', () => {
@@ -279,12 +281,17 @@ test('the generated config never carries the phase theme', () => {
   const { manager, fws } = setup(1)
   const id = fws[0].deviceId
   const off = manager.generateConfig(id)
+  assert.strictEqual(off.ui.theme, 'day', '#71: ui.theme carries the base theme while off')
   manager.updateDayNight({ mode: 'schedule' }, local(20, 0))
   const cfg = manager.generateConfig(id)
   assert.strictEqual(cfg.settings.theme, 'day', 'the display\'s own theme')
-  assert.ok(!cfg.ui || cfg.ui.theme === undefined, 'no ui.theme')
-  assert.strictEqual(cfg.hash, off.hash)
-  assert.strictEqual(fws[0].heartbeat().desiredConfig.reload, false)
+  assert.ok(!cfg.ui || cfg.ui.theme === undefined, 'no ui.theme (never the night phase theme) while switching is on')
+  // Turning switching on drops the base ui.theme from the config (so a
+  // phase theme never gets a chance to be baked in alongside it), which is
+  // itself a real, if rare and harmless, config change -- the display picks
+  // it up on its next reload; the phase itself still only ever travels by
+  // theme.set.
+  assert.strictEqual(fws[0].heartbeat().desiredConfig.reload, true)
   fws[0].pollAndExecute()
   fws[0].fetchConfig()
   assert.strictEqual(fws[0].theme, 'red-night', 'a config reload keeps the theme.set theme')
@@ -320,6 +327,13 @@ test('B1: a power cycle in the other phase does not bring back the old theme', (
   fw.pollAndExecute()
   assert.strictEqual(fw.theme, 'classic')
   fw.reboot()
+  assert.strictEqual(fw.theme, 'classic')
+  // #71: turning switching off brings ui.theme back into the config (still
+  // the persisted, on-mode config on the display, which lacked it), so one
+  // reload is now owed -- it only re-confirms the theme the live theme.set
+  // above already applied.
+  assert.strictEqual(fw.heartbeat().desiredConfig.reload, true)
+  fw.fetchConfig()
   assert.strictEqual(fw.theme, 'classic')
   assert.strictEqual(fw.heartbeat().desiredConfig.reload, false)
   assert.strictEqual(fw.pollAndExecute().length, 0)
