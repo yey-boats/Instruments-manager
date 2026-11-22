@@ -1438,19 +1438,58 @@ const DEVICE_FACING_ROUTES = new Set([
   'POST /ui/logout'
 ])
 
+// #96: SignalK 2.36+ puts every /plugins/<id>/* route behind admin unless the
+// plugin registers the route's access level with router.access(level) (the
+// server's asPluginRouter; it is also present in 2.35.1). The routes below are
+// the ones a display firmware calls itself (instruments src/manager.cpp), each
+// at the least SignalK level that works for a device token:
+//  - readonly: the handler already checks the device's own X-YeyBoats token
+//    (requireDeviceAuth), so the SignalK level only lets the request reach that
+//    check. Note that with allow_readonly on, a request with no token counts as
+//    readonly too; the handler still refuses it.
+//  - readwrite: every device POST, and the two GETs the plugin does NOT check
+//    per device (/devices/summary, /devices/:id/views). Those must not be
+//    readonly, or any anonymous caller could read them when allow_readonly is on.
+// Anything not listed keeps SignalK's default, admin. Without router.access
+// (older servers) the routes register exactly as before.
+const DEVICE_ROUTE_ACCESS = new Map([
+  ['GET /.well-known/yeyboats-management', 'readonly'],
+  ['GET /devices/:id/config', 'readonly'],
+  ['GET /devices/:id/commands', 'readonly'],
+  ['GET /devices/:id/midl/records/:rid', 'readonly'],
+  ['GET /firmware/download/:jobId', 'readonly'],
+  ['GET /devices/summary', 'readwrite'],
+  ['GET /devices/:id/views', 'readwrite'],
+  ['POST /devices/register', 'readwrite'],
+  ['POST /devices/:id/status', 'readwrite'],
+  ['POST /devices/:id/commands/:commandId/ack', 'readwrite'],
+  ['POST /devices/:id/firmware/jobs/:jobId/progress', 'readwrite'],
+  ['POST /devices/:id/firmware/confirm', 'readwrite']
+])
+
+// Registers one route, through router.access(level) when the server has it
+// (feature-detected: SignalK before 2.35.1 has no access()).
+function registerRoute (router, method, p, handlers) {
+  const level = DEVICE_ROUTE_ACCESS.get(`${method.toUpperCase()} ${p}`)
+  if (level && typeof router.access === 'function') {
+    return router.access(level)[method](p, ...handlers)
+  }
+  return router[method](p, ...handlers)
+}
+
 // Wraps the router so every non-GET route (except the device-facing ones)
 // requires an operator credential before its handler runs.
 function operatorGuardedRouter (router, getManager) {
   const guarded = (method) => (p, ...handlers) => {
     if (DEVICE_FACING_ROUTES.has(`${method.toUpperCase()} ${p}`) || !handlers.length) {
-      return router[method](p, ...handlers)
+      return registerRoute(router, method, p, handlers)
     }
     const last = handlers.pop()
-    return router[method](p, ...handlers, operatorGuard(getManager, last))
+    return registerRoute(router, method, p, [...handlers, operatorGuard(getManager, last)])
   }
   return {
     use: (...a) => router.use(...a),
-    get: (...a) => router.get(...a),
+    get: (p, ...handlers) => registerRoute(router, 'get', p, handlers),
     post: guarded('post'),
     put: guarded('put'),
     patch: guarded('patch'),

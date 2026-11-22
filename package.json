@@ -1,6 +1,6 @@
 {
   "name": "yey-boats-display-manager",
-  "version": "0.3.6",
+  "version": "0.3.7",
   "private": true,
   "description": "YEY Boats Display Manager — SignalK plugin for managing YEY Boats marine display devices.",
   "main": "index.js",

@@ -61,6 +61,7 @@ const NODE_TEST_FILES = [
   'midl-diff.test.js',
   'device-preview-midl.test.js',
   'signalk-history.test.js',
+  'signalk-route-access.test.js',
   'cloud-dashboards.test.js',
   'profile-delete.test.js',
   'cloud-show.test.js',
