@@ -127,6 +127,19 @@ Release note. The manager no longer accepts the public `yeyboats-dev` token.
 
 Details: [deploy/README.md](deploy/README.md#verify-yey-boats-display-manager).
 
+## Upgrading: SignalK device routes (#96)
+
+Release note, 0.3.7. The display routes a device calls itself now register
+their SignalK access level with `router.access(level)`, so a display holding a
+SignalK device token can reach them. SignalK keeps every other `/plugins/<id>/*`
+route at admin. The levels are in `DEVICE_ROUTE_ACCESS` (`index.js`): readwrite
+for the device POSTs and for `/devices/summary` and `/devices/:id/views`;
+readonly for the device-checked GETs (config, commands, firmware download, MIDL
+record) and the discovery document. With `allow_readonly` on, SignalK lets
+anonymous requests through the readonly level. The discovery document is then
+readable without a token, and the other readonly routes still require the
+device's own token. Servers without `router.access` are unchanged.
+
 ## Upgrading from “ESP Display Manager”
 
 The rename changes the plugin id, so SignalK treats it as a new plugin and
