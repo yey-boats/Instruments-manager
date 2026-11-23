@@ -1238,6 +1238,17 @@ function registerRoutes (baseRouter, getManager) {
     res.json(manager.apiToken.status())
   }))
 
+  // #98: the plaintext token used to sit in the Settings page HTML until
+  // acknowledged. It is now fetched on demand (operator-guarded POST, like
+  // the device web password's "Show password") so it is never part of the
+  // page itself -- only shown after an explicit click, never cached.
+  router.post('/ui/manager-token/reveal', wrap(getManager, (manager, req, res) => {
+    const token = manager.apiToken ? manager.apiToken.pendingReveal() : null
+    res.setHeader('cache-control', 'no-store')
+    res.setHeader('pragma', 'no-cache')
+    res.json({ token })
+  }))
+
   router.post('/ui/manager-token/ack', wrap(getManager, (manager, req, res) => {
     manager.apiToken.acknowledge()
     manager.store.audit('manager.apiToken.acknowledged', 'system')
@@ -2122,8 +2133,8 @@ function renderUiShell (title, body, dashboard, page = '') {
     ${dashboard.auth && dashboard.auth.reclaimNeeded && page !== 'settings'
       ? `<p class="panel" role="status"><b>${escapeHtml(dashboard.auth.reclaimNeeded)} display(s) need re-claiming.</b> <a href="${PLUGIN_BASE}/ui/settings#reclaim">Confirm their addresses</a> before the manager sends them credentials.</p>`
       : ''}
-    ${dashboard.managerApiToken && dashboard.managerApiToken.revealPending && page !== 'settings'
-      ? '<p class="panel" role="status"><b>New manager API token.</b> This install generated its own manager API token. <a href="/plugins/yey-boats-display-manager/ui/settings#manager-token">View and save it on the Settings page</a>; it is shown only until you confirm.</p>'
+    ${dashboard.managerApiToken && dashboard.managerApiToken.revealPending && page === 'settings'
+      ? '<p class="panel" role="status"><b>New manager API token.</b> This install generated its own manager API token, below. <a href="#manager-token">View and save it</a>; it is shown only until you confirm.</p>'
       : ''}
     ${body}
   </main>
@@ -2523,7 +2534,7 @@ function renderDevicePage (manager, id, live = {}, opts = {}) {
   return `${renderValidationBanner(opts && opts.validation)}${renderMidlDeliveryBanner(device)}
     <section class="panel">
       <h2>${escapeHtml(device.name || device.id)}</h2>
-      <p class="muted">${escapeHtml(device.id)} · ${escapeHtml(device.role)} · ${escapeHtml(device.location || 'unassigned')}</p>
+      <p class="muted">${escapeHtml(device.id)} · ${escapeHtml(device.role)}${device.location ? ` · ${escapeHtml(device.location)}` : ''}</p>
       <p>
         <a href="#config">Configuration</a>
         · <a href="/plugins/yey-boats-display-manager/ui/devices/${encodeURIComponent(id)}/live/status">Live status</a>
@@ -4345,17 +4356,66 @@ function renderDayNightSection (manager, req) {
 // #23: the manager API token, shown in full only until the admin confirms
 // they have saved it -- and only to an operator (SignalK admin, or signed in
 // with the token). With SignalK security off nobody else may see it.
+// #98: it used to sit in this HTML in plain text the whole time it was
+// pending; now it is hidden behind a "Show token" button that fetches it
+// with an explicit POST (/ui/manager-token/reveal), the same gated pattern
+// as the device web password below -- the plaintext is never part of the
+// page markup, only of that on-demand response.
 function renderManagerTokenSection (manager, req) {
   const operator = operatorAllowed(manager, req || {})
-  const token = operator && manager.apiToken ? manager.apiToken.pendingReveal() : null
+  const pending = operator && manager.apiToken ? manager.apiToken.pendingReveal() : null
   const st = manager.apiToken ? manager.apiToken.status() : {}
   const base = `${PLUGIN_BASE}/ui/manager-token`
   const file = manager.apiToken ? manager.apiToken.file : 'manager-api-token.json'
   let body
-  if (token) {
-    body = `<p><b>Copy this token now.</b> It is shown only until you confirm below.</p>
-           <p><code style="user-select:all;word-break:break-all;">${escapeHtml(token)}</code></p>
-           <form method="post" action="${base}/ack" style="display:inline"><button type="submit">I have saved it</button></form>`
+  if (pending) {
+    body = `<p><b>A new token was generated.</b> Reveal it once and copy it; then confirm below.</p>
+           <div class="token-reveal" data-url="${escapeHtml(base)}/reveal">
+             <button type="button" class="token-show">Show token</button>
+             <span class="token-box" hidden>
+               <input type="text" class="token-value" readonly autocomplete="off" spellcheck="false" size="48" aria-label="Manager API token">
+               <button type="button" class="token-copy">Copy</button>
+               <button type="button" class="token-hide">Hide</button>
+             </span>
+             <span class="token-msg muted"></span>
+           </div>
+           <form method="post" action="${base}/ack" style="display:inline"><button type="submit">I have saved it</button></form>
+           <script>
+             (function () {
+               var root = document.currentScript.parentNode.querySelector('.token-reveal')
+               if (!root) return
+               var box = root.querySelector('.token-box')
+               var input = root.querySelector('.token-value')
+               var show = root.querySelector('.token-show')
+               var msg = root.querySelector('.token-msg')
+               function hide () { input.value = ''; box.hidden = true; show.hidden = false; msg.textContent = '' }
+               show.addEventListener('click', function () {
+                 msg.textContent = ''
+                 fetch(root.getAttribute('data-url'), { method: 'POST', credentials: 'same-origin', cache: 'no-store', headers: { accept: 'application/json' } })
+                   .then(function (r) { return r.json().then(function (b) { return { ok: r.ok, status: r.status, b: b } }) })
+                   .then(function (x) {
+                     if (!x.ok || !x.b.token) {
+                       msg.textContent = x.status === 401 || x.status === 403
+                         ? 'Operator sign-in needed (SignalK admin, or sign in with the manager API token).'
+                         : ((x.b && x.b.error && x.b.error.message) || ('failed: ' + x.status))
+                       return
+                     }
+                     input.value = x.b.token
+                     box.hidden = false
+                     show.hidden = true
+                     input.focus(); input.select()
+                   })
+                   .catch(function (e) { msg.textContent = 'failed: ' + e.message })
+               })
+               root.querySelector('.token-hide').addEventListener('click', hide)
+               root.querySelector('.token-copy').addEventListener('click', function () {
+                 input.select()
+                 var done = function () { msg.textContent = 'copied' }
+                 if (navigator.clipboard && window.isSecureContext) navigator.clipboard.writeText(input.value).then(done, function () { document.execCommand('copy'); done() })
+                 else { document.execCommand('copy'); done() }
+               })
+             })()
+           </script>`
   } else if (!operator && st.revealPending) {
     body = `<p><b>A new token is waiting.</b> ${manager.signalkSecurityEnabled()
       ? 'Log in to SignalK as an admin to view it.'

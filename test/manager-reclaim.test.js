@@ -261,8 +261,12 @@ module.exports = (async () => {
     const cookie = String(good.headers['set-cookie'])
     assert.ok(/HttpOnly/i.test(cookie) && /SameSite=Strict/i.test(cookie), cookie)
     const pair = cookie.split(';')[0]
+    // #98: the plaintext token is no longer embedded in the settings page;
+    // a signed-in operator reveals it on demand instead.
     const viaCookie = await call(settings, { headers: { ...host, cookie: pair } })
-    assert.ok(viaCookie.text.includes(api), 'signed-in operator sees the pending token')
+    assert.ok(!viaCookie.text.includes(api), 'settings page does not embed the plaintext token')
+    const revealed = await call(routes.find('POST', '/ui/manager-token/reveal'), { headers: { ...host, cookie: pair } })
+    assert.strictEqual(revealed.json.token, api, 'signed-in operator can reveal the pending token on demand')
     const ack = await call(routes.find('POST', '/ui/manager-token/ack'), { headers: { ...host, cookie: pair } })
     assert.strictEqual(ack.status, 303)
     assert.strictEqual(manager.apiToken.pendingReveal(), null)
