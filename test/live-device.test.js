@@ -37,7 +37,13 @@ module.exports = (async () => {
       return
     }
     if (req.url === '/api/logs?since=7') {
-      res.end(JSON.stringify({ entries: [{ seq: 8, line: 'hello' }], lastSeq: 8 }))
+      res.end(JSON.stringify({
+        entries: [
+          { seq: 8, line: 'hello' },
+          { seq: 9, line: '[mgr] applied webAuth.username/password: username=yeyboats password_len=43' }
+        ],
+        lastSeq: 9
+      }))
       return
     }
     res.statusCode = 404
@@ -54,6 +60,12 @@ module.exports = (async () => {
     assert.strictEqual(status.sk.state, 'live')
     const logs = await manager.getLiveLogs(id, 7)
     assert.strictEqual(logs.entries[0].line, 'hello')
+    // #98: the device's own web-auth username and password length can show
+    // up in its log lines; the manager redacts those fields before Live
+    // logs reaches the UI, keeping the rest of the line intact.
+    assert.ok(!logs.entries[1].line.includes('yeyboats'), 'webAuth username redacted from live logs')
+    assert.ok(!logs.entries[1].line.includes('password_len=43'), 'webAuth password length redacted from live logs')
+    assert.ok(logs.entries[1].line.startsWith('[mgr] applied webAuth.username/password:'), 'rest of the log line kept intact')
   })
 
   await withServer((req, res) => {

@@ -367,9 +367,21 @@ module.exports = (async () => {
     assert.strictEqual((await call(routes.find('GET', '/devices'), { headers: { ...host, origin: 'http://evil.example' } })).status, 200)
 
     // Manager API token UI: ack drops the plaintext; rotate reveals a new one.
+    // #98: the plaintext is no longer embedded in the Settings page -- it is
+    // fetched on demand (operator-guarded, like the device web password's
+    // "Show password") -- and the "new token" banner now only appears on
+    // Settings, not on every manager page.
     assert.ok(manager.apiToken.pendingReveal())
     const settings = await call(routes.find('GET', '/ui/settings'), { headers: host })
-    assert.ok(String(settings.body).includes(api), 'settings page shows the pending token')
+    assert.ok(!String(settings.body).includes(api), 'settings page no longer embeds the plaintext token')
+    assert.ok(String(settings.body).includes('Show token'), 'settings page offers a reveal control instead')
+    assert.ok(String(settings.body).includes('New manager API token'), 'the new-token banner is shown on Settings')
+    const devicesPage = await call(routes.find('GET', '/ui/devices'), { headers: host })
+    assert.ok(!String(devicesPage.body).includes('New manager API token'), 'the banner no longer shows on other manager pages')
+    const revealed = await call(routes.find('POST', '/ui/manager-token/reveal'), { method: 'POST', headers: host })
+    assert.strictEqual(revealed.json.token, api, 'an operator can reveal the pending token on demand')
+    const revealDenied = await call(routes.find('POST', '/ui/manager-token/reveal'), { method: 'POST', headers: { host: 'signalk.local:3000' } })
+    assert.strictEqual(revealDenied.status, 401, 'a non-operator cannot reveal the token')
     await call(routes.find('POST', '/ui/manager-token/ack'), { method: 'POST', headers: host })
     assert.strictEqual(manager.apiToken.pendingReveal(), null)
     assert.ok(!String((await call(routes.find('GET', '/ui/settings'), {})).body).includes(api))
